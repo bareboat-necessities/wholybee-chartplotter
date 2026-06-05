@@ -80,6 +80,7 @@ void ChartView::clearAll() {
     loaded_.clear();
     inFlight_.clear();
     wanted_.clear();
+    bandByPath_.clear();
     pointsVisible_ = true;
 }
 
@@ -98,6 +99,9 @@ void ChartView::onCatalogFinished(bool ok, const QString&) {
 
     const BBox& b = catalog_->bounds();
     scene_.setSceneRect(b.minx, -b.maxy, b.maxx - b.minx, b.maxy - b.miny);
+    bandByPath_.reserve(static_cast<int>(catalog_->cells().size()));
+    for (const CellRecord& c : catalog_->cells())
+        bandByPath_.insert(c.path, c.band);
     fitToCatalog();         // triggers updateVisibleCells via scrollbar/explicit call
     updateVisibleCells();
 }
@@ -154,31 +158,33 @@ void ChartView::updateVisibleCells() {
 
     const std::vector<CellRecord>& cells = catalog_->cells();
 
-    // Which bands actually have coverage in view? Pick the available band closest
-    // to the zoom-appropriate target, preferring not-finer-than-target.
+    // Which bands have coverage in view?
     bool present[7] = {false,false,false,false,false,false,false};
     for (const CellRecord& c : cells) {
         if (!c.extentValid || c.band < 1 || c.band > 6) continue;
         if (c.bbox.intersects(wantedArea)) present[c.band] = true;
     }
-    int chosen = target;
-    {
-        int best = -1;
-        for (int b = 1; b <= 6; ++b)
-            if (present[b] && b <= target && b > best) best = b;
-        if (best == -1) {
-            int mn = INT_MAX;
-            for (int b = 1; b <= 6; ++b) if (present[b] && b < mn) mn = b;
-            if (mn != INT_MAX) best = mn;
-        }
-        if (best != -1) chosen = best;
+
+    // Gap-fill quilting: show the zoom-appropriate band on top, plus every
+    // coarser available band beneath it to fill areas the finer band doesn't
+    // cover. So we display all present bands in [1 .. maxBand].
+    //
+    // maxBand is normally the zoom target. If no band at/below target has any
+    // coverage here (only finer data exists), fall back to the coarsest band
+    // finer than the target so the screen isn't blank.
+    int maxBand = target;
+    bool haveAtOrBelow = false;
+    for (int b = 1; b <= target; ++b) if (present[b]) { haveAtOrBelow = true; break; }
+    if (!haveAtOrBelow) {
+        for (int b = target + 1; b <= 6; ++b) if (present[b]) { maxBand = b; break; }
     }
 
-    // Build the wanted set: chosen band (plus unknown-band cells) inside wantedArea.
+    // Wanted set: every band from 1..maxBand (plus unknown band) inside wantedArea.
     wanted_.clear();
     for (const CellRecord& c : cells) {
         if (!c.extentValid) continue;
-        if (c.band != chosen && c.band != 0) continue;
+        const bool bandOk = (c.band == 0) || (c.band >= 1 && c.band <= maxBand);
+        if (!bandOk) continue;
         if (c.bbox.intersects(wantedArea)) wanted_.insert(c.path);
     }
 
@@ -187,18 +193,18 @@ void ChartView::updateVisibleCells() {
         if (!loaded_.contains(path) && !inFlight_.contains(path))
             dispatchLoad(path);
 
-    // Unload cells that drifted outside keepArea or no longer match the band.
+    // Unload cells outside keepArea or whose band is now finer than maxBand.
     const QList<QString> loadedPaths = loaded_.keys();
     for (const QString& path : loadedPaths) {
         const CellRecord* rec = nullptr;
         for (const CellRecord& c : cells) { if (c.path == path) { rec = &c; break; } }
-        bool keep = rec && rec->extentValid && rec->bbox.intersects(keepArea)
-                    && (rec->band == chosen || rec->band == 0);
+        const bool bandOk = rec && (rec->band == 0 || (rec->band >= 1 && rec->band <= maxBand));
+        const bool keep = rec && rec->extentValid && bandOk && rec->bbox.intersects(keepArea);
         if (!keep) removeCell(path);
     }
 
-    emit statusChanged(QStringLiteral("Band %1  ·  %2 cell(s) shown")
-                           .arg(chosen).arg(loaded_.size()));
+    emit statusChanged(QStringLiteral("Bands \u2264 %1  \u00b7  %2 cell(s) shown")
+                           .arg(maxBand).arg(loaded_.size()));
 }
 
 // ---- async load / scene management ---------------------------------------
@@ -230,12 +236,17 @@ void ChartView::onCellLoaded(const CellLoadResult& r, quint64 gen) {
     if (!r.ok) return;
     if (!wanted_.contains(r.path)) return;     // view moved on; drop it
     if (loaded_.contains(r.path)) return;      // already present
-    addCell(r.path, r.features);
+    addCell(r.path, r.features, bandByPath_.value(r.path, 0));
     emit statusChanged(QStringLiteral("%1 cell(s) shown").arg(loaded_.size()));
 }
 
-void ChartView::addCell(const QString& path, const std::vector<Feature>& feats) {
+void ChartView::addCell(const QString& path, const std::vector<Feature>& feats, int band) {
     LoadedCell cell;
+    cell.band = band;
+    // Band-major depth: coarser bands sit beneath finer ones, so a finer cell's
+    // opaque area fills cover the coarse data within its footprint, while gaps
+    // reveal the coarser band underneath. Feature z-order orders within a band.
+    const double zb = static_cast<double>(band) * 1000.0;
     for (const Feature& f : feats) {
         switch (f.kind) {
             case FeatureKind::DepthArea:
@@ -248,7 +259,7 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats) 
                 } else {
                     item->setPen(Qt::NoPen);
                 }
-                item->setZValue(f.zorder);
+                item->setZValue(zb + f.zorder);
                 scene_.addItem(item);
                 cell.items.push_back(item);
                 break;
@@ -265,7 +276,7 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats) 
                 else if (f.kind == FeatureKind::OtherArea)  { pen.setColor(QColor(102, 102, 115, 150)); pen.setWidthF(0.7); }
                 else                                        { pen.setColor(QColor(102, 102, 128)); pen.setWidthF(0.8); }
                 item->setPen(pen);
-                item->setZValue(f.zorder);
+                item->setZValue(zb + f.zorder);
                 scene_.addItem(item);
                 cell.items.push_back(item);
                 break;
@@ -280,7 +291,7 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats) 
                 t->setBrush(QColor(26, 51, 115));
                 t->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
                 t->setPos(f.rings[0][0].x, -f.rings[0][0].y);
-                t->setZValue(f.zorder);
+                t->setZValue(zb + f.zorder);
                 t->setVisible(pointsVisible_);
                 scene_.addItem(t);
                 cell.items.push_back(t);
@@ -294,7 +305,7 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats) 
                 e->setPen(Qt::NoPen);
                 e->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
                 e->setPos(f.rings[0][0].x, -f.rings[0][0].y);
-                e->setZValue(f.zorder);
+                e->setZValue(zb + f.zorder);
                 e->setVisible(pointsVisible_);
                 scene_.addItem(e);
                 cell.items.push_back(e);

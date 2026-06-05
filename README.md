@@ -21,15 +21,22 @@ When you open a folder, a background scan walks the tree for ENC base cells
 Footprints are cached to disk (keyed by file path + size + modified-time, one
 cache file per root), so subsequent launches skip re-reading the cells.
 
-### 2. Select by viewport + zoom
+### 2. Select by viewport + zoom (with gap-fill quilting)
 
 On every pan/zoom (debounced), the view:
 
-- computes the visible world rectangle and the zoom-appropriate band,
-- picks the available band closest to that target (so cells don't stack across
-  bands), and
-- intersects the catalog footprints against the viewport (plus a margin) to get
-  the set of cells to display.
+- computes the visible world rectangle and the zoom-appropriate *target* band,
+- selects every available band from overview up to that target (`1..maxBand`)
+  whose footprint intersects the viewport, and
+- draws them **band-major**: coarser bands underneath, finer bands on top. A
+  finer cell's opaque area fills occlude the coarser cell within its footprint,
+  while anywhere the finer band has no coverage, the next coarser available band
+  shows through. That is the gap fill — missing bands are simply skipped, so a
+  gap is filled by whatever the next *available* coarser band is.
+
+If an area has no coverage at or below the target band (only finer data exists),
+it falls back to the coarsest band finer than the target so the screen isn't
+blank.
 
 ### 3. Load asynchronously
 
@@ -83,9 +90,10 @@ src/main.cpp           QApplication entry point
 
 ## Limitations / next steps
 
-- **One band per view.** A single band is chosen for the whole viewport. True
-  ECDIS-style quilting (filling gaps with the next-coarser band per region) is a
-  later refinement.
+- **Coarse cells load whole.** Gap-fill loads each intersecting coarser cell in
+  full, even when only a sliver shows in a gap (loading is per-cell, not
+  per-region). Coarser cells are generalized so this is usually cheap, but
+  viewport clipping / spatial subsetting would reduce it further.
 - **No in-memory cache of unloaded cells.** Cells reload (async) when revisited.
   An LRU keyed by path would make back-and-forth panning instant.
 - **No load cancellation.** In-flight loads for cells that scrolled away aren't

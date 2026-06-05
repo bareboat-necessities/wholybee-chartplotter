@@ -55,11 +55,12 @@ private:
     struct LoadedCell {
         QVector<QGraphicsItem*> items;   // everything for this cell
         QVector<QGraphicsItem*> points;  // soundings + point symbols (LOD-toggled)
+        int band = 0;
     };
 
     void dispatchLoad(const QString& path);
     void onCellLoaded(const CellLoadResult& r, quint64 gen);
-    void addCell(const QString& path, const std::vector<Feature>& feats);
+    void addCell(const QString& path, const std::vector<Feature>& feats, int band);
     void removeCell(const QString& path);
     void clearAll();
     void updatePointLOD();
@@ -73,6 +74,7 @@ private:
     QTimer*        updateTimer_ = nullptr;
 
     QHash<QString, LoadedCell> loaded_;
+    QHash<QString, int>        bandByPath_;   // band for every cataloged cell
     QSet<QString>  inFlight_;
     QSet<QString>  wanted_;       // last computed wanted set (for late arrivals)
     quint64        generation_ = 0;
