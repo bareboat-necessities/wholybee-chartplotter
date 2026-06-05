@@ -9,7 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent)
 
 # Prefer GDAL's own CMake config; fall back to pkg-config (e.g. MSYS2).
 find_package(GDAL QUIET)
@@ -25,12 +25,13 @@ qt_add_executable(chartviewer
     src/main.cpp
     src/main_window.cpp
     src/chart_view.cpp
+    src/chart_catalog.cpp
     src/chart_loader.cpp
 )
 
-target_link_libraries(chartviewer PRIVATE Qt6::Widgets ${GDAL_LINK})
+target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent ${GDAL_LINK})
 
 set_target_properties(chartviewer PROPERTIES
-    WIN32_EXECUTABLE TRUE   # no console window on Windows
+    WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
 )

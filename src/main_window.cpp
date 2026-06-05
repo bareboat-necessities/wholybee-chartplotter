@@ -1,6 +1,6 @@
 #include "main_window.hpp"
 #include "chart_view.hpp"
-#include "chart_loader.hpp"
+#include "chart_catalog.hpp"
 
 #include <QToolBar>
 #include <QAction>
@@ -10,8 +10,6 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QDir>
-#include <QApplication>
-#include <memory>
 #include <cmath>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -20,59 +18,66 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     view_ = new ChartView(this);
     setCentralWidget(view_);
-    connect(view_, &ChartView::cursorMoved, this, &MainWindow::onCursorMoved);
+    connect(view_, &ChartView::cursorMoved,  this, &MainWindow::onCursorMoved);
+    connect(view_, &ChartView::statusChanged, this, &MainWindow::onViewStatus);
+
+    catalog_ = new ChartCatalog(this);
+    connect(catalog_, &ChartCatalog::progress, this, &MainWindow::onScanProgress);
+    connect(catalog_, &ChartCatalog::finished, this, &MainWindow::onScanFinished);
+    view_->setCatalog(catalog_);
 
     QToolBar* tb = addToolBar(QStringLiteral("Main"));
     tb->setMovable(false);
     QAction* openAct = tb->addAction(QStringLiteral("Open Chart Folder"));
     connect(openAct, &QAction::triggered, this, &MainWindow::openFolder);
     QAction* fitAct = tb->addAction(QStringLiteral("Fit"));
-    connect(fitAct, &QAction::triggered, view_, &ChartView::fitToChart);
+    connect(fitAct, &QAction::triggered, view_, &ChartView::fitToCatalog);
 
     statusLeft_  = new QLabel(QStringLiteral("No chart folder selected"));
+    statusMid_   = new QLabel(QString());
     statusRight_ = new QLabel(QString());
     statusBar()->addWidget(statusLeft_, 1);
+    statusBar()->addPermanentWidget(statusMid_);
     statusBar()->addPermanentWidget(statusRight_);
 
-    // Reopen the last-used folder, if it still exists.
     QSettings s;
     QString saved = s.value(QStringLiteral("charts/directory")).toString();
     if (!saved.isEmpty() && QDir(saved).exists())
-        loadFolder(saved);
+        startScan(saved);
 }
 
 void MainWindow::openFolder() {
     QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Select ENC Chart Folder"),
-        dir_.isEmpty() ? QString() : dir_);
+        this, QStringLiteral("Select ENC Chart Root Folder"),
+        root_.isEmpty() ? QString() : root_);
     if (!dir.isEmpty())
-        loadFolder(dir);
+        startScan(dir);
 }
 
-// NOTE: synchronous load (briefly blocks the UI on large sets). In Qt this is
-// trivially moved off-thread, e.g.:
-//   auto fut = QtConcurrent::run([dir]{ ... return chart; });
-//   watcher.setFuture(fut);  // handle 'finished' on the GUI thread
-void MainWindow::loadFolder(const QString& dir) {
-    auto cs = std::make_shared<ChartSet>();
-    std::string err;
+void MainWindow::startScan(const QString& dir) {
+    if (catalog_->isScanning()) return;
+    root_ = dir;
+    QSettings().setValue(QStringLiteral("charts/directory"), dir);
+    statusLeft_->setText(dir + QStringLiteral("   —   scanning…"));
+    statusMid_->clear();
+    catalog_->startScan(dir);
+}
 
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    bool ok = cs->loadDirectory(dir.toStdString(), err);
-    QApplication::restoreOverrideCursor();
+void MainWindow::onScanProgress(int done, int total) {
+    statusLeft_->setText(root_ + QStringLiteral("   —   cataloging %1 / %2").arg(done).arg(total));
+}
 
+void MainWindow::onScanFinished(bool ok, const QString& message) {
     if (ok) {
-        dir_ = dir;
-        view_->setChart(cs);
-        QSettings().setValue(QStringLiteral("charts/directory"), dir);
-        statusLeft_->setText(QStringLiteral("%1      %2 cell(s) \u00b7 %3 feature(s)")
-                                 .arg(dir)
-                                 .arg(cs->cellCount())
-                                 .arg(cs->features().size()));
+        statusLeft_->setText(root_ + QStringLiteral("   —   ") + message);
     } else {
-        QMessageBox::warning(this, QStringLiteral("Could not load charts"),
-                             QString::fromStdString(err));
+        statusLeft_->setText(QStringLiteral("No chart folder selected"));
+        QMessageBox::warning(this, QStringLiteral("Could not catalog charts"), message);
     }
+}
+
+void MainWindow::onViewStatus(const QString& text) {
+    statusMid_->setText(text);
 }
 
 void MainWindow::onCursorMoved(double lon, double lat) {

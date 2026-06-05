@@ -1,4 +1,5 @@
 #include "chart_view.hpp"
+#include "chart_catalog.hpp"
 #include "projection.hpp"
 
 #include <QGraphicsPathItem>
@@ -8,20 +9,24 @@
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QResizeEvent>
+#include <QScrollBar>
+#include <QTimer>
 #include <QPainter>
 #include <QPen>
 #include <QFont>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
+#include <algorithm>
 #include <cmath>
+#include <climits>
 
 namespace {
 
-// Mirrors the depth/land colour ramp from the GTK build (shallow = darker
-// blue, deep = near white).
 QColor fillColor(const Feature& f) {
     if (f.kind == FeatureKind::LandArea) return QColor(217, 199, 148);
     if (!f.hasDepth)                     return QColor(184, 212, 235);
     double d = f.depth;
-    if (d <  0.0)  return QColor(158, 189, 140); // drying
+    if (d <  0.0)  return QColor(158, 189, 140);
     if (d <  2.0)  return QColor(102, 168, 217);
     if (d <  5.0)  return QColor(143, 194, 227);
     if (d < 10.0)  return QColor(184, 217, 240);
@@ -29,7 +34,6 @@ QColor fillColor(const Feature& f) {
     return QColor(242, 247, 255);
 }
 
-// Build a QPainterPath from a feature's rings, flipping Y for north-up.
 QPainterPath buildPath(const Feature& f, bool closed) {
     QPainterPath path;
     if (closed) path.setFillRule(Qt::OddEvenFill);
@@ -48,51 +52,205 @@ QPainterPath buildPath(const Feature& f, bool closed) {
 ChartView::ChartView(QWidget* parent) : QGraphicsView(parent) {
     setScene(&scene_);
     setRenderHint(QPainter::Antialiasing, true);
-    setDragMode(QGraphicsView::ScrollHandDrag);          // drag to pan
-    setTransformationAnchor(QGraphicsView::AnchorUnderMouse); // zoom under cursor
+    setDragMode(QGraphicsView::ScrollHandDrag);
+    setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setViewportUpdateMode(QGraphicsView::SmartViewportUpdate);
     setOptimizationFlag(QGraphicsView::DontSavePainterState, true);
     viewport()->setMouseTracking(true);
+
+    pool_.setMaxThreadCount(qBound(2, QThread::idealThreadCount(), 8));
+
+    updateTimer_ = new QTimer(this);
+    updateTimer_->setSingleShot(true);
+    updateTimer_->setInterval(120); // debounce viewport changes
+    connect(updateTimer_, &QTimer::timeout, this, &ChartView::updateVisibleCells);
+
+    connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, &ChartView::scheduleUpdate);
+    connect(verticalScrollBar(),   &QScrollBar::valueChanged, this, &ChartView::scheduleUpdate);
 }
 
-void ChartView::setChart(std::shared_ptr<ChartSet> chart) {
-    chart_ = std::move(chart);
-    rebuildScene();
-    fitToChart();
+void ChartView::setCatalog(ChartCatalog* catalog) {
+    catalog_ = catalog;
+    if (catalog_)
+        connect(catalog_, &ChartCatalog::finished, this, &ChartView::onCatalogFinished);
 }
 
-void ChartView::rebuildScene() {
-    scene_.clear();          // deletes all items
-    pointItems_.clear();
+void ChartView::clearAll() {
+    scene_.clear();
+    loaded_.clear();
+    inFlight_.clear();
+    wanted_.clear();
     pointsVisible_ = true;
+}
+
+void ChartView::onCatalogFinished(bool ok, const QString&) {
+    ++generation_;          // invalidate any in-flight loads from a previous scan
+    clearAll();
+    haveCatalog_ = ok && catalog_ && catalog_->bounds().valid();
     userInteracted_ = false;
-    haveChart_ = (chart_ && chart_->bounds().valid());
-    if (!haveChart_) {
+
+    if (!haveCatalog_) {
         scene_.setSceneRect(QRectF());
         viewport()->update();
+        emit statusChanged(QString());
         return;
     }
 
-    const BBox& b = chart_->bounds();
-    // Flipped-Y scene rect: top edge is -maxy.
+    const BBox& b = catalog_->bounds();
     scene_.setSceneRect(b.minx, -b.maxy, b.maxx - b.minx, b.maxy - b.miny);
+    fitToCatalog();         // triggers updateVisibleCells via scrollbar/explicit call
+    updateVisibleCells();
+}
 
-    for (const Feature& f : chart_->features()) {
+void ChartView::fitToCatalog() {
+    if (!haveCatalog_) return;
+    QRectF r = scene_.sceneRect();
+    double mx = r.width() * 0.04, my = r.height() * 0.04;
+    fitInView(r.adjusted(-mx, -my, mx, my), Qt::KeepAspectRatio);
+    updatePointLOD();
+}
+
+// ---- viewport-driven selection -------------------------------------------
+
+int ChartView::bandForVisibleWidth(double metres) {
+    const double nm = metres / 1852.0;
+    if (nm > 1500.0) return 1; // overview
+    if (nm >  300.0) return 2; // general
+    if (nm >   50.0) return 3; // coastal
+    if (nm >   15.0) return 4; // approach
+    if (nm >    3.0) return 5; // harbour
+    return 6;                  // berthing
+}
+
+BBox ChartView::expandBox(const BBox& b, double frac) {
+    double dx = (b.maxx - b.minx) * frac;
+    double dy = (b.maxy - b.miny) * frac;
+    BBox r;
+    r.minx = b.minx - dx; r.maxx = b.maxx + dx;
+    r.miny = b.miny - dy; r.maxy = b.maxy + dy;
+    return r;
+}
+
+void ChartView::scheduleUpdate() {
+    if (haveCatalog_) updateTimer_->start();
+}
+
+void ChartView::updateVisibleCells() {
+    if (!haveCatalog_ || !catalog_) return;
+
+    // View rectangle in projected (north-up) world coordinates.
+    const QRectF sr = mapToScene(viewport()->rect()).boundingRect();
+    BBox view;
+    view.minx = sr.left();  view.maxx = sr.right();
+    view.miny = -sr.bottom(); view.maxy = -sr.top();   // scene Y is flipped
+
+    const double pxPerMeter = transform().m11();
+    if (pxPerMeter <= 0.0) return;
+    const double visWidthM = viewport()->width() / pxPerMeter;
+    const int target = bandForVisibleWidth(visWidthM);
+
+    const BBox wantedArea = expandBox(view, 0.5);   // load a little beyond the edge
+    const BBox keepArea   = expandBox(view, 1.5);   // unload only well beyond it
+
+    const std::vector<CellRecord>& cells = catalog_->cells();
+
+    // Which bands actually have coverage in view? Pick the available band closest
+    // to the zoom-appropriate target, preferring not-finer-than-target.
+    bool present[7] = {false,false,false,false,false,false,false};
+    for (const CellRecord& c : cells) {
+        if (!c.extentValid || c.band < 1 || c.band > 6) continue;
+        if (c.bbox.intersects(wantedArea)) present[c.band] = true;
+    }
+    int chosen = target;
+    {
+        int best = -1;
+        for (int b = 1; b <= 6; ++b)
+            if (present[b] && b <= target && b > best) best = b;
+        if (best == -1) {
+            int mn = INT_MAX;
+            for (int b = 1; b <= 6; ++b) if (present[b] && b < mn) mn = b;
+            if (mn != INT_MAX) best = mn;
+        }
+        if (best != -1) chosen = best;
+    }
+
+    // Build the wanted set: chosen band (plus unknown-band cells) inside wantedArea.
+    wanted_.clear();
+    for (const CellRecord& c : cells) {
+        if (!c.extentValid) continue;
+        if (c.band != chosen && c.band != 0) continue;
+        if (c.bbox.intersects(wantedArea)) wanted_.insert(c.path);
+    }
+
+    // Dispatch loads for newly-wanted cells.
+    for (const QString& path : wanted_)
+        if (!loaded_.contains(path) && !inFlight_.contains(path))
+            dispatchLoad(path);
+
+    // Unload cells that drifted outside keepArea or no longer match the band.
+    const QList<QString> loadedPaths = loaded_.keys();
+    for (const QString& path : loadedPaths) {
+        const CellRecord* rec = nullptr;
+        for (const CellRecord& c : cells) { if (c.path == path) { rec = &c; break; } }
+        bool keep = rec && rec->extentValid && rec->bbox.intersects(keepArea)
+                    && (rec->band == chosen || rec->band == 0);
+        if (!keep) removeCell(path);
+    }
+
+    emit statusChanged(QStringLiteral("Band %1  ·  %2 cell(s) shown")
+                           .arg(chosen).arg(loaded_.size()));
+}
+
+// ---- async load / scene management ---------------------------------------
+
+void ChartView::dispatchLoad(const QString& path) {
+    inFlight_.insert(path);
+    const quint64 gen = generation_;
+    const std::string p = path.toStdString();
+
+    auto* watcher = new QFutureWatcher<CellLoadResult>(this);
+    connect(watcher, &QFutureWatcher<CellLoadResult>::finished, this, [this, watcher, gen]() {
+        const CellLoadResult r = watcher->result();
+        watcher->deleteLater();
+        onCellLoaded(r, gen);
+    });
+    watcher->setFuture(QtConcurrent::run(&pool_, [p]() {
+        CellLoadResult r;
+        r.path = QString::fromStdString(p);
+        std::string err;
+        r.ok = chart::loadCellFeatures(p, r.features, r.bbox, err);
+        if (!r.ok) r.error = QString::fromStdString(err);
+        return r;
+    }));
+}
+
+void ChartView::onCellLoaded(const CellLoadResult& r, quint64 gen) {
+    if (gen != generation_) return;            // result from a superseded scan
+    inFlight_.remove(r.path);
+    if (!r.ok) return;
+    if (!wanted_.contains(r.path)) return;     // view moved on; drop it
+    if (loaded_.contains(r.path)) return;      // already present
+    addCell(r.path, r.features);
+    emit statusChanged(QStringLiteral("%1 cell(s) shown").arg(loaded_.size()));
+}
+
+void ChartView::addCell(const QString& path, const std::vector<Feature>& feats) {
+    LoadedCell cell;
+    for (const Feature& f : feats) {
         switch (f.kind) {
             case FeatureKind::DepthArea:
             case FeatureKind::LandArea: {
                 auto* item = new QGraphicsPathItem(buildPath(f, true));
                 item->setBrush(fillColor(f));
                 if (f.kind == FeatureKind::LandArea) {
-                    QPen pen(QColor(115, 97, 64));
-                    pen.setCosmetic(true);
-                    pen.setWidthF(1.0);
+                    QPen pen(QColor(115, 97, 64)); pen.setCosmetic(true); pen.setWidthF(1.0);
                     item->setPen(pen);
                 } else {
                     item->setPen(Qt::NoPen);
                 }
                 item->setZValue(f.zorder);
                 scene_.addItem(item);
+                cell.items.push_back(item);
                 break;
             }
             case FeatureKind::OtherArea:
@@ -101,39 +259,32 @@ void ChartView::rebuildScene() {
             case FeatureKind::OtherLine: {
                 auto* item = new QGraphicsPathItem(buildPath(f, false));
                 item->setBrush(Qt::NoBrush);
-                QPen pen;
-                pen.setCosmetic(true); // constant pixel width regardless of zoom
-                if (f.kind == FeatureKind::Coastline) {
-                    pen.setColor(QColor(64, 51, 31));  pen.setWidthF(1.4);
-                } else if (f.kind == FeatureKind::DepthContour) {
-                    pen.setColor(QColor(115, 153, 199)); pen.setWidthF(0.8);
-                } else if (f.kind == FeatureKind::OtherArea) {
-                    pen.setColor(QColor(102, 102, 115, 150)); pen.setWidthF(0.7);
-                } else {
-                    pen.setColor(QColor(102, 102, 128)); pen.setWidthF(0.8);
-                }
+                QPen pen; pen.setCosmetic(true);
+                if (f.kind == FeatureKind::Coastline)       { pen.setColor(QColor(64, 51, 31));   pen.setWidthF(1.4); }
+                else if (f.kind == FeatureKind::DepthContour){ pen.setColor(QColor(115, 153, 199)); pen.setWidthF(0.8); }
+                else if (f.kind == FeatureKind::OtherArea)  { pen.setColor(QColor(102, 102, 115, 150)); pen.setWidthF(0.7); }
+                else                                        { pen.setColor(QColor(102, 102, 128)); pen.setWidthF(0.8); }
                 item->setPen(pen);
                 item->setZValue(f.zorder);
                 scene_.addItem(item);
+                cell.items.push_back(item);
                 break;
             }
             case FeatureKind::Sounding: {
                 if (f.rings.empty() || f.rings[0].empty()) break;
-                QString text;
-                if (f.hasDepth)
-                    text = QString::number(f.depth, 'f', f.depth < 10.0 ? 1 : 0);
-                else
-                    text = QStringLiteral(".");
+                QString text = f.hasDepth
+                    ? QString::number(f.depth, 'f', f.depth < 10.0 ? 1 : 0)
+                    : QStringLiteral(".");
                 auto* t = new QGraphicsSimpleTextItem(text);
-                QFont fnt = t->font();
-                fnt.setPointSizeF(8.0);
-                t->setFont(fnt);
+                QFont fnt = t->font(); fnt.setPointSizeF(8.0); t->setFont(fnt);
                 t->setBrush(QColor(26, 51, 115));
                 t->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
                 t->setPos(f.rings[0][0].x, -f.rings[0][0].y);
                 t->setZValue(f.zorder);
+                t->setVisible(pointsVisible_);
                 scene_.addItem(t);
-                pointItems_.push_back(t);
+                cell.items.push_back(t);
+                cell.points.push_back(t);
                 break;
             }
             case FeatureKind::Point: {
@@ -144,44 +295,49 @@ void ChartView::rebuildScene() {
                 e->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
                 e->setPos(f.rings[0][0].x, -f.rings[0][0].y);
                 e->setZValue(f.zorder);
+                e->setVisible(pointsVisible_);
                 scene_.addItem(e);
-                pointItems_.push_back(e);
+                cell.items.push_back(e);
+                cell.points.push_back(e);
                 break;
             }
         }
     }
+    loaded_.insert(path, cell);
 }
 
-void ChartView::fitToChart() {
-    if (!haveChart_) return;
-    QRectF r = scene_.sceneRect();
-    double mx = r.width() * 0.04, my = r.height() * 0.04;
-    fitInView(r.adjusted(-mx, -my, mx, my), Qt::KeepAspectRatio);
-    updatePointLOD();
+void ChartView::removeCell(const QString& path) {
+    auto it = loaded_.find(path);
+    if (it == loaded_.end()) return;
+    for (QGraphicsItem* item : it->items)
+        delete item;            // also removes from the scene
+    loaded_.erase(it);
 }
 
 void ChartView::updatePointLOD() {
-    if (!haveChart_) return;
-    double pxPerMeter = transform().m11();
+    const double pxPerMeter = transform().m11();
     if (pxPerMeter <= 0.0) return;
-    double visWidthMeters = viewport()->width() / pxPerMeter;
-    bool show = visWidthMeters < 20000.0; // ~20 km across
-    if (show != pointsVisible_) {
-        pointsVisible_ = show;
-        for (QGraphicsItem* it : pointItems_)
-            it->setVisible(show);
-    }
+    const double visWidthM = viewport()->width() / pxPerMeter;
+    const bool show = visWidthM < 20000.0; // ~20 km across
+    if (show == pointsVisible_) return;
+    pointsVisible_ = show;
+    for (auto it = loaded_.begin(); it != loaded_.end(); ++it)
+        for (QGraphicsItem* p : it->points)
+            p->setVisible(show);
 }
 
+// ---- input ----------------------------------------------------------------
+
 void ChartView::wheelEvent(QWheelEvent* e) {
-    if (!haveChart_) { QGraphicsView::wheelEvent(e); return; }
+    if (!haveCatalog_) { QGraphicsView::wheelEvent(e); return; }
     userInteracted_ = true;
     const double step = 1.15;
     double factor = (e->angleDelta().y() > 0) ? step : 1.0 / step;
     double target = transform().m11() * factor;
-    if (target < 1e-8 || target > 1e3) { e->accept(); return; } // clamp
-    scale(factor, factor); // AnchorUnderMouse keeps the cursor point fixed
+    if (target < 1e-8 || target > 1e3) { e->accept(); return; }
+    scale(factor, factor);
     updatePointLOD();
+    scheduleUpdate();
     e->accept();
 }
 
@@ -191,30 +347,29 @@ void ChartView::mousePressEvent(QMouseEvent* e) {
 }
 
 void ChartView::mouseMoveEvent(QMouseEvent* e) {
-    if (haveChart_) {
+    if (haveCatalog_) {
         QPointF s = mapToScene(e->position().toPoint());
         emit cursorMoved(proj::xToLon(s.x()), proj::yToLat(-s.y()));
     }
-    QGraphicsView::mouseMoveEvent(e); // keep ScrollHandDrag panning alive
+    QGraphicsView::mouseMoveEvent(e);
 }
 
 void ChartView::resizeEvent(QResizeEvent* e) {
     QGraphicsView::resizeEvent(e);
-    if (haveChart_ && !userInteracted_) fitToChart();
+    if (haveCatalog_ && !userInteracted_) fitToCatalog();
+    else scheduleUpdate();
 }
 
 void ChartView::drawBackground(QPainter* p, const QRectF& rect) {
-    p->fillRect(rect, QColor(204, 224, 242)); // sea backdrop
+    p->fillRect(rect, QColor(204, 224, 242));
 }
 
 void ChartView::drawForeground(QPainter* p, const QRectF&) {
-    if (haveChart_) return;
+    if (haveCatalog_) return;
     p->save();
-    p->resetTransform(); // draw in device coordinates
+    p->resetTransform();
     p->setPen(QColor(80, 80, 80));
-    QFont f = p->font();
-    f.setPointSize(13);
-    p->setFont(f);
+    QFont f = p->font(); f.setPointSize(13); p->setFont(f);
     p->drawText(viewport()->rect(), Qt::AlignCenter,
                 QStringLiteral("Open a chart folder to begin (toolbar button)."));
     p->restore();

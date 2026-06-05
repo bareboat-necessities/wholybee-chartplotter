@@ -1,9 +1,9 @@
 #include <QApplication>
-#include <gdal.h>
+#include "chart_loader.hpp"
 #include "main_window.hpp"
 
 int main(int argc, char** argv) {
-    GDALAllRegister();
+    chart::init();   // GDAL drivers + S-57 options; before any worker threads
 
     QApplication app(argc, argv);
     QApplication::setOrganizationName(QStringLiteral("ExampleMarine"));

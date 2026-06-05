@@ -8,8 +8,7 @@ struct Pt {
     double y;
 };
 
-// Axis-aligned bounding box in projected coordinates. Used both for the whole
-// chart extent and for per-feature culling.
+// Axis-aligned bounding box in projected coordinates (north-up: +y is north).
 struct BBox {
     double minx =  1e30, miny =  1e30;
     double maxx = -1e30, maxy = -1e30;
@@ -31,47 +30,38 @@ struct BBox {
     }
 };
 
-// Simplified classification of S-57 object classes into things we know how to
-// draw. Everything else collapses into the generic Area/Line/Point buckets.
 enum class FeatureKind {
-    DepthArea,     // DEPARE / DRGARE  - water, shaded by depth
-    LandArea,      // LNDARE           - land fill
-    OtherArea,     // generic polygon  - drawn as outline only
-    DepthContour,  // DEPCNT
-    Coastline,     // COALNE / SLCONS
-    OtherLine,     // generic line
-    Sounding,      // SOUNDG           - point with a depth value
-    Point          // generic point (buoys, beacons, lights, ...)
+    DepthArea, LandArea, OtherArea,
+    DepthContour, Coastline, OtherLine,
+    Sounding, Point
 };
 
 struct Feature {
     FeatureKind kind = FeatureKind::Point;
     int zorder = 0;
-    // For polygons: ring[0] is the outer ring, the rest are holes.
-    // For lines: each entry is one path.
-    // For points: a single ring with a single point.
     std::vector<std::vector<Pt>> rings;
-    double depth = 0.0;   // metres, valid only when hasDepth is true
+    double depth = 0.0;
     bool hasDepth = false;
     BBox bbox;
 };
 
-// Loads every ENC base cell (*.000) found under a directory, projects all
-// geometry into a common Mercator space, and exposes the merged result.
-class ChartSet {
-public:
-    // Returns true on success. On failure, errorOut is filled in.
-    bool loadDirectory(const std::string& dir, std::string& errorOut);
+namespace chart {
 
-    const std::vector<Feature>& features() const { return features_; }
-    const BBox& bounds() const { return bounds_; }
-    std::size_t cellCount() const { return cellCount_; }
-    void clear();
+// Call once at startup (registers GDAL drivers + sets S-57 options). Safe before
+// spawning worker threads; the config it sets is process-global.
+void init();
 
-private:
-    bool loadCell(const std::string& path);
+// Read all geometry of one ENC cell into `out` (projected), with the cell's
+// bbox. Thread-safe: opens and closes its own GDAL handle. Heavy — call from a
+// worker thread.
+bool loadCellFeatures(const std::string& path,
+                      std::vector<Feature>& out, BBox& bbox, std::string& err);
 
-    std::vector<Feature> features_;
-    BBox bounds_;
-    std::size_t cellCount_ = 0;
-};
+// Cheaply determine a cell's geographic extent (longitude/latitude degrees),
+// preferring the small M_COVR coverage layer. Thread-safe. Used to build the
+// catalog without reading full geometry.
+bool computeCellExtentLonLat(const std::string& path,
+                             double& minLon, double& minLat,
+                             double& maxLon, double& maxLat, std::string& err);
+
+} // namespace chart
