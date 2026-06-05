@@ -1,31 +1,36 @@
 cmake_minimum_required(VERSION 3.16)
-project(marine_chart_viewer CXX)
+project(marine_chart_viewer_qt CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTOMOC ON)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-# GDAL ships a pkg-config file ("gdal") on most platforms (incl. MSYS2).
-# If your install lacks it, see the README for the find_package(GDAL) fallback.
-pkg_check_modules(GDAL REQUIRED IMPORTED_TARGET gdal)
+# Prefer GDAL's own CMake config; fall back to pkg-config (e.g. MSYS2).
+find_package(GDAL QUIET)
+if(GDAL_FOUND)
+    set(GDAL_LINK GDAL::GDAL)
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GDAL REQUIRED IMPORTED_TARGET gdal)
+    set(GDAL_LINK PkgConfig::GDAL)
+endif()
 
-add_executable(chartviewer
+qt_add_executable(chartviewer
     src/main.cpp
+    src/main_window.cpp
+    src/chart_view.cpp
     src/chart_loader.cpp
-    src/chart_widget.cpp
 )
 
-target_link_libraries(chartviewer PRIVATE PkgConfig::GTK4 PkgConfig::GDAL)
+target_link_libraries(chartviewer PRIVATE Qt6::Widgets ${GDAL_LINK})
 
-if(WIN32)
-    # Hide the console window for the GUI build (comment out to keep a console
-    # for debugging / stderr from GDAL).
-    set_target_properties(chartviewer PROPERTIES WIN32_EXECUTABLE TRUE)
-endif()
+set_target_properties(chartviewer PROPERTIES
+    WIN32_EXECUTABLE TRUE   # no console window on Windows
+    MACOSX_BUNDLE TRUE
+)
