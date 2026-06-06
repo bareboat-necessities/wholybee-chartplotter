@@ -6,6 +6,8 @@ class ChartView;
 class ChartCatalog;
 class Settings;
 class SideMenu;
+class NavDataStore;
+class Simulator;
 class QLabel;
 class QPushButton;
 
@@ -22,6 +24,8 @@ private slots:
     void onChartSetSelected(const QString& dir);
     void manageChartSets();
     void chooseBasemapFolder();
+    void editStaleThresholds();
+    void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
     void onScanFinished(bool ok, const QString& message);
@@ -35,6 +39,8 @@ private:
     ChartCatalog* catalog_ = nullptr;
     Settings*     settings_ = nullptr;
     SideMenu*     sideMenu_ = nullptr;
+    NavDataStore* navStore_ = nullptr;
+    Simulator*    simulator_ = nullptr;
     QPushButton*  menuButton_ = nullptr;
     QLabel*       statusLeft_ = nullptr;   // root folder + scan summary
     QLabel*       statusMid_ = nullptr;    // band / cells shown

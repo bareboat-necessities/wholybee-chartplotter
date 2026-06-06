@@ -4,12 +4,15 @@
 #include "settings.hpp"
 #include "side_menu.hpp"
 #include "chart_sets_dialog.hpp"
+#include "nav_data_store.hpp"
+#include "simulator.hpp"
 
 #include <QStatusBar>
 #include <QLabel>
 #include <QPushButton>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QDir>
 #include <QEvent>
 #include <QCloseEvent>
@@ -49,6 +52,29 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(catalog_, &ChartCatalog::finished, this, &MainWindow::onScanFinished);
     view_->setCatalog(catalog_);
 
+    // Nav data store + simulator (built-in publisher). The store owns shared
+    // ownship state; the view subscribes; the simulator publishes through the
+    // INavDataPublisher API. This is the foundation for AIS/instruments/routes.
+    navStore_  = new NavDataStore(this);
+    navStore_->setStaleSeconds(settings_->staleSeconds());
+    navStore_->setInvalidSeconds(settings_->invalidSeconds());
+    connect(settings_, &Settings::staleThresholdsChanged,
+            this, [this](double s, double i) {
+        navStore_->setStaleSeconds(s);
+        navStore_->setInvalidSeconds(i);
+    });
+    connect(navStore_, &NavDataStore::ownshipChanged,    this, &MainWindow::publishOwnshipToView);
+    connect(navStore_, &NavDataStore::freshnessChanged,  this, [this](NavFreshness) { publishOwnshipToView(); });
+
+    simulator_ = new Simulator(navStore_, this);
+    simulator_->setPosition(settings_->simulatorLat(), settings_->simulatorLon());
+    // Persist the simulator's position as it moves so it resumes where it left off.
+    connect(simulator_, &Simulator::positionChanged,
+            settings_, &Settings::setSimulatorPosition);
+    connect(settings_, &Settings::simulatorEnabledChanged,
+            simulator_, &Simulator::setRunning);
+    if (settings_->simulatorEnabled()) simulator_->setRunning(true);
+
     // Touch-first navigation: a floating menu button over the chart opens the
     // side drawer. No toolbar, no right-click, large tap targets.
     sideMenu_ = new SideMenu(settings_, view_);
@@ -56,6 +82,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::chartSetSelected,         this,  &MainWindow::onChartSetSelected);
     connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
     connect(sideMenu_, &SideMenu::basemapFolderRequested,   this,  &MainWindow::chooseBasemapFolder);
+    connect(sideMenu_, &SideMenu::editStaleThresholdsRequested, this, &MainWindow::editStaleThresholds);
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
@@ -121,6 +148,25 @@ void MainWindow::chooseBasemapFolder() {
         this, QStringLiteral("Select GSHHG Basemap Folder (contains GSHHS_shp)"), start);
     if (!dir.isEmpty())
         settings_->setBasemapDirectory(dir);
+}
+
+void MainWindow::editStaleThresholds() {
+    bool ok = false;
+    const double s = QInputDialog::getDouble(
+        this, QStringLiteral("Stale Threshold"),
+        QStringLiteral("Mark the ownship fix Stale after (seconds):"),
+        settings_->staleSeconds(), 0.5, 600.0, 1, &ok);
+    if (!ok) return;
+    const double inv = QInputDialog::getDouble(
+        this, QStringLiteral("Invalid Threshold"),
+        QStringLiteral("Mark the fix Invalid (hidden) after (seconds):"),
+        std::max(settings_->invalidSeconds(), s + 1.0), s + 0.5, 3600.0, 1, &ok);
+    if (!ok) return;
+    settings_->setStaleThresholds(s, inv);
+}
+
+void MainWindow::publishOwnshipToView() {
+    if (view_) view_->setOwnship(navStore_->ownship(), navStore_->freshness());
 }
 
 void MainWindow::startScan(const QString& dir) {

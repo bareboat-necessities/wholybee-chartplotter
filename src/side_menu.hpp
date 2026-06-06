@@ -34,6 +34,7 @@ signals:
     void chartSetSelected(const QString& directory);  // user tapped a set to load
     void manageChartSetsRequested();                  // open the Chart Sets dialog
     void basemapFolderRequested();                    // pick the GSHHG data folder
+    void editStaleThresholdsRequested();              // open stale-data dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

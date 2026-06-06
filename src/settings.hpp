@@ -42,6 +42,16 @@ public:
     double viewLat() const { return viewLat_; }
     double viewScale() const { return viewScale_; }
 
+    // Simulator (the scripted built-in nav source).
+    bool   simulatorEnabled() const { return simEnabled_; }
+    double simulatorLat()     const { return simLat_; }
+    double simulatorLon()     const { return simLon_; }
+
+    // Ownship stale-data thresholds (seconds). The fix is considered Stale at
+    // staleSeconds and Invalid (hidden) at invalidSeconds.
+    double staleSeconds()   const { return staleSeconds_; }
+    double invalidSeconds() const { return invalidSeconds_; }
+
 public slots:
     void setChartDirectory(const QString& dir);
     void setShowSoundings(bool on);
@@ -50,6 +60,9 @@ public slots:
     void setChartSets(const QVector<ChartSet>& sets);
     void setView(double lon, double lat, double scale);
     void setBasemapDirectory(const QString& dir);
+    void setSimulatorEnabled(bool on);
+    void setSimulatorPosition(double lat, double lon);
+    void setStaleThresholds(double staleS, double invalidS);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -58,6 +71,8 @@ signals:
     void showDepthContoursChanged(bool on);
     void chartSetsChanged();
     void basemapDirectoryChanged(const QString& dir);
+    void simulatorEnabledChanged(bool on);
+    void staleThresholdsChanged(double staleS, double invalidS);
 
 private:
     void loadChartSets();
@@ -72,4 +87,9 @@ private:
     double viewLon_ = 0.0;
     double viewLat_ = 0.0;
     double viewScale_ = 0.0;   // 0 => no saved view
+    bool   simEnabled_ = false;
+    double simLat_ = 37.9;     // just SW of Point Reyes, in open water
+    double simLon_ = -123.0;
+    double staleSeconds_   = 5.0;
+    double invalidSeconds_ = 30.0;
 };
