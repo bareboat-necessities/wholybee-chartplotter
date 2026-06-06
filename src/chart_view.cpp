@@ -1,6 +1,7 @@
 #include "chart_view.hpp"
 #include "chart_catalog.hpp"
 #include "projection.hpp"
+#include "geom_clip.hpp"
 
 #include <QGraphicsPathItem>
 #include <QGraphicsSimpleTextItem>
@@ -34,10 +35,10 @@ QColor fillColor(const Feature& f) {
     return QColor(242, 247, 255);
 }
 
-QPainterPath buildPath(const Feature& f, bool closed) {
+QPainterPath buildPathFromRings(const std::vector<std::vector<Pt>>& rings, bool closed) {
     QPainterPath path;
     if (closed) path.setFillRule(Qt::OddEvenFill);
-    for (const auto& ring : f.rings) {
+    for (const auto& ring : rings) {
         if (ring.size() < 2) continue;
         path.moveTo(ring[0].x, -ring[0].y);
         for (std::size_t i = 1; i < ring.size(); ++i)
@@ -45,6 +46,29 @@ QPainterPath buildPath(const Feature& f, bool closed) {
         if (closed) path.closeSubpath();
     }
     return path;
+}
+
+// Per-region geometry clipping lives in geom_clip.hpp (pure, unit-tested). We
+// pull the three entry points we use into this scope. Cells are cached fully
+// (viewport-independent); at scene-build time we clip to a region a little
+// larger than the view, so a coarse cell contributing only a gap-fill sliver
+// carries a screen-sized polygon into the scene instead of a basin-spanning one
+// — Qt then traverses and rasterizes far less per frame. The clip region is
+// always larger than the viewport, so the edges clipping introduces fall
+// off-screen.
+using geom::clipRingToRect;
+using geom::clipPolylineToRect;
+using geom::pointInRect;
+
+// Rough in-memory footprint of a parsed cell, for the LRU byte budget.
+std::size_t approxBytes(const std::vector<Feature>& feats) {
+    std::size_t b = sizeof(Feature) * feats.capacity();
+    for (const Feature& f : feats) {
+        b += sizeof(std::vector<Pt>) * f.rings.capacity();
+        for (const auto& ring : f.rings)
+            b += sizeof(Pt) * ring.capacity();
+    }
+    return b;
 }
 
 } // namespace
@@ -59,6 +83,11 @@ ChartView::ChartView(QWidget* parent) : QGraphicsView(parent) {
     viewport()->setMouseTracking(true);
 
     pool_.setMaxThreadCount(qBound(2, QThread::idealThreadCount(), 8));
+
+    // LRU of parsed cells. Currently-loaded (on-screen) cells are pinned so a
+    // tight budget never evicts geometry that's visible.
+    cache_.setLimits(256u * 1024u * 1024u, 256);   // ~256 MB, 256 cells
+    cache_.setPinned([this](const QString& path) { return loaded_.contains(path); });
 
     updateTimer_ = new QTimer(this);
     updateTimer_->setSingleShot(true);
@@ -81,6 +110,8 @@ void ChartView::clearAll() {
     inFlight_.clear();
     wanted_.clear();
     bandByPath_.clear();
+    bboxByPath_.clear();
+    cache_.clear();
     pointsVisible_ = true;
 }
 
@@ -100,8 +131,11 @@ void ChartView::onCatalogFinished(bool ok, const QString&) {
     const BBox& b = catalog_->bounds();
     scene_.setSceneRect(b.minx, -b.maxy, b.maxx - b.minx, b.maxy - b.miny);
     bandByPath_.reserve(static_cast<int>(catalog_->cells().size()));
-    for (const CellRecord& c : catalog_->cells())
+    bboxByPath_.reserve(static_cast<int>(catalog_->cells().size()));
+    for (const CellRecord& c : catalog_->cells()) {
         bandByPath_.insert(c.path, c.band);
+        if (c.extentValid) bboxByPath_.insert(c.path, c.bbox);
+    }
     fitToCatalog();         // triggers updateVisibleCells via scrollbar/explicit call
     updateVisibleCells();
 }
@@ -139,22 +173,28 @@ void ChartView::scheduleUpdate() {
     if (haveCatalog_) updateTimer_->start();
 }
 
+bool ChartView::computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& target) const {
+    const double pxPerMeter = transform().m11();
+    if (pxPerMeter <= 0.0) return false;
+
+    const QRectF sr = mapToScene(viewport()->rect()).boundingRect();
+    view.minx = sr.left();    view.maxx = sr.right();
+    view.miny = -sr.bottom(); view.maxy = -sr.top();    // scene Y is flipped
+
+    const double visWidthM = viewport()->width() / pxPerMeter;
+    target = bandForVisibleWidth(visWidthM);
+
+    wanted = expandBox(view, 0.5);   // load (and re-clip trigger) just beyond the edge
+    keep   = expandBox(view, 1.5);   // clip region + unload only well beyond it
+    return true;
+}
+
 void ChartView::updateVisibleCells() {
     if (!haveCatalog_ || !catalog_) return;
 
-    // View rectangle in projected (north-up) world coordinates.
-    const QRectF sr = mapToScene(viewport()->rect()).boundingRect();
-    BBox view;
-    view.minx = sr.left();  view.maxx = sr.right();
-    view.miny = -sr.bottom(); view.maxy = -sr.top();   // scene Y is flipped
-
-    const double pxPerMeter = transform().m11();
-    if (pxPerMeter <= 0.0) return;
-    const double visWidthM = viewport()->width() / pxPerMeter;
-    const int target = bandForVisibleWidth(visWidthM);
-
-    const BBox wantedArea = expandBox(view, 0.5);   // load a little beyond the edge
-    const BBox keepArea   = expandBox(view, 1.5);   // unload only well beyond it
+    BBox view, wantedArea, keepArea;
+    int target;
+    if (!computeViewBoxes(view, wantedArea, keepArea, target)) return;
 
     const std::vector<CellRecord>& cells = catalog_->cells();
 
@@ -188,19 +228,36 @@ void ChartView::updateVisibleCells() {
         if (c.bbox.intersects(wantedArea)) wanted_.insert(c.path);
     }
 
-    // Dispatch loads for newly-wanted cells.
-    for (const QString& path : wanted_)
-        if (!loaded_.contains(path) && !inFlight_.contains(path))
+    // Bring in newly-wanted cells. A cache hit rebuilds the scene items straight
+    // from the cached parse on the spot (no worker, no disk) — this is what
+    // makes returning to a recently-seen area instant. A miss dispatches a load.
+    for (const QString& path : wanted_) {
+        if (loaded_.contains(path) || inFlight_.contains(path)) continue;
+        if (FeatureCache::FeaturesPtr feats = cache_.get(path))
+            addCell(path, *feats, bandByPath_.value(path, 0), keepArea);
+        else
             dispatchLoad(path);
+    }
 
-    // Unload cells outside keepArea or whose band is now finer than maxBand.
+    // Unload cells outside keepArea or whose band is now finer than maxBand;
+    // re-clip cells the view has panned/zoomed across so their clipped geometry
+    // keeps covering the visible area.
     const QList<QString> loadedPaths = loaded_.keys();
     for (const QString& path : loadedPaths) {
-        const CellRecord* rec = nullptr;
-        for (const CellRecord& c : cells) { if (c.path == path) { rec = &c; break; } }
-        const bool bandOk = rec && (rec->band == 0 || (rec->band >= 1 && rec->band <= maxBand));
-        const bool keep = rec && rec->extentValid && bandOk && rec->bbox.intersects(keepArea);
-        if (!keep) removeCell(path);
+        const int  band = bandByPath_.value(path, 0);
+        const BBox bbox = bboxByPath_.value(path);
+        const bool bandOk = (band == 0) || (band >= 1 && band <= maxBand);
+        const bool keep = bbox.valid() && bandOk && bbox.intersects(keepArea);
+        if (!keep) { removeCell(path); continue; }
+
+        // wantedArea sits a full viewport-width inside keepArea, so triggering on
+        // it re-clips with margin to spare — the visible viewport never reaches
+        // the edge of the old clip, so no blank sliver can appear.
+        const BBox clipBox = loaded_[path].clipBox;
+        if (!clipBox.contains(wantedArea)) {
+            if (FeatureCache::FeaturesPtr feats = cache_.get(path))
+                addCell(path, *feats, band, keepArea);
+        }
     }
 
     emit statusChanged(QStringLiteral("Bands \u2264 %1  \u00b7  %2 cell(s) shown")
@@ -216,9 +273,9 @@ void ChartView::dispatchLoad(const QString& path) {
 
     auto* watcher = new QFutureWatcher<CellLoadResult>(this);
     connect(watcher, &QFutureWatcher<CellLoadResult>::finished, this, [this, watcher, gen]() {
-        const CellLoadResult r = watcher->result();
+        CellLoadResult r = watcher->result();
         watcher->deleteLater();
-        onCellLoaded(r, gen);
+        onCellLoaded(std::move(r), gen);
     });
     watcher->setFuture(QtConcurrent::run(&pool_, [p]() {
         CellLoadResult r;
@@ -230,28 +287,66 @@ void ChartView::dispatchLoad(const QString& path) {
     }));
 }
 
-void ChartView::onCellLoaded(const CellLoadResult& r, quint64 gen) {
+void ChartView::onCellLoaded(CellLoadResult r, quint64 gen) {
     if (gen != generation_) return;            // result from a superseded scan
     inFlight_.remove(r.path);
     if (!r.ok) return;
-    if (!wanted_.contains(r.path)) return;     // view moved on; drop it
-    if (loaded_.contains(r.path)) return;      // already present
-    addCell(r.path, r.features, bandByPath_.value(r.path, 0));
+
+    const QString path = r.path;
+    const int     band = bandByPath_.value(path, 0);
+
+    // Cache the parse regardless of whether we still want it on screen — a quick
+    // return to this area should then be instant (rebuilt from cache, no reload).
+    auto feats = std::make_shared<std::vector<Feature>>(std::move(r.features));
+    cache_.put(path, feats, approxBytes(*feats));
+
+    if (!wanted_.contains(path)) return;       // view moved on; keep only in cache
+    if (loaded_.contains(path)) return;        // already present
+
+    BBox view, wantedArea, keepArea;
+    int target;
+    if (!computeViewBoxes(view, wantedArea, keepArea, target)) return;
+    addCell(path, *feats, band, keepArea);
     emit statusChanged(QStringLiteral("%1 cell(s) shown").arg(loaded_.size()));
 }
 
-void ChartView::addCell(const QString& path, const std::vector<Feature>& feats, int band) {
+void ChartView::addCell(const QString& path, const std::vector<Feature>& feats,
+                        int band, const BBox& clipBox) {
+    // Rebuilding (re-clip, or cache hit while a stale copy somehow lingers):
+    // drop any existing items for this path first.
+    if (loaded_.contains(path)) removeCell(path);
+
     LoadedCell cell;
-    cell.band = band;
+    cell.band    = band;
+    cell.clipBox = clipBox;
+
     // Band-major depth: coarser bands sit beneath finer ones, so a finer cell's
     // opaque area fills cover the coarse data within its footprint, while gaps
     // reveal the coarser band underneath. Feature z-order orders within a band.
     const double zb = static_cast<double>(band) * 1000.0;
+
+    // Scratch reused across features to avoid per-feature allocation churn.
+    std::vector<std::vector<Pt>> ringsBuf;
+
     for (const Feature& f : feats) {
+        // Skip clipping entirely when the feature is already inside the region —
+        // the common case for fine cells smaller than the viewport.
+        const bool doClip = clipBox.valid() && !clipBox.contains(f.bbox);
+
         switch (f.kind) {
             case FeatureKind::DepthArea:
             case FeatureKind::LandArea: {
-                auto* item = new QGraphicsPathItem(buildPath(f, true));
+                const std::vector<std::vector<Pt>>* rings = &f.rings;
+                if (doClip) {
+                    ringsBuf.clear();
+                    for (const auto& ring : f.rings) {
+                        std::vector<Pt> c = clipRingToRect(ring, clipBox);
+                        if (c.size() >= 3) ringsBuf.push_back(std::move(c));
+                    }
+                    if (ringsBuf.empty()) break;       // nothing of this poly is in view
+                    rings = &ringsBuf;
+                }
+                auto* item = new QGraphicsPathItem(buildPathFromRings(*rings, true));
                 item->setBrush(fillColor(f));
                 if (f.kind == FeatureKind::LandArea) {
                     QPen pen(QColor(115, 97, 64)); pen.setCosmetic(true); pen.setWidthF(1.0);
@@ -268,7 +363,17 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats, 
             case FeatureKind::DepthContour:
             case FeatureKind::Coastline:
             case FeatureKind::OtherLine: {
-                auto* item = new QGraphicsPathItem(buildPath(f, false));
+                const std::vector<std::vector<Pt>>* rings = &f.rings;
+                if (doClip) {
+                    ringsBuf.clear();
+                    for (const auto& ring : f.rings) {
+                        std::vector<std::vector<Pt>> runs = clipPolylineToRect(ring, clipBox);
+                        for (auto& run : runs) ringsBuf.push_back(std::move(run));
+                    }
+                    if (ringsBuf.empty()) break;
+                    rings = &ringsBuf;
+                }
+                auto* item = new QGraphicsPathItem(buildPathFromRings(*rings, false));
                 item->setBrush(Qt::NoBrush);
                 QPen pen; pen.setCosmetic(true);
                 if (f.kind == FeatureKind::Coastline)       { pen.setColor(QColor(64, 51, 31));   pen.setWidthF(1.4); }
@@ -283,6 +388,7 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats, 
             }
             case FeatureKind::Sounding: {
                 if (f.rings.empty() || f.rings[0].empty()) break;
+                if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
                 QString text = f.hasDepth
                     ? QString::number(f.depth, 'f', f.depth < 10.0 ? 1 : 0)
                     : QStringLiteral(".");
@@ -300,6 +406,7 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats, 
             }
             case FeatureKind::Point: {
                 if (f.rings.empty() || f.rings[0].empty()) break;
+                if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
                 auto* e = new QGraphicsEllipseItem(-3.0, -3.0, 6.0, 6.0);
                 e->setBrush(QColor(179, 26, 128));
                 e->setPen(Qt::NoPen);

@@ -7,7 +7,9 @@
 #include <QVector>
 #include <QString>
 #include <vector>
+#include <memory>
 #include "chart_loader.hpp"
+#include "feature_cache.hpp"
 
 class ChartCatalog;
 class QTimer;
@@ -55,15 +57,24 @@ private:
     struct LoadedCell {
         QVector<QGraphicsItem*> items;   // everything for this cell
         QVector<QGraphicsItem*> points;  // soundings + point symbols (LOD-toggled)
-        int band = 0;
+        int  band = 0;
+        BBox clipBox;                    // region this cell's geometry was clipped to
     };
 
     void dispatchLoad(const QString& path);
-    void onCellLoaded(const CellLoadResult& r, quint64 gen);
-    void addCell(const QString& path, const std::vector<Feature>& feats, int band);
+    void onCellLoaded(CellLoadResult r, quint64 gen);
+    // Build (or rebuild) one cell's scene items from parsed features, clipping
+    // geometry to clipBox. Replaces any existing items for that path.
+    void addCell(const QString& path, const std::vector<Feature>& feats,
+                 int band, const BBox& clipBox);
     void removeCell(const QString& path);
     void clearAll();
     void updatePointLOD();
+
+    // Current viewport expressed as world boxes (projected, north-up) plus the
+    // zoom-appropriate target band. Returns false if the transform isn't usable
+    // yet. wanted = load/clip-trigger region, keep = clip + unload region.
+    bool computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& target) const;
 
     static int  bandForVisibleWidth(double metres);
     static BBox expandBox(const BBox& b, double frac);
@@ -75,6 +86,8 @@ private:
 
     QHash<QString, LoadedCell> loaded_;
     QHash<QString, int>        bandByPath_;   // band for every cataloged cell
+    QHash<QString, BBox>       bboxByPath_;   // footprint for every cataloged cell
+    FeatureCache               cache_;        // LRU of parsed cells, keyed by path
     QSet<QString>  inFlight_;
     QSet<QString>  wanted_;       // last computed wanted set (for late arrivals)
     quint64        generation_ = 0;

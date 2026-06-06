@@ -28,6 +28,14 @@ struct BBox {
     bool intersects(const BBox& o) const {
         return !(o.minx > maxx || o.maxx < minx || o.miny > maxy || o.maxy < miny);
     }
+    // True if every point of o lies within this box (used to decide whether a
+    // feature/cell is already fully inside a clip region, so clipping can be
+    // skipped, and to detect when a cached clip no longer covers the view).
+    bool contains(const BBox& o) const {
+        return valid() && o.valid() &&
+               o.minx >= minx && o.maxx <= maxx &&
+               o.miny >= miny && o.maxy <= maxy;
+    }
 };
 
 enum class FeatureKind {
