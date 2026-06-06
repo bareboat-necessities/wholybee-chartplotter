@@ -30,6 +30,8 @@ qt_add_executable(chartviewer
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp
+    src/nav_data_store.cpp
+    src/simulator.cpp
 )
 
 target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent ${GDAL_LINK})

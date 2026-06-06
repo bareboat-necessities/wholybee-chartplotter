@@ -118,6 +118,19 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit basemapFolderRequested(); });
     col->addWidget(basemapBtn);
 
+    col->addWidget(makeHeader(QStringLiteral("Navigation")));
+    auto* sim = makeToggle(QStringLiteral("Simulator"), settings_->simulatorEnabled());
+    connect(sim, &QPushButton::toggled, settings_, &Settings::setSimulatorEnabled);
+    // Keep the toggle in sync if the setting changes elsewhere.
+    connect(settings_, &Settings::simulatorEnabledChanged, sim, [sim](bool on) {
+        if (sim->isChecked() != on) sim->setChecked(on);
+    });
+    col->addWidget(sim);
+    auto* staleBtn = makeAction(QStringLiteral("Stale Data Thresholds…"));
+    connect(staleBtn, &QPushButton::clicked, this,
+            [this] { emit editStaleThresholdsRequested(); });
+    col->addWidget(staleBtn);
+
     col->addStretch(1);
 
     auto* backBtn = makeAction(QStringLiteral("Back"));

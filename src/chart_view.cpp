@@ -871,6 +871,80 @@ void ChartView::paintEvent(QPaintEvent*) {
             }
         }
     }
+
+    // 3) Ownship overlay (top of stack).
+    drawOwnship(p, cam);
+}
+
+void ChartView::setOwnship(const OwnshipState& s, NavFreshness f) {
+    ownship_ = s;
+    ownshipFreshness_ = f;
+    update();
+}
+
+void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
+    if (ownshipFreshness_ == NavFreshness::Invalid) return;
+    if (!ownship_.latitudeDeg.has_value() || !ownship_.longitudeDeg.has_value()) return;
+
+    // Project ownship into the scene, then to the nearest world copy so it shows
+    // on-screen even when the user has wrapped across the date line.
+    const double sx = proj::lonToX(*ownship_.longitudeDeg);
+    const double sy = -proj::latToY(*ownship_.latitudeDeg);
+    const double off = wrapOffsetFor(sx);
+    const QPointF d = cam.map(QPointF(sx + off, sy));
+
+    // Heading for the triangle: prefer true heading, fall back to COG.
+    double headingDeg = 0.0;
+    bool   haveHeading = false;
+    if (ownship_.headingDegTrue.has_value()) {
+        headingDeg = *ownship_.headingDegTrue; haveHeading = true;
+    } else if (ownship_.cogDegTrue.has_value()) {
+        headingDeg = *ownship_.cogDegTrue;     haveHeading = true;
+    }
+
+    p.save();
+    p.resetTransform();                   // draw in device pixels, constant size
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.translate(d);
+    if (haveHeading) p.rotate(headingDeg);
+
+    // A 1-minute predictor line ahead (length scaled by SOG, capped). Drawn
+    // before the triangle so the symbol sits on top.
+    if (ownship_.sogKnots.value_or(0.0) > 0.1) {
+        const double mppx = (ppm_ > 0.0) ? 1.0 / ppm_ : 0.0;
+        const double dist_m = (*ownship_.sogKnots) * (1852.0 / 60.0);   // 1 min
+        double len = (mppx > 0.0) ? dist_m / mppx : 0.0;
+        len = std::clamp(len, 12.0, 120.0);
+        QPen line(QColor(20, 20, 20, 220)); line.setWidthF(1.5);
+        p.setPen(line);
+        p.drawLine(QPointF(0, 0), QPointF(0, -len));
+    }
+
+    // Triangle pointing along heading (or COG fallback). Dimmer when stale.
+    QPolygonF tri;
+    tri << QPointF(0, -14) << QPointF(8, 8) << QPointF(-8, 8);
+    const bool stale = (ownshipFreshness_ == NavFreshness::Stale);
+    QColor fill = stale ? QColor(200, 110, 110, 200) : QColor(220, 30, 30);
+    QPen edge(QColor(40, 0, 0)); edge.setWidthF(1.2);
+    p.setBrush(fill);
+    p.setPen(edge);
+    if (haveHeading) {
+        p.drawPolygon(tri);
+    } else {
+        // No heading at all: render a circle so the user sees position without
+        // implying a direction we don't have.
+        p.drawEllipse(QPointF(0, 0), 7.0, 7.0);
+    }
+
+    if (stale) {
+        // Cancellation slash through the position: a short black line at right
+        // angles to the centerline, following the marine convention for an
+        // invalid / DR (dead-reckoned) fix.
+        QPen slash(QColor(0, 0, 0)); slash.setWidthF(1.6);
+        p.setPen(slash);
+        p.drawLine(QPointF(-8.0, 0.0), QPointF(8.0, 0.0));
+    }
+    p.restore();
 }
 
 // ---- input -----------------------------------------------------------------

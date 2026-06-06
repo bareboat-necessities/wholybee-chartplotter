@@ -1,6 +1,7 @@
 #include "settings.hpp"
 #include <QSettings>
 #include <QDir>
+#include <cmath>
 
 namespace {
 constexpr auto kChartDir  = "charts/directory";
@@ -12,6 +13,11 @@ constexpr auto kViewLon   = "view/centerLon";
 constexpr auto kViewLat   = "view/centerLat";
 constexpr auto kViewScale = "view/scale";
 constexpr auto kBasemap   = "basemap/directory";
+constexpr auto kSimOn     = "sim/enabled";
+constexpr auto kSimLat    = "sim/lat";
+constexpr auto kSimLon    = "sim/lon";
+constexpr auto kStaleS    = "nav/staleSeconds";
+constexpr auto kInvalidS  = "nav/invalidSeconds";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -24,6 +30,21 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     viewLat_   = s.value(QLatin1String(kViewLat),   0.0).toDouble();
     viewScale_ = s.value(QLatin1String(kViewScale), 0.0).toDouble();
     basemapDir_ = s.value(QLatin1String(kBasemap)).toString();
+    simEnabled_ = s.value(QLatin1String(kSimOn), false).toBool();
+    simLat_     = s.value(QLatin1String(kSimLat), 37.9).toDouble();
+    simLon_     = s.value(QLatin1String(kSimLon), -123.0).toDouble();
+    // Migrate users who briefly tested the simulator when the default still put
+    // the boat on land (38.0N, 123.0W). Latitude stays put under the due-west
+    // heading, so a tight latitude match plus a westward lon up to ~120 nm
+    // means "tested briefly" — reset; a real cruise will have left this window.
+    if (std::abs(simLat_ - 38.0) < 0.05 && simLon_ <= -123.0 && simLon_ >= -125.0) {
+        simLat_ = 37.9;
+        simLon_ = -123.0;
+        s.setValue(QLatin1String(kSimLat), simLat_);
+        s.setValue(QLatin1String(kSimLon), simLon_);
+    }
+    staleSeconds_   = s.value(QLatin1String(kStaleS),   5.0).toDouble();
+    invalidSeconds_ = s.value(QLatin1String(kInvalidS), 30.0).toDouble();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -78,6 +99,31 @@ void Settings::setView(double lon, double lat, double scale) {
     s.setValue(QLatin1String(kViewLon), lon);
     s.setValue(QLatin1String(kViewLat), lat);
     s.setValue(QLatin1String(kViewScale), scale);
+}
+
+void Settings::setSimulatorEnabled(bool on) {
+    if (on == simEnabled_) return;
+    simEnabled_ = on;
+    QSettings().setValue(QLatin1String(kSimOn), on);
+    emit simulatorEnabledChanged(on);
+}
+
+void Settings::setSimulatorPosition(double lat, double lon) {
+    if (lat == simLat_ && lon == simLon_) return;
+    simLat_ = lat; simLon_ = lon;
+    QSettings s;
+    s.setValue(QLatin1String(kSimLat), lat);
+    s.setValue(QLatin1String(kSimLon), lon);
+}
+
+void Settings::setStaleThresholds(double staleS, double invalidS) {
+    if (staleS == staleSeconds_ && invalidS == invalidSeconds_) return;
+    staleSeconds_   = staleS;
+    invalidSeconds_ = invalidS;
+    QSettings s;
+    s.setValue(QLatin1String(kStaleS),   staleS);
+    s.setValue(QLatin1String(kInvalidS), invalidS);
+    emit staleThresholdsChanged(staleS, invalidS);
 }
 
 void Settings::setBasemapDirectory(const QString& dir) {

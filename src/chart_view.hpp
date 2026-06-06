@@ -15,6 +15,7 @@
 #include <memory>
 #include "chart_loader.hpp"
 #include "feature_cache.hpp"
+#include "nav_data_store.hpp"   // OwnshipState, NavFreshness
 
 class ChartCatalog;
 class QTimer;
@@ -83,6 +84,10 @@ public:
     // of the standard install locations. Loads the basemap underlay async.
     void setBasemapDirectory(const QString& dir);
 
+    // Ownship overlay: the view subscribes to a NavDataStore and draws the
+    // ownship symbol over the chart, with appearance reflecting freshness.
+    void setOwnship(const OwnshipState& s, NavFreshness f);
+
     // Restore the view (center in degrees + zoom) on the next catalog load
     // instead of fitting. One-shot: consumed on the next load.
     void setInitialView(double lon, double lat, double scale);
@@ -148,6 +153,8 @@ private:
     bool symbolVisible()   const { return showSymbols_   && pointLodVisible_; }
     bool contourVisible()  const { return showDepthContours_; }
 
+    void drawOwnship(QPainter& p, const QTransform& cam);
+
     // Camera state (scene metres = projected Mercator, Y flipped north-up).
     double scx_ = 0.0;
     double scy_ = 0.0;
@@ -196,4 +203,7 @@ private:
 
     bool    dragging_ = false;
     QPointF lastDragPos_;
+
+    OwnshipState ownship_;
+    NavFreshness ownshipFreshness_ = NavFreshness::Invalid;
 };
