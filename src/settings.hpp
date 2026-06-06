@@ -30,12 +30,20 @@ public:
     // The user's defined chart sets, in menu order.
     const QVector<ChartSet>& chartSets() const { return chartSets_; }
 
+    // Last view location, so the app reopens where the user left off. The view
+    // is the center in geographic degrees plus the zoom (scene pixels per metre).
+    bool hasSavedView() const { return viewScale_ > 0.0; }
+    double viewLon() const { return viewLon_; }
+    double viewLat() const { return viewLat_; }
+    double viewScale() const { return viewScale_; }
+
 public slots:
     void setChartDirectory(const QString& dir);
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
     void setChartSets(const QVector<ChartSet>& sets);
+    void setView(double lon, double lat, double scale);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -53,4 +61,7 @@ private:
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
     QVector<ChartSet> chartSets_;
+    double viewLon_ = 0.0;
+    double viewLat_ = 0.0;
+    double viewScale_ = 0.0;   // 0 => no saved view
 };

@@ -1,14 +1,14 @@
 #pragma once
-#include <QGraphicsView>
-#include <QGraphicsScene>
-#include <QThreadPool>
+#include <QWidget>
 #include <QHash>
 #include <QSet>
-#include <QVector>
 #include <QString>
 #include <QPainterPath>
 #include <QColor>
 #include <QPointF>
+#include <QRectF>
+#include <QTransform>
+#include <QThreadPool>
 #include <vector>
 #include <utility>
 #include <memory>
@@ -17,7 +17,6 @@
 
 class ChartCatalog;
 class QTimer;
-class QGraphicsItem;
 
 // Result handed back from a worker thread after loading one cell.
 struct CellLoadResult {
@@ -28,11 +27,13 @@ struct CellLoadResult {
     QString error;
 };
 
-// One ready-to-instantiate vector primitive: a clipped, simplified path plus its
-// style. Built entirely on a worker thread (QPainterPath/QColor are value types,
-// safe off the GUI thread); the UI thread only wraps these in QGraphicsItems.
+// One ready-to-draw vector primitive: a clipped, simplified path plus its style.
+// Built on a worker thread (QPainterPath/QColor are value types, safe off the
+// GUI thread); the UI thread draws it directly through the camera transform.
+// Coordinates are scene metres: projected Mercator with Y flipped so north is up.
 struct BuiltPath {
     QPainterPath path;
+    QRectF bounds;             // path.boundingRect(), for view culling
     double z = 0.0;
     bool   filled = false;     // true: area (use brush); false: line (pen only)
     QColor brush;
@@ -42,46 +43,60 @@ struct BuiltPath {
     bool   isDepthContour = false;
 };
 
-// A whole cell, clipped to a region and ready to drop into the scene. Contains
-// no QGraphicsItems — just the worker-built primitives and point positions.
+// A whole cell, clipped to a region and ready to draw. drawOffsetX shifts it by a
+// whole-world width so cells near the date line can be drawn on the far side of
+// the 180° seam (longitude wrap-around).
 struct BuiltCell {
     QString path;
     int  band = 0;
-    BBox clipBox;
-    std::vector<BuiltPath> paths;
-    std::vector<std::pair<QPointF, QString>> soundings;  // scene coords + label
-    std::vector<QPointF> symbols;                        // scene coords
+    BBox clipBox;                                          // region (real frame)
+    double drawOffsetX = 0.0;                              // scene-X wrap offset
+    std::vector<BuiltPath> paths;                          // sorted by z
+    std::vector<std::pair<QPointF, QString>> soundings;    // scene pos + label
+    std::vector<QPointF> symbols;                          // scene pos
 };
 
-// Canvas that shows only the ENC cells intersecting the current view, choosing a
-// usage band by zoom level and loading cells asynchronously as the view moves.
-class ChartView : public QGraphicsView {
+// Chart canvas with a camera-based renderer.
+//
+// The view is a camera: a center point in projected Mercator metres (scene
+// coordinates) plus a zoom in pixels-per-metre. Geometry is painted directly
+// with QPainter through the camera transform, rather than via QGraphicsScene.
+// This makes panning truly unbounded and — because Mercator longitude is linear
+// in X with period worldWidth — lets us wrap at the 180° seam by drawing cells
+// shifted by whole-world widths. It also leaves a clean place to draw a
+// worldwide basemap underlay beneath the cells.
+class ChartView : public QWidget {
     Q_OBJECT
 public:
     explicit ChartView(QWidget* parent = nullptr);
 
-    // Attach the catalog; the view reacts to its finished() signal.
     void setCatalog(ChartCatalog* catalog);
-
     void fitToCatalog();
 
-    // Chart display settings (driven by the core Settings object). Each toggles
-    // a category of already-loaded items and is honored as new cells load.
+    // Chart display settings (driven by the core Settings object).
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
 
+    // Restore the view (center in degrees + zoom) on the next catalog load
+    // instead of fitting. One-shot: consumed on the next load.
+    void setInitialView(double lon, double lat, double scale);
+    // Emit viewChanged immediately with the current view (e.g. on app close).
+    void persistViewNow();
+
 signals:
     void cursorMoved(double lon, double lat);
-    void statusChanged(const QString& text);  // e.g. "Band 5 · 7 cells"
+    void statusChanged(const QString& text);
+    // Debounced after panning/zooming; carries the view center (degrees) + zoom.
+    void viewChanged(double lon, double lat, double scale);
 
 protected:
+    void paintEvent(QPaintEvent* e) override;
     void wheelEvent(QWheelEvent* e) override;
     void mousePressEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* e) override;
+    void mouseReleaseEvent(QMouseEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
-    void drawBackground(QPainter* p, const QRectF& rect) override;
-    void drawForeground(QPainter* p, const QRectF& rect) override;
 
 private slots:
     void onCatalogFinished(bool ok, const QString& message);
@@ -89,69 +104,66 @@ private slots:
     void updateVisibleCells();
 
 private:
-    struct LoadedCell {
-        QVector<QGraphicsItem*> items;      // everything for this cell
-        QVector<QGraphicsItem*> soundings;  // depth figures (LOD + user toggle)
-        QVector<QGraphicsItem*> symbols;    // point objects (LOD + user toggle)
-        QVector<QGraphicsItem*> contours;   // depth contour lines (user toggle)
-        int  band = 0;
-        BBox clipBox;                       // region this cell's geometry was clipped to
-    };
-
     void dispatchLoad(const QString& path);
     void onCellLoaded(CellLoadResult r, quint64 gen);
-
-    // Clip + simplify + build a cell's vector primitives on a worker thread,
-    // then instantiate the resulting QGraphicsItems on the UI thread. Building
-    // off-thread keeps panning across cell boundaries from hitching the UI.
     void dispatchBuild(const QString& path, FeatureCache::FeaturesPtr feats,
-                       int band, const BBox& clipBox);
-    void onCellBuilt(BuiltCell bc, quint64 gen);
-    // Turn a worker-built cell into scene items, replacing any existing items for
-    // that path. New items are added before the old ones are removed, so a
-    // re-clip never shows a blank frame.
-    void instantiateCell(const BuiltCell& bc);
+                       int band, const BBox& clipBox, double drawOffsetX);
+    void onCellBuilt(BuiltCell bc, quint64 gen, double drawOffsetX);
+    void storeCell(BuiltCell bc);
     void removeCell(const QString& path);
     void clearAll();
     void updatePointLOD();
 
-    // Current viewport expressed as world boxes (projected, north-up) plus the
-    // zoom-appropriate target band. Returns false if the transform isn't usable
-    // yet. wanted = load/clip-trigger region, keep = clip + unload region.
     bool computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& target) const;
-
     static int  bandForVisibleWidth(double metres);
     static BBox expandBox(const BBox& b, double frac);
+    static BBox shiftX(const BBox& b, double dx);
 
-    // Temporarily disable antialiasing while panning/zooming; an idle timer
-    // restores it once the gesture stops.
-    void beginInteraction();
+    // Camera ----------------------------------------------------------------
+    QTransform cameraTransform() const;     // scene metres -> screen pixels
+    QPointF screenToScene(const QPointF& screen) const;
+    static double worldWidthM();            // scene width of 360° of longitude
+    void   normalizeCenter();               // wrap center X into [-W, W)
+    double wrapOffsetFor(double cellCenterX) const;  // nearest whole-world shift
+    void   restoreView(double lon, double lat, double scale);
+    bool   currentView(double& lon, double& lat, double& scale) const;
+    void   beginInteraction();
 
-    // Effective visibility for each toggled category: the user's preference
-    // combined with the zoom-driven LOD where it applies.
     bool soundingVisible() const { return showSoundings_ && pointLodVisible_; }
     bool symbolVisible()   const { return showSymbols_   && pointLodVisible_; }
     bool contourVisible()  const { return showDepthContours_; }
 
-    QGraphicsScene scene_;
-    ChartCatalog*  catalog_ = nullptr;
-    QThreadPool    pool_;
-    QTimer*        updateTimer_ = nullptr;
-    QTimer*        aaTimer_ = nullptr;     // restores antialiasing after a gesture
+    // Camera state (scene metres = projected Mercator, Y flipped north-up).
+    double scx_ = 0.0;
+    double scy_ = 0.0;
+    double ppm_ = 0.0;     // pixels per metre; 0 until a catalog/view is set
 
-    QHash<QString, LoadedCell> loaded_;
-    QHash<QString, int>        bandByPath_;   // band for every cataloged cell
-    QHash<QString, BBox>       bboxByPath_;   // footprint for every cataloged cell
-    FeatureCache               cache_;        // LRU of parsed cells, keyed by path
-    QSet<QString>  inFlight_;     // cells whose parse is running on a worker
-    QSet<QString>  building_;      // cells whose clip/build is running on a worker
-    QSet<QString>  wanted_;       // last computed wanted set (for late arrivals)
-    quint64        generation_ = 0;
+    ChartCatalog* catalog_ = nullptr;
+    QThreadPool   pool_;
+    QTimer*       updateTimer_ = nullptr;
+    QTimer*       aaTimer_ = nullptr;
+    QTimer*       saveTimer_ = nullptr;
+
+    QHash<QString, BuiltCell> loaded_;
+    QHash<QString, int>       bandByPath_;
+    QHash<QString, BBox>      bboxByPath_;
+    FeatureCache              cache_;
+    QSet<QString> inFlight_;     // parse running on a worker
+    QSet<QString> building_;     // clip/build running on a worker
+    QSet<QString> wanted_;       // last computed wanted set
+    quint64       generation_ = 0;
+
+    bool   havePendingView_ = false;
+    double pendingLon_ = 0.0, pendingLat_ = 0.0, pendingScale_ = 0.0;
 
     bool haveCatalog_ = false;
+    bool interacting_ = false;        // drop antialiasing mid-gesture
     bool pointLodVisible_ = true;     // soundings/symbols shown at this zoom (LOD)
-    bool showSoundings_ = true;       // user preference (from Settings)
+    bool showSoundings_ = true;
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
     bool userInteracted_ = false;
+
+    bool    dragging_ = false;
+    QPointF lastDragPos_;
 };
