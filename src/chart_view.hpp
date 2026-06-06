@@ -6,7 +6,11 @@
 #include <QSet>
 #include <QVector>
 #include <QString>
+#include <QPainterPath>
+#include <QColor>
+#include <QPointF>
 #include <vector>
+#include <utility>
 #include <memory>
 #include "chart_loader.hpp"
 #include "feature_cache.hpp"
@@ -22,6 +26,31 @@ struct CellLoadResult {
     BBox bbox;
     bool ok = false;
     QString error;
+};
+
+// One ready-to-instantiate vector primitive: a clipped, simplified path plus its
+// style. Built entirely on a worker thread (QPainterPath/QColor are value types,
+// safe off the GUI thread); the UI thread only wraps these in QGraphicsItems.
+struct BuiltPath {
+    QPainterPath path;
+    double z = 0.0;
+    bool   filled = false;     // true: area (use brush); false: line (pen only)
+    QColor brush;
+    bool   hasPen = false;
+    QColor penColor;
+    qreal  penWidth = 1.0;
+    bool   isDepthContour = false;
+};
+
+// A whole cell, clipped to a region and ready to drop into the scene. Contains
+// no QGraphicsItems — just the worker-built primitives and point positions.
+struct BuiltCell {
+    QString path;
+    int  band = 0;
+    BBox clipBox;
+    std::vector<BuiltPath> paths;
+    std::vector<std::pair<QPointF, QString>> soundings;  // scene coords + label
+    std::vector<QPointF> symbols;                        // scene coords
 };
 
 // Canvas that shows only the ENC cells intersecting the current view, choosing a
@@ -71,10 +100,17 @@ private:
 
     void dispatchLoad(const QString& path);
     void onCellLoaded(CellLoadResult r, quint64 gen);
-    // Build (or rebuild) one cell's scene items from parsed features, clipping
-    // geometry to clipBox. Replaces any existing items for that path.
-    void addCell(const QString& path, const std::vector<Feature>& feats,
-                 int band, const BBox& clipBox);
+
+    // Clip + simplify + build a cell's vector primitives on a worker thread,
+    // then instantiate the resulting QGraphicsItems on the UI thread. Building
+    // off-thread keeps panning across cell boundaries from hitching the UI.
+    void dispatchBuild(const QString& path, FeatureCache::FeaturesPtr feats,
+                       int band, const BBox& clipBox);
+    void onCellBuilt(BuiltCell bc, quint64 gen);
+    // Turn a worker-built cell into scene items, replacing any existing items for
+    // that path. New items are added before the old ones are removed, so a
+    // re-clip never shows a blank frame.
+    void instantiateCell(const BuiltCell& bc);
     void removeCell(const QString& path);
     void clearAll();
     void updatePointLOD();
@@ -87,6 +123,10 @@ private:
     static int  bandForVisibleWidth(double metres);
     static BBox expandBox(const BBox& b, double frac);
 
+    // Temporarily disable antialiasing while panning/zooming; an idle timer
+    // restores it once the gesture stops.
+    void beginInteraction();
+
     // Effective visibility for each toggled category: the user's preference
     // combined with the zoom-driven LOD where it applies.
     bool soundingVisible() const { return showSoundings_ && pointLodVisible_; }
@@ -97,12 +137,14 @@ private:
     ChartCatalog*  catalog_ = nullptr;
     QThreadPool    pool_;
     QTimer*        updateTimer_ = nullptr;
+    QTimer*        aaTimer_ = nullptr;     // restores antialiasing after a gesture
 
     QHash<QString, LoadedCell> loaded_;
     QHash<QString, int>        bandByPath_;   // band for every cataloged cell
     QHash<QString, BBox>       bboxByPath_;   // footprint for every cataloged cell
     FeatureCache               cache_;        // LRU of parsed cells, keyed by path
-    QSet<QString>  inFlight_;
+    QSet<QString>  inFlight_;     // cells whose parse is running on a worker
+    QSet<QString>  building_;      // cells whose clip/build is running on a worker
     QSet<QString>  wanted_;       // last computed wanted set (for late arrivals)
     quint64        generation_ = 0;
 

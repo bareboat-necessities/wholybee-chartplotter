@@ -19,7 +19,7 @@
 // The cached value is the *full* parse for the cell, independent of any
 // viewport. Per-region clipping happens later, when scene items are built, so
 // the same cached cell can be re-clipped to a new viewport for free (no
-// reload) — see ChartView::addCell.
+// reload) — see buildCell / ChartView::instantiateCell.
 //
 // Memory is bounded by two soft limits: a byte budget and a maximum entry
 // count. When a `put` pushes the cache over either limit, least-recently-used
