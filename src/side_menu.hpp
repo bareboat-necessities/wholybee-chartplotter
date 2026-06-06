@@ -33,6 +33,7 @@ signals:
     void fitRequested();
     void chartSetSelected(const QString& directory);  // user tapped a set to load
     void manageChartSetsRequested();                  // open the Chart Sets dialog
+    void basemapFolderRequested();                    // pick the GSHHG data folder
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

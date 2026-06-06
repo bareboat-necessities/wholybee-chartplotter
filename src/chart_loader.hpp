@@ -72,4 +72,11 @@ bool computeCellExtentLonLat(const std::string& path,
                              double& minLon, double& minLat,
                              double& maxLon, double& maxLat, std::string& err);
 
+// Load a GSHHG basemap tier into projected features: GSHHS L1 land polygons
+// (LandArea) and L2 lakes (DepthArea, drawn as water). `gshhgRoot` is the folder
+// containing GSHHS_shp/<tier>/; `tier` is one of c/l/i/h/f. Heavy — call from a
+// worker thread. Returns false if the L1 shapefile can't be opened.
+bool loadBasemap(const std::string& gshhgRoot, const std::string& tier,
+                 std::vector<Feature>& out, std::string& err);
+
 } // namespace chart

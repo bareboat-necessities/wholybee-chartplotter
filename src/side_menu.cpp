@@ -113,6 +113,11 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit manageChartSetsRequested(); });
     col->addWidget(chartSetsBtn);
 
+    auto* basemapBtn = makeAction(QStringLiteral("Basemap Folder…"));
+    connect(basemapBtn, &QPushButton::clicked, this,
+            [this] { emit basemapFolderRequested(); });
+    col->addWidget(basemapBtn);
+
     col->addStretch(1);
 
     auto* backBtn = makeAction(QStringLiteral("Back"));

@@ -30,6 +30,11 @@ public:
     // The user's defined chart sets, in menu order.
     const QVector<ChartSet>& chartSets() const { return chartSets_; }
 
+    // Folder holding the GSHHG basemap data (contains GSHHS_shp/). Empty means
+    // "search the standard locations"; an explicit path also lets the user point
+    // at a higher-resolution tier they dropped in.
+    QString basemapDirectory() const { return basemapDir_; }
+
     // Last view location, so the app reopens where the user left off. The view
     // is the center in geographic degrees plus the zoom (scene pixels per metre).
     bool hasSavedView() const { return viewScale_ > 0.0; }
@@ -44,6 +49,7 @@ public slots:
     void setShowDepthContours(bool on);
     void setChartSets(const QVector<ChartSet>& sets);
     void setView(double lon, double lat, double scale);
+    void setBasemapDirectory(const QString& dir);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -51,6 +57,7 @@ signals:
     void showSymbolsChanged(bool on);
     void showDepthContoursChanged(bool on);
     void chartSetsChanged();
+    void basemapDirectoryChanged(const QString& dir);
 
 private:
     void loadChartSets();
@@ -61,6 +68,7 @@ private:
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
     QVector<ChartSet> chartSets_;
+    QString basemapDir_;
     double viewLon_ = 0.0;
     double viewLat_ = 0.0;
     double viewScale_ = 0.0;   // 0 => no saved view

@@ -21,6 +21,7 @@ protected:
 private slots:
     void onChartSetSelected(const QString& dir);
     void manageChartSets();
+    void chooseBasemapFolder();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
     void onScanFinished(bool ok, const QString& message);

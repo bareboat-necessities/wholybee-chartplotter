@@ -78,6 +78,10 @@ public:
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
 
+    // Folder holding GSHHG data (containing GSHHS_shp/). Empty triggers a search
+    // of the standard install locations. Loads the basemap underlay async.
+    void setBasemapDirectory(const QString& dir);
+
     // Restore the view (center in degrees + zoom) on the next catalog load
     // instead of fitting. One-shot: consumed on the next load.
     void setInitialView(double lon, double lat, double scale);
@@ -113,6 +117,13 @@ private:
     void removeCell(const QString& path);
     void clearAll();
     void updatePointLOD();
+
+    // Basemap (GSHHG land/lakes underlay) -----------------------------------
+    void reloadBasemap();          // resolve directory + load features async
+    void onBasemapLoaded(FeatureCache::FeaturesPtr feats);
+    void ensureViewForBasemap();   // whole-world view when basemap shows w/o charts
+    void maybeBuildBasemap();      // rebuild clipped/simplified copies if needed
+    void onBasemapBuilt(std::vector<BuiltCell> cells, FeatureCache::FeaturesPtr feats);
 
     bool computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& target) const;
     static int  bandForVisibleWidth(double metres);
@@ -152,6 +163,16 @@ private:
     QSet<QString> building_;     // clip/build running on a worker
     QSet<QString> wanted_;       // last computed wanted set
     quint64       generation_ = 0;
+
+    // Basemap state. basemap_ holds the clipped/simplified copies (one per wrap
+    // offset) currently drawn beneath the cells.
+    QString                   basemapDir_;
+    FeatureCache::FeaturesPtr basemapFeats_;
+    std::vector<BuiltCell>    basemap_;
+    BBox    basemapClipBox_;          // region basemap_ was built for (k=0 frame)
+    double  basemapBuiltPpm_ = 0.0;   // zoom basemap_ was simplified for
+    bool    basemapLoading_ = false;
+    bool    basemapBuilding_ = false;
 
     bool   havePendingView_ = false;
     double pendingLon_ = 0.0, pendingLat_ = 0.0, pendingScale_ = 0.0;
