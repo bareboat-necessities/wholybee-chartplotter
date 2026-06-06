@@ -52,6 +52,10 @@ public:
     double staleSeconds()   const { return staleSeconds_; }
     double invalidSeconds() const { return invalidSeconds_; }
 
+    // Length of the ownship course-prediction line, in minutes of run-time at
+    // the current SOG. Drawn from the bow along the boat's heading.
+    double ownshipPredictionMinutes() const { return ownshipPredMin_; }
+
 public slots:
     void setChartDirectory(const QString& dir);
     void setShowSoundings(bool on);
@@ -63,6 +67,7 @@ public slots:
     void setSimulatorEnabled(bool on);
     void setSimulatorPosition(double lat, double lon);
     void setStaleThresholds(double staleS, double invalidS);
+    void setOwnshipPredictionMinutes(double minutes);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -73,6 +78,7 @@ signals:
     void basemapDirectoryChanged(const QString& dir);
     void simulatorEnabledChanged(bool on);
     void staleThresholdsChanged(double staleS, double invalidS);
+    void ownshipPredictionMinutesChanged(double minutes);
 
 private:
     void loadChartSets();
@@ -92,4 +98,5 @@ private:
     double simLon_ = -123.0;
     double staleSeconds_   = 5.0;
     double invalidSeconds_ = 30.0;
+    double ownshipPredMin_ = 6.0;   // minutes of run-time ahead
 };

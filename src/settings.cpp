@@ -18,6 +18,7 @@ constexpr auto kSimLat    = "sim/lat";
 constexpr auto kSimLon    = "sim/lon";
 constexpr auto kStaleS    = "nav/staleSeconds";
 constexpr auto kInvalidS  = "nav/invalidSeconds";
+constexpr auto kPredMin   = "ships/ownshipPredictionMinutes";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -45,6 +46,7 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     }
     staleSeconds_   = s.value(QLatin1String(kStaleS),   5.0).toDouble();
     invalidSeconds_ = s.value(QLatin1String(kInvalidS), 30.0).toDouble();
+    ownshipPredMin_ = s.value(QLatin1String(kPredMin),  6.0).toDouble();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -114,6 +116,13 @@ void Settings::setSimulatorPosition(double lat, double lon) {
     QSettings s;
     s.setValue(QLatin1String(kSimLat), lat);
     s.setValue(QLatin1String(kSimLon), lon);
+}
+
+void Settings::setOwnshipPredictionMinutes(double minutes) {
+    if (minutes == ownshipPredMin_) return;
+    ownshipPredMin_ = minutes;
+    QSettings().setValue(QLatin1String(kPredMin), minutes);
+    emit ownshipPredictionMinutesChanged(minutes);
 }
 
 void Settings::setStaleThresholds(double staleS, double invalidS) {
