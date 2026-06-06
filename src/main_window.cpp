@@ -37,6 +37,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
 
+    // Ownship course-prediction length (minutes), persisted via Settings.
+    view_->setOwnshipPredictionMinutes(settings_->ownshipPredictionMinutes());
+    connect(settings_, &Settings::ownshipPredictionMinutesChanged,
+            view_, &ChartView::setOwnshipPredictionMinutes);
+
     // Basemap underlay: load from the configured folder (or a standard location)
     // and keep it in sync if the user picks a different one.
     view_->setBasemapDirectory(settings_->basemapDirectory());
@@ -82,7 +87,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::chartSetSelected,         this,  &MainWindow::onChartSetSelected);
     connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
     connect(sideMenu_, &SideMenu::basemapFolderRequested,   this,  &MainWindow::chooseBasemapFolder);
-    connect(sideMenu_, &SideMenu::editStaleThresholdsRequested, this, &MainWindow::editStaleThresholds);
+    connect(sideMenu_, &SideMenu::editStaleThresholdsRequested,     this, &MainWindow::editStaleThresholds);
+    connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
@@ -163,6 +169,16 @@ void MainWindow::editStaleThresholds() {
         std::max(settings_->invalidSeconds(), s + 1.0), s + 0.5, 3600.0, 1, &ok);
     if (!ok) return;
     settings_->setStaleThresholds(s, inv);
+}
+
+void MainWindow::editOwnshipPrediction() {
+    bool ok = false;
+    const double m = QInputDialog::getDouble(
+        this, QStringLiteral("Ownship Course Prediction"),
+        QStringLiteral("Length of the course prediction line (minutes):"),
+        settings_->ownshipPredictionMinutes(), 0.5, 120.0, 1, &ok);
+    if (!ok) return;
+    settings_->setOwnshipPredictionMinutes(m);
 }
 
 void MainWindow::publishOwnshipToView() {

@@ -87,6 +87,8 @@ public:
     // Ownship overlay: the view subscribes to a NavDataStore and draws the
     // ownship symbol over the chart, with appearance reflecting freshness.
     void setOwnship(const OwnshipState& s, NavFreshness f);
+    // Length of the course-prediction line, in minutes of run-time at SOG.
+    void setOwnshipPredictionMinutes(double minutes);
 
     // Restore the view (center in degrees + zoom) on the next catalog load
     // instead of fitting. One-shot: consumed on the next load.
@@ -206,4 +208,5 @@ private:
 
     OwnshipState ownship_;
     NavFreshness ownshipFreshness_ = NavFreshness::Invalid;
+    double       ownshipPredMin_ = 6.0;   // predictor length (minutes)
 };

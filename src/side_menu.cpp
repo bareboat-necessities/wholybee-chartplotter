@@ -108,6 +108,7 @@ QWidget* SideMenu::buildSettingsPage() {
     col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(0);
 
+    col->addWidget(makeHeader(QStringLiteral("Charts")));
     auto* chartSetsBtn = makeAction(QStringLiteral("Chart Sets"));
     connect(chartSetsBtn, &QPushButton::clicked, this,
             [this] { emit manageChartSetsRequested(); });
@@ -118,7 +119,7 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit basemapFolderRequested(); });
     col->addWidget(basemapBtn);
 
-    col->addWidget(makeHeader(QStringLiteral("Navigation")));
+    col->addWidget(makeHeader(QStringLiteral("Data Connections")));
     auto* sim = makeToggle(QStringLiteral("Simulator"), settings_->simulatorEnabled());
     connect(sim, &QPushButton::toggled, settings_, &Settings::setSimulatorEnabled);
     // Keep the toggle in sync if the setting changes elsewhere.
@@ -130,6 +131,12 @@ QWidget* SideMenu::buildSettingsPage() {
     connect(staleBtn, &QPushButton::clicked, this,
             [this] { emit editStaleThresholdsRequested(); });
     col->addWidget(staleBtn);
+
+    col->addWidget(makeHeader(QStringLiteral("Ships")));
+    auto* predBtn = makeAction(QStringLiteral("Ownship Course Prediction…"));
+    connect(predBtn, &QPushButton::clicked, this,
+            [this] { emit editOwnshipPredictionRequested(); });
+    col->addWidget(predBtn);
 
     col->addStretch(1);
 

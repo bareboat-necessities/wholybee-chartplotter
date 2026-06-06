@@ -25,6 +25,7 @@ private slots:
     void manageChartSets();
     void chooseBasemapFolder();
     void editStaleThresholds();
+    void editOwnshipPrediction();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);

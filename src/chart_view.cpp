@@ -882,6 +882,12 @@ void ChartView::setOwnship(const OwnshipState& s, NavFreshness f) {
     update();
 }
 
+void ChartView::setOwnshipPredictionMinutes(double minutes) {
+    if (minutes == ownshipPredMin_) return;
+    ownshipPredMin_ = minutes;
+    update();
+}
+
 void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
     if (ownshipFreshness_ == NavFreshness::Invalid) return;
     if (!ownship_.latitudeDeg.has_value() || !ownship_.longitudeDeg.has_value()) return;
@@ -908,16 +914,20 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
     p.translate(d);
     if (haveHeading) p.rotate(headingDeg);
 
-    // A 1-minute predictor line ahead (length scaled by SOG, capped). Drawn
-    // before the triangle so the symbol sits on top.
-    if (ownship_.sogKnots.value_or(0.0) > 0.1) {
-        const double mppx = (ppm_ > 0.0) ? 1.0 / ppm_ : 0.0;
-        const double dist_m = (*ownship_.sogKnots) * (1852.0 / 60.0);   // 1 min
-        double len = (mppx > 0.0) ? dist_m / mppx : 0.0;
-        len = std::clamp(len, 12.0, 120.0);
-        QPen line(QColor(20, 20, 20, 220)); line.setWidthF(1.5);
-        p.setPen(line);
-        p.drawLine(QPointF(0, 0), QPointF(0, -len));
+    // Course-prediction line ahead of the boat: where it will be in
+    // ownshipPredMin_ minutes at the current SOG. Drawn before the triangle so
+    // the symbol sits on top. No clamping — the line represents an actual
+    // predicted distance the user configured.
+    if (ownship_.sogKnots.value_or(0.0) > 0.1 && ppm_ > 0.0 &&
+        ownshipPredMin_ > 0.0) {
+        const double dist_m = (*ownship_.sogKnots) * (1852.0 / 60.0)
+                              * ownshipPredMin_;
+        const double len = dist_m * ppm_;
+        if (len >= 1.0) {
+            QPen line(QColor(20, 20, 20, 220)); line.setWidthF(1.5);
+            p.setPen(line);
+            p.drawLine(QPointF(0, 0), QPointF(0, -len));
+        }
     }
 
     // Triangle pointing along heading (or COG fallback). Dimmer when stale.
