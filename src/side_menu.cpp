@@ -4,6 +4,10 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QVBoxLayout>
+#include <QStackedWidget>
+#include <QScrollArea>
+#include <QScroller>
+#include <QFrame>
 #include <QPropertyAnimation>
 #include <QEvent>
 #include <QMouseEvent>
@@ -23,29 +27,50 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     panel_->setStyleSheet(QStringLiteral(
         "background:#fbfbfb; border-right:1px solid #c8c8c8;"));
 
-    auto* col = new QVBoxLayout(panel_);
+    auto* outer = new QVBoxLayout(panel_);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+
+    title_ = new QLabel(QStringLiteral("Menu"), panel_);
+    title_->setStyleSheet(QStringLiteral(
+        "font-size:18px; font-weight:600; padding:18px 20px;"
+        "background:#1a3a5c; color:white;"));
+    outer->addWidget(title_);
+
+    stack_ = new QStackedWidget(panel_);
+    mainIndex_     = stack_->addWidget(wrapScroll(buildMainPage()));
+    settingsIndex_ = stack_->addWidget(wrapScroll(buildSettingsPage()));
+    outer->addWidget(stack_, 1);
+
+    anim_ = new QPropertyAnimation(panel_, "geometry", this);
+    anim_->setDuration(160);
+    connect(anim_, &QPropertyAnimation::finished, this, [this] {
+        if (!open_) setVisible(false);   // hide overlay once the slide-out ends
+    });
+
+    // Keep the chart-set list (and its active highlight) current.
+    connect(settings_, &Settings::chartSetsChanged, this, &SideMenu::rebuildChartSets);
+    connect(settings_, &Settings::chartDirectoryChanged,
+            this, [this](const QString&) { rebuildChartSets(); });
+
+    if (parent) parent->installEventFilter(this);
+}
+
+// ---- page construction ----------------------------------------------------
+
+QWidget* SideMenu::buildMainPage() {
+    auto* page = new QWidget;
+    auto* col = new QVBoxLayout(page);
     col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(0);
 
-    auto* title = new QLabel(QStringLiteral("Menu"), panel_);
-    title->setStyleSheet(QStringLiteral(
-        "font-size:18px; font-weight:600; padding:18px 20px;"
-        "background:#1a3a5c; color:white;"));
-    col->addWidget(title);
-
     col->addWidget(makeHeader(QStringLiteral("Chart Sets")));
-    auto* selectBtn = makeAction(QStringLiteral("Select Folder…"));
-    connect(selectBtn, &QPushButton::clicked, this, [this] {
-        emit selectFolderRequested();
-        closeMenu();
-    });
-    col->addWidget(selectBtn);
-    auto* rescanBtn = makeAction(QStringLiteral("Rescan Charts"));
-    connect(rescanBtn, &QPushButton::clicked, this, [this] {
-        emit rescanRequested();
-        closeMenu();
-    });
-    col->addWidget(rescanBtn);
+    auto* setsHolder = new QWidget(page);
+    chartSetsBox_ = new QVBoxLayout(setsHolder);
+    chartSetsBox_->setContentsMargins(0, 0, 0, 0);
+    chartSetsBox_->setSpacing(0);
+    col->addWidget(setsHolder);
+    rebuildChartSets();
 
     col->addWidget(makeHeader(QStringLiteral("View")));
     auto* fitBtn = makeAction(QStringLiteral("Fit to Charts"));
@@ -67,21 +92,103 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
 
     col->addStretch(1);
 
+    auto* settingsBtn = makeAction(QStringLiteral("Settings"));
+    connect(settingsBtn, &QPushButton::clicked, this, &SideMenu::showSettingsPage);
+    col->addWidget(settingsBtn);
     auto* closeBtn = makeAction(QStringLiteral("Close"));
     connect(closeBtn, &QPushButton::clicked, this, &SideMenu::closeMenu);
     col->addWidget(closeBtn);
 
-    anim_ = new QPropertyAnimation(panel_, "geometry", this);
-    anim_->setDuration(160);
-    connect(anim_, &QPropertyAnimation::finished, this, [this] {
-        if (!open_) setVisible(false);   // hide overlay once the slide-out ends
-    });
-
-    if (parent) parent->installEventFilter(this);
+    return page;
 }
 
+QWidget* SideMenu::buildSettingsPage() {
+    auto* page = new QWidget;
+    auto* col = new QVBoxLayout(page);
+    col->setContentsMargins(0, 0, 0, 0);
+    col->setSpacing(0);
+
+    auto* chartSetsBtn = makeAction(QStringLiteral("Chart Sets"));
+    connect(chartSetsBtn, &QPushButton::clicked, this,
+            [this] { emit manageChartSetsRequested(); });
+    col->addWidget(chartSetsBtn);
+
+    col->addStretch(1);
+
+    auto* backBtn = makeAction(QStringLiteral("Back"));
+    connect(backBtn, &QPushButton::clicked, this, &SideMenu::showMainPage);
+    col->addWidget(backBtn);
+
+    return page;
+}
+
+QWidget* SideMenu::wrapScroll(QWidget* content) {
+    // Let a page scroll when its items are taller than the panel, so the content
+    // is always sized by its items (never squeezed by the layout) and the list
+    // can grow as more chart sets are added.
+    auto* area = new QScrollArea;
+    area->setWidget(content);
+    area->setWidgetResizable(true);      // size content to items; scroll if taller
+    area->setFrameShape(QFrame::NoFrame);
+    area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    area->setStyleSheet(QStringLiteral("QScrollArea, QScrollArea > QWidget > QWidget"
+                                       "{ background:#fbfbfb; }"));
+    // Touch: drag anywhere to scroll (kinetic). Taps still hit the buttons.
+    QScroller::grabGesture(area->viewport(), QScroller::LeftMouseButtonGesture);
+    return area;
+}
+
+void SideMenu::rebuildChartSets() {
+    if (!chartSetsBox_) return;
+
+    // Drop the existing set buttons before rebuilding from current settings.
+    while (QLayoutItem* item = chartSetsBox_->takeAt(0)) {
+        if (QWidget* w = item->widget()) w->deleteLater();
+        delete item;
+    }
+
+    const QVector<ChartSet>& sets = settings_->chartSets();
+    if (sets.isEmpty()) {
+        auto* empty = new QLabel(
+            QStringLiteral("No chart sets yet.\nAdd one in Settings → Chart Sets."));
+        empty->setWordWrap(true);
+        empty->setStyleSheet(QStringLiteral("color:#888; padding:14px 24px; font-size:14px;"));
+        chartSetsBox_->addWidget(empty);
+        return;
+    }
+
+    const QString active = settings_->chartDirectory();
+    for (const ChartSet& cs : sets) {
+        const bool isActive = (cs.directory == active);
+        auto* b = makeAction((isActive ? QStringLiteral("✓  ")    // check mark
+                                        : QStringLiteral("     ")) + cs.name);
+        b->setToolTip(cs.directory);
+        if (isActive)
+            b->setStyleSheet(b->styleSheet() +
+                QStringLiteral("QPushButton{ color:#12407a; font-weight:600; }"));
+        const QString dir = cs.directory;
+        connect(b, &QPushButton::clicked, this, [this, dir] {
+            emit chartSetSelected(dir);
+            closeMenu();
+        });
+        chartSetsBox_->addWidget(b);
+    }
+}
+
+void SideMenu::showMainPage() {
+    stack_->setCurrentIndex(mainIndex_);
+    title_->setText(QStringLiteral("Menu"));
+}
+
+void SideMenu::showSettingsPage() {
+    stack_->setCurrentIndex(settingsIndex_);
+    title_->setText(QStringLiteral("Settings"));
+}
+
+// ---- widget factories -----------------------------------------------------
+
 QLabel* SideMenu::makeHeader(const QString& text) {
-    auto* h = new QLabel(text, panel_);
+    auto* h = new QLabel(text);
     h->setStyleSheet(QStringLiteral(
         "font-size:12px; font-weight:600; color:#5a5a5a;"
         "padding:14px 20px 6px 20px; background:#eef1f4;"));
@@ -89,7 +196,7 @@ QLabel* SideMenu::makeHeader(const QString& text) {
 }
 
 QPushButton* SideMenu::makeAction(const QString& text) {
-    auto* b = new QPushButton(text, panel_);
+    auto* b = new QPushButton(text);
     b->setMinimumHeight(56);   // comfortable touch target
     b->setCursor(Qt::PointingHandCursor);
     b->setStyleSheet(QStringLiteral(
@@ -100,7 +207,7 @@ QPushButton* SideMenu::makeAction(const QString& text) {
 }
 
 QPushButton* SideMenu::makeToggle(const QString& text, bool checked) {
-    auto* b = new QPushButton(panel_);
+    auto* b = new QPushButton();
     b->setCheckable(true);
     b->setMinimumHeight(56);
     b->setCursor(Qt::PointingHandCursor);
@@ -120,9 +227,12 @@ QPushButton* SideMenu::makeToggle(const QString& text, bool checked) {
     return b;
 }
 
+// ---- open/close + geometry ------------------------------------------------
+
 void SideMenu::openMenu() {
     if (open_) return;
     open_ = true;
+    showMainPage();   // always start on the main page
     if (parentWidget()) setGeometry(parentWidget()->rect());
     scrim_->setGeometry(rect());
     scrim_->lower();

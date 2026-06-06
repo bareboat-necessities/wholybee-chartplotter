@@ -18,8 +18,8 @@ protected:
     bool eventFilter(QObject* obj, QEvent* e) override;
 
 private slots:
-    void openFolder();
-    void rescan();
+    void onChartSetSelected(const QString& dir);
+    void manageChartSets();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
     void onScanFinished(bool ok, const QString& message);

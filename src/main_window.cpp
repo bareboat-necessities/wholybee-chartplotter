@@ -3,11 +3,11 @@
 #include "chart_catalog.hpp"
 #include "settings.hpp"
 #include "side_menu.hpp"
+#include "chart_sets_dialog.hpp"
 
 #include <QStatusBar>
 #include <QLabel>
 #include <QPushButton>
-#include <QFileDialog>
 #include <QMessageBox>
 #include <QDir>
 #include <QEvent>
@@ -40,9 +40,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Touch-first navigation: a floating menu button over the chart opens the
     // side drawer. No toolbar, no right-click, large tap targets.
     sideMenu_ = new SideMenu(settings_, view_);
-    connect(sideMenu_, &SideMenu::selectFolderRequested, this,  &MainWindow::openFolder);
-    connect(sideMenu_, &SideMenu::rescanRequested,       this,  &MainWindow::rescan);
-    connect(sideMenu_, &SideMenu::fitRequested,          view_, &ChartView::fitToCatalog);
+    connect(sideMenu_, &SideMenu::fitRequested,             view_, &ChartView::fitToCatalog);
+    connect(sideMenu_, &SideMenu::chartSetSelected,         this,  &MainWindow::onChartSetSelected);
+    connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
@@ -81,19 +81,16 @@ void MainWindow::positionMenuButton() {
         menuButton_->raise();   // stay above the chart, but never above an open menu
 }
 
-void MainWindow::openFolder() {
-    const QString start = root_.isEmpty() ? settings_->chartDirectory() : root_;
-    QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Select ENC Chart Root Folder"), start);
-    if (!dir.isEmpty()) {
-        settings_->setChartDirectory(dir);
-        startScan(dir);
-    }
+void MainWindow::onChartSetSelected(const QString& dir) {
+    // Tapping a set loads it; tapping the active set again re-scans it.
+    settings_->setChartDirectory(dir);
+    startScan(dir);
 }
 
-void MainWindow::rescan() {
-    if (!root_.isEmpty()) startScan(root_);
-    else openFolder();
+void MainWindow::manageChartSets() {
+    ChartSetsDialog dlg(settings_->chartSets(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setChartSets(dlg.chartSets());
 }
 
 void MainWindow::startScan(const QString& dir) {
