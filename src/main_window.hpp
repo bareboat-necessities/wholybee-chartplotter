@@ -4,15 +4,22 @@
 
 class ChartView;
 class ChartCatalog;
+class Settings;
+class SideMenu;
 class QLabel;
+class QPushButton;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget* parent = nullptr);
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* e) override;
+
 private slots:
     void openFolder();
+    void rescan();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
     void onScanFinished(bool ok, const QString& message);
@@ -20,9 +27,13 @@ private slots:
 
 private:
     void startScan(const QString& dir);
+    void positionMenuButton();
 
     ChartView*    view_ = nullptr;
     ChartCatalog* catalog_ = nullptr;
+    Settings*     settings_ = nullptr;
+    SideMenu*     sideMenu_ = nullptr;
+    QPushButton*  menuButton_ = nullptr;
     QLabel*       statusLeft_ = nullptr;   // root folder + scan summary
     QLabel*       statusMid_ = nullptr;    // band / cells shown
     QLabel*       statusRight_ = nullptr;  // cursor lat/lon

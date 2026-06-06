@@ -36,6 +36,12 @@ public:
 
     void fitToCatalog();
 
+    // Chart display settings (driven by the core Settings object). Each toggles
+    // a category of already-loaded items and is honored as new cells load.
+    void setShowSoundings(bool on);
+    void setShowSymbols(bool on);
+    void setShowDepthContours(bool on);
+
 signals:
     void cursorMoved(double lon, double lat);
     void statusChanged(const QString& text);  // e.g. "Band 5 · 7 cells"
@@ -55,10 +61,12 @@ private slots:
 
 private:
     struct LoadedCell {
-        QVector<QGraphicsItem*> items;   // everything for this cell
-        QVector<QGraphicsItem*> points;  // soundings + point symbols (LOD-toggled)
+        QVector<QGraphicsItem*> items;      // everything for this cell
+        QVector<QGraphicsItem*> soundings;  // depth figures (LOD + user toggle)
+        QVector<QGraphicsItem*> symbols;    // point objects (LOD + user toggle)
+        QVector<QGraphicsItem*> contours;   // depth contour lines (user toggle)
         int  band = 0;
-        BBox clipBox;                    // region this cell's geometry was clipped to
+        BBox clipBox;                       // region this cell's geometry was clipped to
     };
 
     void dispatchLoad(const QString& path);
@@ -79,6 +87,12 @@ private:
     static int  bandForVisibleWidth(double metres);
     static BBox expandBox(const BBox& b, double frac);
 
+    // Effective visibility for each toggled category: the user's preference
+    // combined with the zoom-driven LOD where it applies.
+    bool soundingVisible() const { return showSoundings_ && pointLodVisible_; }
+    bool symbolVisible()   const { return showSymbols_   && pointLodVisible_; }
+    bool contourVisible()  const { return showDepthContours_; }
+
     QGraphicsScene scene_;
     ChartCatalog*  catalog_ = nullptr;
     QThreadPool    pool_;
@@ -93,6 +107,9 @@ private:
     quint64        generation_ = 0;
 
     bool haveCatalog_ = false;
-    bool pointsVisible_ = true;
+    bool pointLodVisible_ = true;     // soundings/symbols shown at this zoom (LOD)
+    bool showSoundings_ = true;       // user preference (from Settings)
+    bool showSymbols_ = true;
+    bool showDepthContours_ = true;
     bool userInteracted_ = false;
 };

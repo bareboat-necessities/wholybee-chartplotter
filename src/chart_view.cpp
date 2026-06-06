@@ -112,7 +112,7 @@ void ChartView::clearAll() {
     bandByPath_.clear();
     bboxByPath_.clear();
     cache_.clear();
-    pointsVisible_ = true;
+    pointLodVisible_ = true;
 }
 
 void ChartView::onCatalogFinished(bool ok, const QString&) {
@@ -384,6 +384,10 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats,
                 item->setZValue(zb + f.zorder);
                 scene_.addItem(item);
                 cell.items.push_back(item);
+                if (f.kind == FeatureKind::DepthContour) {
+                    item->setVisible(contourVisible());
+                    cell.contours.push_back(item);
+                }
                 break;
             }
             case FeatureKind::Sounding: {
@@ -398,10 +402,10 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats,
                 t->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
                 t->setPos(f.rings[0][0].x, -f.rings[0][0].y);
                 t->setZValue(zb + f.zorder);
-                t->setVisible(pointsVisible_);
+                t->setVisible(soundingVisible());
                 scene_.addItem(t);
                 cell.items.push_back(t);
-                cell.points.push_back(t);
+                cell.soundings.push_back(t);
                 break;
             }
             case FeatureKind::Point: {
@@ -413,10 +417,10 @@ void ChartView::addCell(const QString& path, const std::vector<Feature>& feats,
                 e->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
                 e->setPos(f.rings[0][0].x, -f.rings[0][0].y);
                 e->setZValue(zb + f.zorder);
-                e->setVisible(pointsVisible_);
+                e->setVisible(symbolVisible());
                 scene_.addItem(e);
                 cell.items.push_back(e);
-                cell.points.push_back(e);
+                cell.symbols.push_back(e);
                 break;
             }
         }
@@ -437,11 +441,38 @@ void ChartView::updatePointLOD() {
     if (pxPerMeter <= 0.0) return;
     const double visWidthM = viewport()->width() / pxPerMeter;
     const bool show = visWidthM < 20000.0; // ~20 km across
-    if (show == pointsVisible_) return;
-    pointsVisible_ = show;
+    if (show == pointLodVisible_) return;
+    pointLodVisible_ = show;
+    const bool sv = soundingVisible();
+    const bool yv = symbolVisible();
+    for (auto it = loaded_.begin(); it != loaded_.end(); ++it) {
+        for (QGraphicsItem* p : it->soundings) p->setVisible(sv);
+        for (QGraphicsItem* p : it->symbols)   p->setVisible(yv);
+    }
+}
+
+void ChartView::setShowSoundings(bool on) {
+    if (on == showSoundings_) return;
+    showSoundings_ = on;
+    const bool v = soundingVisible();
     for (auto it = loaded_.begin(); it != loaded_.end(); ++it)
-        for (QGraphicsItem* p : it->points)
-            p->setVisible(show);
+        for (QGraphicsItem* s : it->soundings) s->setVisible(v);
+}
+
+void ChartView::setShowSymbols(bool on) {
+    if (on == showSymbols_) return;
+    showSymbols_ = on;
+    const bool v = symbolVisible();
+    for (auto it = loaded_.begin(); it != loaded_.end(); ++it)
+        for (QGraphicsItem* s : it->symbols) s->setVisible(v);
+}
+
+void ChartView::setShowDepthContours(bool on) {
+    if (on == showDepthContours_) return;
+    showDepthContours_ = on;
+    const bool v = contourVisible();
+    for (auto it = loaded_.begin(); it != loaded_.end(); ++it)
+        for (QGraphicsItem* c : it->contours) c->setVisible(v);
 }
 
 // ---- input ----------------------------------------------------------------
@@ -489,6 +520,6 @@ void ChartView::drawForeground(QPainter* p, const QRectF&) {
     p->setPen(QColor(80, 80, 80));
     QFont f = p->font(); f.setPointSize(13); p->setFont(f);
     p->drawText(viewport()->rect(), Qt::AlignCenter,
-                QStringLiteral("Open a chart folder to begin (toolbar button)."));
+                QStringLiteral("Tap the menu button (top-left) to open a chart folder."));
     p->restore();
 }

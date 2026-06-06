@@ -1,37 +1,60 @@
 #include "main_window.hpp"
 #include "chart_view.hpp"
 #include "chart_catalog.hpp"
+#include "settings.hpp"
+#include "side_menu.hpp"
 
-#include <QToolBar>
-#include <QAction>
 #include <QStatusBar>
 #include <QLabel>
+#include <QPushButton>
 #include <QFileDialog>
 #include <QMessageBox>
-#include <QSettings>
 #include <QDir>
+#include <QEvent>
 #include <cmath>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("Marine Chart Viewer"));
     resize(1100, 750);
 
+    settings_ = new Settings(this);
+
     view_ = new ChartView(this);
     setCentralWidget(view_);
-    connect(view_, &ChartView::cursorMoved,  this, &MainWindow::onCursorMoved);
+    connect(view_, &ChartView::cursorMoved,   this, &MainWindow::onCursorMoved);
     connect(view_, &ChartView::statusChanged, this, &MainWindow::onViewStatus);
+
+    // Apply persisted display settings, then keep the view in sync with changes.
+    view_->setShowSoundings(settings_->showSoundings());
+    view_->setShowSymbols(settings_->showSymbols());
+    view_->setShowDepthContours(settings_->showDepthContours());
+    connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
+    connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
+    connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
 
     catalog_ = new ChartCatalog(this);
     connect(catalog_, &ChartCatalog::progress, this, &MainWindow::onScanProgress);
     connect(catalog_, &ChartCatalog::finished, this, &MainWindow::onScanFinished);
     view_->setCatalog(catalog_);
 
-    QToolBar* tb = addToolBar(QStringLiteral("Main"));
-    tb->setMovable(false);
-    QAction* openAct = tb->addAction(QStringLiteral("Open Chart Folder"));
-    connect(openAct, &QAction::triggered, this, &MainWindow::openFolder);
-    QAction* fitAct = tb->addAction(QStringLiteral("Fit"));
-    connect(fitAct, &QAction::triggered, view_, &ChartView::fitToCatalog);
+    // Touch-first navigation: a floating menu button over the chart opens the
+    // side drawer. No toolbar, no right-click, large tap targets.
+    sideMenu_ = new SideMenu(settings_, view_);
+    connect(sideMenu_, &SideMenu::selectFolderRequested, this,  &MainWindow::openFolder);
+    connect(sideMenu_, &SideMenu::rescanRequested,       this,  &MainWindow::rescan);
+    connect(sideMenu_, &SideMenu::fitRequested,          view_, &ChartView::fitToCatalog);
+
+    menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
+    menuButton_->setFixedSize(48, 48);
+    menuButton_->setCursor(Qt::PointingHandCursor);
+    menuButton_->setStyleSheet(QStringLiteral(
+        "QPushButton{ font-size:22px; border:1px solid #b0b0b0; border-radius:6px;"
+        " background:rgba(255,255,255,0.92); }"
+        "QPushButton:pressed{ background:#dce6f0; }"));
+    connect(menuButton_, &QPushButton::clicked, sideMenu_, &SideMenu::openMenu);
+    menuButton_->show();
+    view_->installEventFilter(this);   // reposition the button when the view resizes
+    positionMenuButton();
 
     statusLeft_  = new QLabel(QStringLiteral("No chart folder selected"));
     statusMid_   = new QLabel(QString());
@@ -40,24 +63,42 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     statusBar()->addPermanentWidget(statusMid_);
     statusBar()->addPermanentWidget(statusRight_);
 
-    QSettings s;
-    QString saved = s.value(QStringLiteral("charts/directory")).toString();
+    const QString saved = settings_->chartDirectory();
     if (!saved.isEmpty() && QDir(saved).exists())
         startScan(saved);
 }
 
+bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
+    if (obj == view_ && e->type() == QEvent::Resize)
+        positionMenuButton();
+    return QMainWindow::eventFilter(obj, e);
+}
+
+void MainWindow::positionMenuButton() {
+    if (!menuButton_) return;
+    menuButton_->move(12, 12);
+    if (!sideMenu_ || !sideMenu_->isOpen())
+        menuButton_->raise();   // stay above the chart, but never above an open menu
+}
+
 void MainWindow::openFolder() {
+    const QString start = root_.isEmpty() ? settings_->chartDirectory() : root_;
     QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Select ENC Chart Root Folder"),
-        root_.isEmpty() ? QString() : root_);
-    if (!dir.isEmpty())
+        this, QStringLiteral("Select ENC Chart Root Folder"), start);
+    if (!dir.isEmpty()) {
+        settings_->setChartDirectory(dir);
         startScan(dir);
+    }
+}
+
+void MainWindow::rescan() {
+    if (!root_.isEmpty()) startScan(root_);
+    else openFolder();
 }
 
 void MainWindow::startScan(const QString& dir) {
     if (catalog_->isScanning()) return;
     root_ = dir;
-    QSettings().setValue(QStringLiteral("charts/directory"), dir);
     statusLeft_->setText(dir + QStringLiteral("   —   scanning…"));
     statusMid_->clear();
     catalog_->startScan(dir);
