@@ -143,9 +143,16 @@ void MainWindow::onChartSetSelected(const QString& dir) {
 }
 
 void MainWindow::manageChartSets() {
+    const bool hadActive = !settings_->chartDirectory().isEmpty();
     ChartSetsDialog dlg(settings_->chartSets(), this);
-    if (dlg.exec() == QDialog::Accepted)
+    if (dlg.exec() == QDialog::Accepted) {
         settings_->setChartSets(dlg.chartSets());
+        // If there was no active set before and the user just added the first
+        // one, activate it automatically so they don't close the menu to an
+        // empty chart with no indication of what to do next.
+        if (!hadActive && !dlg.chartSets().isEmpty())
+            onChartSetSelected(dlg.chartSets().first().directory);
+    }
 }
 
 void MainWindow::chooseBasemapFolder() {

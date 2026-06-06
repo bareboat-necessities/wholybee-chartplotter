@@ -7,8 +7,8 @@ int main(int argc, char** argv) {
     // QApplication must come first: we need applicationDirPath() to locate the
     // bundled gdal-data/ folder before initialising GDAL.
     QApplication app(argc, argv);
-    QApplication::setOrganizationName(QStringLiteral("ExampleMarine"));
-    QApplication::setApplicationName(QStringLiteral("Marine Chart Viewer"));
+    QApplication::setOrganizationName(QStringLiteral("net.holybee"));
+    QApplication::setApplicationName(QStringLiteral("HMV Chart"));
 
     // Resolve the bundled GDAL data directory (contains s57objectclasses.csv
     // etc.). CMake copies this from the GDAL installation into gdal-data/ next
