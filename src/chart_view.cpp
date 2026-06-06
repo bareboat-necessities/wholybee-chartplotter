@@ -240,6 +240,12 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     cache_.setLimits(256u * 1024u * 1024u, 256);
     cache_.setPinned([this](const QString& path) { return loaded_.contains(path); });
 
+    // Basemap tiers: a small byte-budgeted LRU. The active tier is pinned so it
+    // is never evicted; the cheap tiers (c/l/i) stay resident within budget while
+    // the large ones (h/f) are dropped once you zoom away from them.
+    tierCache_.setLimits(192u * 1024u * 1024u, 8);
+    tierCache_.setPinned([this](const QString& tier) { return tier == basemapTier_; });
+
     updateTimer_ = new QTimer(this);
     updateTimer_->setSingleShot(true);
     updateTimer_->setInterval(120);
@@ -650,10 +656,11 @@ void ChartView::ensureTierForZoom() {
     const QString want = desiredTier();
     if (want.isEmpty() || want == basemapTier_) return;
 
-    if (FeatureCache::FeaturesPtr cached = tierCache_.value(want)) {
+    if (FeatureCache::FeaturesPtr cached = tierCache_.get(want)) {
         basemapFeats_   = cached;     // switch instantly; old stays drawn until rebuilt
         basemapTier_    = want;
         basemapBuiltPpm_ = 0.0;       // force a rebuild at the new tier
+        tierCache_.trim();            // active tier now pinned; shed others over budget
         return;
     }
     if (tierLoading_ == want) return; // already loading this one
@@ -684,11 +691,12 @@ void ChartView::loadTier(const QString& tier) {
 void ChartView::onTierLoaded(FeatureCache::FeaturesPtr feats, const QString& tier) {
     if (tierLoading_ == tier) tierLoading_.clear();
     if (!feats || feats->empty()) return;        // keep whatever we had
-    tierCache_.insert(tier, feats);
+    tierCache_.put(tier, feats, approxBytes(*feats));
     if (desiredTier() == tier) {                 // still the right tier for this zoom
         basemapFeats_    = feats;
         basemapTier_     = tier;
         basemapBuiltPpm_ = 0.0;
+        tierCache_.trim();                       // active pinned; shed others over budget
         maybeBuildBasemap();
     }
 }

@@ -176,7 +176,7 @@ private:
     QStringList               availableTiers_;   // tiers present in basemapRoot_
     QString                   basemapTier_;      // active tier ("" = none)
     QString                   tierLoading_;      // tier whose load is in flight
-    QHash<QString, FeatureCache::FeaturesPtr> tierCache_;  // loaded tiers by letter
+    FeatureCache              tierCache_;        // loaded tiers (LRU, active pinned)
     FeatureCache::FeaturesPtr basemapFeats_;     // active tier's features
     std::vector<BuiltCell>    basemap_;
     BBox    basemapClipBox_;          // region basemap_ was built for (k=0 frame)

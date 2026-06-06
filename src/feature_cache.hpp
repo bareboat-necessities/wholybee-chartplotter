@@ -87,6 +87,10 @@ public:
         curBytes_ = 0;
     }
 
+    // Re-apply the budget now (e.g. after the pinned set changed), evicting
+    // least-recently-used unpinned entries until within the limits.
+    void trim() { evictToFit(); }
+
     bool contains(const QString& path) const { return index_.contains(path); }
     int  count() const { return index_.size(); }
     std::size_t bytes() const { return curBytes_; }
