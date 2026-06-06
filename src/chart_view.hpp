@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QPainterPath>
 #include <QColor>
 #include <QPointF>
@@ -119,9 +120,12 @@ private:
     void updatePointLOD();
 
     // Basemap (GSHHG land/lakes underlay) -----------------------------------
-    void reloadBasemap();          // resolve directory + load features async
-    void onBasemapLoaded(FeatureCache::FeaturesPtr feats);
+    void reloadBasemap();          // resolve directory + available tiers
     void ensureViewForBasemap();   // whole-world view when basemap shows w/o charts
+    QString desiredTier() const;   // tier matching the current zoom + availability
+    void ensureTierForZoom();      // switch to / load the desired tier
+    void loadTier(const QString& tier);
+    void onTierLoaded(FeatureCache::FeaturesPtr feats, const QString& tier);
     void maybeBuildBasemap();      // rebuild clipped/simplified copies if needed
     void onBasemapBuilt(std::vector<BuiltCell> cells, FeatureCache::FeaturesPtr feats);
 
@@ -165,13 +169,18 @@ private:
     quint64       generation_ = 0;
 
     // Basemap state. basemap_ holds the clipped/simplified copies (one per wrap
-    // offset) currently drawn beneath the cells.
-    QString                   basemapDir_;
-    FeatureCache::FeaturesPtr basemapFeats_;
+    // offset) currently drawn beneath the cells. The active tier is chosen by
+    // zoom; loaded tiers are cached so re-zooming is instant.
+    QString                   basemapDir_;       // user override ("" = search)
+    QString                   basemapRoot_;      // resolved root with GSHHS_shp/
+    QStringList               availableTiers_;   // tiers present in basemapRoot_
+    QString                   basemapTier_;      // active tier ("" = none)
+    QString                   tierLoading_;      // tier whose load is in flight
+    QHash<QString, FeatureCache::FeaturesPtr> tierCache_;  // loaded tiers by letter
+    FeatureCache::FeaturesPtr basemapFeats_;     // active tier's features
     std::vector<BuiltCell>    basemap_;
     BBox    basemapClipBox_;          // region basemap_ was built for (k=0 frame)
     double  basemapBuiltPpm_ = 0.0;   // zoom basemap_ was simplified for
-    bool    basemapLoading_ = false;
     bool    basemapBuilding_ = false;
 
     bool   havePendingView_ = false;
