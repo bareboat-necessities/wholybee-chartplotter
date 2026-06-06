@@ -86,17 +86,18 @@ double simplifyToleranceM(int band) {
 // Resolve where the GSHHG basemap lives. Search order: an explicit override
 // (the basemap-folder setting), next to the executable, the per-user and shared
 // data locations, and finally the in-tree dev folder. The first root that holds
-// a recognizable tier wins; tiers are preferred l > i > c > h > f (l/i are the
-// shippable worldwide underlays; finer tiers are opt-in drop-ins).
-struct BasemapSource { QString root; QString tier; };
+// a recognizable layout wins. All tiers present are returned; which one is used
+// is chosen by zoom at draw time (see ChartView::desiredTier).
+struct BasemapSource { QString root; QStringList tiers; };
 
-QString bestTierIn(const QString& root) {
-    static const char* tiers[] = {"l", "i", "c", "h", "f"};
-    for (const char* t : tiers) {
+QStringList tiersIn(const QString& root) {
+    QStringList out;
+    static const char* all[] = {"c", "l", "i", "h", "f"};
+    for (const char* t : all) {
         const QString f = root + "/GSHHS_shp/" + t + "/GSHHS_" + t + "_L1.shp";
-        if (QFileInfo::exists(f)) return QString::fromLatin1(t);
+        if (QFileInfo::exists(f)) out << QString::fromLatin1(t);
     }
-    return QString();
+    return out;
 }
 
 BasemapSource resolveBasemap(const QString& override) {
@@ -111,8 +112,8 @@ BasemapSource resolveBasemap(const QString& override) {
     roots << QString::fromLatin1(CHARTPLOTTER_SOURCE_DIR) + "/gshhg-shp";
 #endif
     for (const QString& r : roots) {
-        const QString t = bestTierIn(r);
-        if (!t.isEmpty()) return { r, t };
+        const QStringList ts = tiersIn(r);
+        if (!ts.isEmpty()) return { r, ts };
     }
     return {};
 }
@@ -595,62 +596,107 @@ void ChartView::setBasemapDirectory(const QString& dir) {
 }
 
 void ChartView::reloadBasemap() {
-    if (basemapLoading_) return;
     const BasemapSource src = resolveBasemap(basemapDir_);
-    if (src.root.isEmpty()) {            // nothing found — clear any underlay
-        basemapFeats_.reset();
-        basemap_.clear();
-        update();
-        return;
-    }
-    basemapLoading_ = true;
-    const std::string root = src.root.toStdString();
-    const std::string tier = src.tier.toStdString();
-
-    auto* watcher = new QFutureWatcher<FeatureCache::FeaturesPtr>(this);
-    connect(watcher, &QFutureWatcher<FeatureCache::FeaturesPtr>::finished, this,
-            [this, watcher]() {
-        FeatureCache::FeaturesPtr feats = watcher->result();
-        watcher->deleteLater();
-        onBasemapLoaded(feats);
-    });
-    watcher->setFuture(QtConcurrent::run(&pool_, [root, tier]() -> FeatureCache::FeaturesPtr {
-        auto feats = std::make_shared<std::vector<Feature>>();
-        std::string err;
-        chart::loadBasemap(root, tier, *feats, err);
-        return feats;   // empty on failure
-    }));
-}
-
-void ChartView::onBasemapLoaded(FeatureCache::FeaturesPtr feats) {
-    basemapLoading_ = false;
-    if (!feats || feats->empty()) {
-        basemapFeats_.reset();
-        basemap_.clear();
-        update();
-        return;
-    }
-    basemapFeats_ = feats;
+    basemapRoot_     = src.root;
+    availableTiers_  = src.tiers;
+    tierCache_.clear();
+    basemapFeats_.reset();
+    basemapTier_.clear();
+    tierLoading_.clear();
     basemap_.clear();
     basemapClipBox_ = BBox();
     basemapBuiltPpm_ = 0.0;
-    ensureViewForBasemap();
-    maybeBuildBasemap();
+    if (availableTiers_.isEmpty()) { update(); return; }
+    ensureViewForBasemap();   // need a zoom to choose a tier
+    ensureTierForZoom();      // load the tier appropriate for the current zoom
     update();
 }
 
 // With a basemap but no charts, establish a whole-world view so the underlay is
 // visible on its own. A subsequent catalog load will fit to the charts instead.
 void ChartView::ensureViewForBasemap() {
-    if (ppm_ > 0.0 || !basemapFeats_ || width() <= 0 || height() <= 0) return;
+    if (ppm_ > 0.0 || availableTiers_.isEmpty() || width() <= 0 || height() <= 0) return;
     const double W = proj::lonToX(180.0);
     ppm_ = std::min(width() / (2.0 * W), height() / (2.0 * W));
     scx_ = 0.0; scy_ = 0.0;
     updatePointLOD();
 }
 
+// The GSHHG tier whose nominal resolution best matches the current zoom (metres
+// per pixel), clamped to the tiers actually installed: coarse when zoomed out,
+// fine when zoomed in. Prefers the ideal tier, then a coarser one, then a finer.
+QString ChartView::desiredTier() const {
+    if (availableTiers_.isEmpty()) return QString();
+    const double mpp = (ppm_ > 0.0) ? 1.0 / ppm_ : 1e9;   // metres per pixel
+    QString ideal;
+    if      (mpp <=   120.0) ideal = QStringLiteral("f");   // full   (~50 m)
+    else if (mpp <=   600.0) ideal = QStringLiteral("h");   // high   (~200 m)
+    else if (mpp <=  3000.0) ideal = QStringLiteral("i");   // interm.(~1 km)
+    else if (mpp <= 15000.0) ideal = QStringLiteral("l");   // low    (~5 km)
+    else                     ideal = QStringLiteral("c");   // crude  (~25 km)
+
+    static const QStringList order = {"f", "h", "i", "l", "c"};   // fine -> coarse
+    int idx = order.indexOf(ideal);
+    if (idx < 0) idx = order.size() - 1;
+    for (int j = idx; j < order.size(); ++j)        // ideal, then coarser
+        if (availableTiers_.contains(order[j])) return order[j];
+    for (int j = idx - 1; j >= 0; --j)              // else the nearest finer
+        if (availableTiers_.contains(order[j])) return order[j];
+    return availableTiers_.first();
+}
+
+void ChartView::ensureTierForZoom() {
+    if (availableTiers_.isEmpty() || ppm_ <= 0.0) return;
+    const QString want = desiredTier();
+    if (want.isEmpty() || want == basemapTier_) return;
+
+    if (FeatureCache::FeaturesPtr cached = tierCache_.value(want)) {
+        basemapFeats_   = cached;     // switch instantly; old stays drawn until rebuilt
+        basemapTier_    = want;
+        basemapBuiltPpm_ = 0.0;       // force a rebuild at the new tier
+        return;
+    }
+    if (tierLoading_ == want) return; // already loading this one
+    loadTier(want);
+}
+
+void ChartView::loadTier(const QString& tier) {
+    if (basemapRoot_.isEmpty()) return;
+    tierLoading_ = tier;
+    const std::string root = basemapRoot_.toStdString();
+    const std::string t = tier.toStdString();
+
+    auto* watcher = new QFutureWatcher<FeatureCache::FeaturesPtr>(this);
+    connect(watcher, &QFutureWatcher<FeatureCache::FeaturesPtr>::finished, this,
+            [this, watcher, tier]() {
+        FeatureCache::FeaturesPtr feats = watcher->result();
+        watcher->deleteLater();
+        onTierLoaded(feats, tier);
+    });
+    watcher->setFuture(QtConcurrent::run(&pool_, [root, t]() -> FeatureCache::FeaturesPtr {
+        auto feats = std::make_shared<std::vector<Feature>>();
+        std::string err;
+        chart::loadBasemap(root, t, *feats, err);
+        return feats;   // empty on failure
+    }));
+}
+
+void ChartView::onTierLoaded(FeatureCache::FeaturesPtr feats, const QString& tier) {
+    if (tierLoading_ == tier) tierLoading_.clear();
+    if (!feats || feats->empty()) return;        // keep whatever we had
+    tierCache_.insert(tier, feats);
+    if (desiredTier() == tier) {                 // still the right tier for this zoom
+        basemapFeats_    = feats;
+        basemapTier_     = tier;
+        basemapBuiltPpm_ = 0.0;
+        maybeBuildBasemap();
+    }
+}
+
 void ChartView::maybeBuildBasemap() {
-    if (!basemapFeats_ || basemapBuilding_ || ppm_ <= 0.0) return;
+    if (availableTiers_.isEmpty() || ppm_ <= 0.0) return;
+    ensureTierForZoom();
+    if (!basemapFeats_ || basemapBuilding_) return;
 
     BBox view, wantedArea, keepArea;
     int target;
