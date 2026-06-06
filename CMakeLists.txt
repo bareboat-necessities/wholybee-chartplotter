@@ -46,3 +46,62 @@ set_target_properties(chartviewer PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
 )
+
+# ---- Bundle GDAL data files -------------------------------------------------
+# S-57 charts need s57objectclasses.csv (and a few companion CSVs) to map the
+# raw OBJL integer codes in each ENC file to named object classes like DEPARE,
+# LNDARE, COALNE.  Without them GDAL reads geometry fine but returns empty/raw
+# layer names — the chart loader's classify() function can't match anything, so
+# every feature renders without fill or colour (grey outlines only).
+#
+# Strategy: find the data dir relative to the GDAL library that CMake resolved,
+# then copy it into gdal-data/ next to the exe at build time. main.cpp reads
+# applicationDirPath()/gdal-data and passes it to chart::init(), which calls
+# CPLSetConfigOption("GDAL_DATA", ...) before GDALAllRegister().
+
+find_path(GDAL_DATA_DIR
+    NAMES s57objectclasses.csv
+    HINTS "$ENV{GDAL_DATA}"
+    NO_DEFAULT_PATH
+)
+
+if(NOT GDAL_DATA_DIR AND TARGET GDAL::GDAL)
+    # Derive from the GDAL library location: lib → prefix → share/gdal.
+    foreach(_prop
+            IMPORTED_LOCATION_RELEASE
+            IMPORTED_LOCATION_RELWITHDEBINFO
+            IMPORTED_LOCATION_MINSIZEREL
+            IMPORTED_LOCATION_DEBUG
+            IMPORTED_LOCATION)
+        if(NOT _gdal_lib_path)
+            get_target_property(_gdal_lib_path GDAL::GDAL ${_prop})
+        endif()
+    endforeach()
+    if(_gdal_lib_path)
+        get_filename_component(_gdal_lib_dir "${_gdal_lib_path}" DIRECTORY)
+        find_path(GDAL_DATA_DIR s57objectclasses.csv
+            HINTS
+                "${_gdal_lib_dir}/../share/gdal"
+                "${_gdal_lib_dir}/../../share/gdal"
+                "${_gdal_lib_dir}/gdal"
+                "${_gdal_lib_dir}/gdal-data"
+            NO_DEFAULT_PATH
+        )
+    endif()
+endif()
+
+if(GDAL_DATA_DIR)
+    message(STATUS "GDAL data directory found: ${GDAL_DATA_DIR}")
+    add_custom_command(TARGET chartviewer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${GDAL_DATA_DIR}"
+            "$<TARGET_FILE_DIR:chartviewer>/gdal-data"
+        COMMENT "Bundling GDAL data files into gdal-data/"
+        VERBATIM
+    )
+else()
+    message(WARNING
+        "GDAL data directory not found.\n"
+        "S-57 charts will render without colours on machines without GDAL installed.\n"
+        "Set GDAL_DATA_DIR=<path containing s57objectclasses.csv> and re-run CMake.")
+endif()

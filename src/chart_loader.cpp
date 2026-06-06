@@ -121,7 +121,15 @@ bool loadPolygonShp(const std::string& path, FeatureKind kind, int zorder,
 
 namespace chart {
 
-void init() {
+void init(const std::string& gdalDataDir) {
+    // Point GDAL at the bundled data directory before registering drivers.
+    // This resolves S-57 object-class codes (OBJL) → named strings so that
+    // the layer classifier (classify()) can match "DEPARE", "LNDARE" etc.
+    // Without this, a machine without GDAL installed system-wide renders charts
+    // as grey outlines only — geometry loads but all fill/colour is lost.
+    if (!gdalDataDir.empty())
+        CPLSetConfigOption("GDAL_DATA", gdalDataDir.c_str());
+
     CPLSetConfigOption("OGR_S57_OPTIONS",
         "SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON,RETURN_PRIMITIVES=OFF,"
         "RETURN_LINKAGES=OFF,LNAM_REFS=OFF");

@@ -57,7 +57,13 @@ namespace chart {
 
 // Call once at startup (registers GDAL drivers + sets S-57 options). Safe before
 // spawning worker threads; the config it sets is process-global.
-void init();
+//
+// Pass `gdalDataDir` to override the GDAL_DATA search path — required on
+// machines where GDAL is not installed system-wide. Provide the path to a
+// folder containing s57objectclasses.csv (bundled as gdal-data/ next to the
+// exe by the CMake build). Without it GDAL can still read geometry but cannot
+// resolve S-57 object-class names, so charts render without colour or fill.
+void init(const std::string& gdalDataDir = {});
 
 // Read all geometry of one ENC cell into `out` (projected), with the cell's
 // bbox. Thread-safe: opens and closes its own GDAL handle. Heavy — call from a
