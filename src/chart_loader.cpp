@@ -57,6 +57,11 @@ void projectSimple(OGRGeometryH g, std::vector<Pt>& out, BBox& bbox) {
     }
 }
 
+// Load every polygon in a shapefile as features of one kind/zorder. Returns
+// false only if the file can't be opened (e.g. an absent optional level).
+bool loadPolygonShp(const std::string& path, FeatureKind kind, int zorder,
+                    std::vector<Feature>& out);
+
 void extractGeometry(OGRGeometryH g, Feature& f) {
     if (!g) return;
     OGRwkbGeometryType t = wkbFlatten(OGR_G_GetGeometryType(g));
@@ -82,6 +87,34 @@ void extractGeometry(OGRGeometryH g, Feature& f) {
         default:
             break;
     }
+}
+
+bool loadPolygonShp(const std::string& path, FeatureKind kind, int zorder,
+                    std::vector<Feature>& out) {
+    GDALDatasetH ds = GDALOpenEx(path.c_str(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                                 nullptr, nullptr, nullptr);
+    if (!ds) return false;
+
+    int layerCount = GDALDatasetGetLayerCount(ds);
+    for (int li = 0; li < layerCount; ++li) {
+        OGRLayerH layer = GDALDatasetGetLayer(ds, li);
+        if (!layer) continue;
+        OGR_L_ResetReading(layer);
+        OGRFeatureH feat;
+        while ((feat = OGR_L_GetNextFeature(layer)) != nullptr) {
+            OGRGeometryH geom = OGR_F_GetGeometryRef(feat);
+            if (geom) {
+                Feature f;
+                f.kind = kind;
+                f.zorder = zorder;
+                extractGeometry(geom, f);
+                if (!f.rings.empty()) out.push_back(std::move(f));
+            }
+            OGR_F_Destroy(feat);
+        }
+    }
+    GDALClose(ds);
+    return true;
 }
 
 } // namespace
@@ -187,6 +220,21 @@ bool computeCellExtentLonLat(const std::string& path,
     minLon = total.MinX; minLat = total.MinY;
     maxLon = total.MaxX; maxLat = total.MaxY;
     return true;
+}
+
+bool loadBasemap(const std::string& gshhgRoot, const std::string& tier,
+                 std::vector<Feature>& out, std::string& err) {
+    const std::string base =
+        gshhgRoot + "/GSHHS_shp/" + tier + "/GSHHS_" + tier + "_";
+    // L1 = land (required). zorder 0 so it sits beneath the lakes.
+    if (!loadPolygonShp(base + "L1.shp", FeatureKind::LandArea, 0, out)) {
+        err = "Could not open basemap shoreline: " + base + "L1.shp";
+        return false;
+    }
+    // L2 = lakes, drawn as water over the land. L3/L4 (islands-in-lakes, ponds)
+    // and L5/L6 (Antarctica) can be layered in later. Optional — ignore if absent.
+    loadPolygonShp(base + "L2.shp", FeatureKind::DepthArea, 1, out);
+    return !out.empty();
 }
 
 } // namespace chart

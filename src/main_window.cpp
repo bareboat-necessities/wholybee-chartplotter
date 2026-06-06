@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QMessageBox>
+#include <QFileDialog>
 #include <QDir>
 #include <QEvent>
 #include <QCloseEvent>
@@ -33,6 +34,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
 
+    // Basemap underlay: load from the configured folder (or a standard location)
+    // and keep it in sync if the user picks a different one.
+    view_->setBasemapDirectory(settings_->basemapDirectory());
+    connect(settings_, &Settings::basemapDirectoryChanged, view_, &ChartView::setBasemapDirectory);
+
     // Remember the pan/zoom location across runs: the view publishes its location
     // (debounced) and we persist it. Restoring happens only for the startup
     // auto-load below, so explicit chart-set switches still fit to the new set.
@@ -49,6 +55,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::fitRequested,             view_, &ChartView::fitToCatalog);
     connect(sideMenu_, &SideMenu::chartSetSelected,         this,  &MainWindow::onChartSetSelected);
     connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
+    connect(sideMenu_, &SideMenu::basemapFolderRequested,   this,  &MainWindow::chooseBasemapFolder);
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
@@ -106,6 +113,14 @@ void MainWindow::manageChartSets() {
     ChartSetsDialog dlg(settings_->chartSets(), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setChartSets(dlg.chartSets());
+}
+
+void MainWindow::chooseBasemapFolder() {
+    const QString start = settings_->basemapDirectory();
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Select GSHHG Basemap Folder (contains GSHHS_shp)"), start);
+    if (!dir.isEmpty())
+        settings_->setBasemapDirectory(dir);
 }
 
 void MainWindow::startScan(const QString& dir) {

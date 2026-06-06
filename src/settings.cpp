@@ -11,6 +11,7 @@ constexpr auto kContours  = "display/showDepthContours";
 constexpr auto kViewLon   = "view/centerLon";
 constexpr auto kViewLat   = "view/centerLat";
 constexpr auto kViewScale = "view/scale";
+constexpr auto kBasemap   = "basemap/directory";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -22,6 +23,7 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     viewLon_   = s.value(QLatin1String(kViewLon),   0.0).toDouble();
     viewLat_   = s.value(QLatin1String(kViewLat),   0.0).toDouble();
     viewScale_ = s.value(QLatin1String(kViewScale), 0.0).toDouble();
+    basemapDir_ = s.value(QLatin1String(kBasemap)).toString();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -76,6 +78,13 @@ void Settings::setView(double lon, double lat, double scale) {
     s.setValue(QLatin1String(kViewLon), lon);
     s.setValue(QLatin1String(kViewLat), lat);
     s.setValue(QLatin1String(kViewScale), scale);
+}
+
+void Settings::setBasemapDirectory(const QString& dir) {
+    if (dir == basemapDir_) return;
+    basemapDir_ = dir;
+    QSettings().setValue(QLatin1String(kBasemap), dir);
+    emit basemapDirectoryChanged(dir);
 }
 
 void Settings::setChartDirectory(const QString& dir) {

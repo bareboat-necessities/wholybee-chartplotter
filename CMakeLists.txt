@@ -34,6 +34,12 @@ qt_add_executable(chartviewer
 
 target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent ${GDAL_LINK})
 
+# Dev convenience: lets the basemap resolver fall back to the in-tree gshhg-shp
+# folder during development. On an installed build this path won't exist, so it
+# is skipped and the standard data locations are used instead.
+target_compile_definitions(chartviewer PRIVATE
+    CHARTPLOTTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
 set_target_properties(chartviewer PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE

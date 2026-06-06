@@ -14,10 +14,16 @@
 #include <QPen>
 #include <QBrush>
 #include <QThread>
+#include <QDir>
+#include <QFileInfo>
+#include <QStringList>
+#include <QStandardPaths>
+#include <QCoreApplication>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -77,17 +83,51 @@ double simplifyToleranceM(int band) {
     }
 }
 
-// Clip + simplify one cell to `clipBox` (projected, real frame) and build its
-// vector primitives, sorted by z. Pure and Qt-value-only: runs on a worker.
+// Resolve where the GSHHG basemap lives. Search order: an explicit override
+// (the basemap-folder setting), next to the executable, the per-user and shared
+// data locations, and finally the in-tree dev folder. The first root that holds
+// a recognizable tier wins; tiers are preferred l > i > c > h > f (l/i are the
+// shippable worldwide underlays; finer tiers are opt-in drop-ins).
+struct BasemapSource { QString root; QString tier; };
+
+QString bestTierIn(const QString& root) {
+    static const char* tiers[] = {"l", "i", "c", "h", "f"};
+    for (const char* t : tiers) {
+        const QString f = root + "/GSHHS_shp/" + t + "/GSHHS_" + t + "_L1.shp";
+        if (QFileInfo::exists(f)) return QString::fromLatin1(t);
+    }
+    return QString();
+}
+
+BasemapSource resolveBasemap(const QString& override) {
+    QStringList roots;
+    if (!override.isEmpty()) roots << override;
+    roots << QCoreApplication::applicationDirPath() + "/gshhg-shp";
+    for (const QString& d : QStandardPaths::standardLocations(QStandardPaths::AppDataLocation))
+        roots << d + "/gshhg-shp";
+    for (const QString& d : QStandardPaths::standardLocations(QStandardPaths::GenericDataLocation))
+        roots << d + "/gshhg-shp";
+#ifdef CHARTPLOTTER_SOURCE_DIR
+    roots << QString::fromLatin1(CHARTPLOTTER_SOURCE_DIR) + "/gshhg-shp";
+#endif
+    for (const QString& r : roots) {
+        const QString t = bestTierIn(r);
+        if (!t.isEmpty()) return { r, t };
+    }
+    return {};
+}
+
+// Clip + simplify one cell to `clipBox` (projected, real frame) with vertex-merge
+// tolerance `tol`, building its vector primitives sorted by z. Pure and
+// Qt-value-only: runs on a worker. Used for both ENC cells and the basemap.
 BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
-                    int band, const BBox& clipBox) {
+                    int band, const BBox& clipBox, double tol) {
     BuiltCell bc;
     bc.path    = path;
     bc.band    = band;
     bc.clipBox = clipBox;
 
-    const double zb  = static_cast<double>(band) * 1000.0;
-    const double tol = simplifyToleranceM(band);
+    const double zb = static_cast<double>(band) * 1000.0;
 
     std::vector<std::vector<Pt>> clipBuf;
     std::vector<std::vector<Pt>> simpBuf;
@@ -202,7 +242,10 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     updateTimer_ = new QTimer(this);
     updateTimer_->setSingleShot(true);
     updateTimer_->setInterval(120);
-    connect(updateTimer_, &QTimer::timeout, this, &ChartView::updateVisibleCells);
+    connect(updateTimer_, &QTimer::timeout, this, [this] {
+        updateVisibleCells();
+        maybeBuildBasemap();
+    });
 
     aaTimer_ = new QTimer(this);
     aaTimer_->setSingleShot(true);
@@ -315,6 +358,7 @@ void ChartView::onCatalogFinished(bool ok, const QString&) {
         fitToCatalog();
     }
     updateVisibleCells();
+    maybeBuildBasemap();
     update();
 }
 
@@ -363,7 +407,7 @@ BBox ChartView::shiftX(const BBox& b, double dx) {
 }
 
 void ChartView::scheduleUpdate() {
-    if (haveCatalog_) updateTimer_->start();
+    if (ppm_ > 0.0) updateTimer_->start();   // cells need a catalog; basemap doesn't
 }
 
 bool ChartView::computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& target) const {
@@ -512,7 +556,7 @@ void ChartView::dispatchBuild(const QString& path, FeatureCache::FeaturesPtr fea
         onCellBuilt(std::move(bc), gen, drawOffsetX);
     });
     watcher->setFuture(QtConcurrent::run(&pool_, [p, feats, band, clipBox]() {
-        return buildCell(p, *feats, band, clipBox);
+        return buildCell(p, *feats, band, clipBox, simplifyToleranceM(band));
     }));
 }
 
@@ -540,6 +584,125 @@ void ChartView::updatePointLOD() {
     const bool show = visWidthM < 20000.0;   // ~20 km across
     if (show == pointLodVisible_) return;
     pointLodVisible_ = show;
+    update();
+}
+
+// ---- basemap (GSHHG land/lakes underlay) ----------------------------------
+
+void ChartView::setBasemapDirectory(const QString& dir) {
+    basemapDir_ = dir;
+    reloadBasemap();
+}
+
+void ChartView::reloadBasemap() {
+    if (basemapLoading_) return;
+    const BasemapSource src = resolveBasemap(basemapDir_);
+    if (src.root.isEmpty()) {            // nothing found — clear any underlay
+        basemapFeats_.reset();
+        basemap_.clear();
+        update();
+        return;
+    }
+    basemapLoading_ = true;
+    const std::string root = src.root.toStdString();
+    const std::string tier = src.tier.toStdString();
+
+    auto* watcher = new QFutureWatcher<FeatureCache::FeaturesPtr>(this);
+    connect(watcher, &QFutureWatcher<FeatureCache::FeaturesPtr>::finished, this,
+            [this, watcher]() {
+        FeatureCache::FeaturesPtr feats = watcher->result();
+        watcher->deleteLater();
+        onBasemapLoaded(feats);
+    });
+    watcher->setFuture(QtConcurrent::run(&pool_, [root, tier]() -> FeatureCache::FeaturesPtr {
+        auto feats = std::make_shared<std::vector<Feature>>();
+        std::string err;
+        chart::loadBasemap(root, tier, *feats, err);
+        return feats;   // empty on failure
+    }));
+}
+
+void ChartView::onBasemapLoaded(FeatureCache::FeaturesPtr feats) {
+    basemapLoading_ = false;
+    if (!feats || feats->empty()) {
+        basemapFeats_.reset();
+        basemap_.clear();
+        update();
+        return;
+    }
+    basemapFeats_ = feats;
+    basemap_.clear();
+    basemapClipBox_ = BBox();
+    basemapBuiltPpm_ = 0.0;
+    ensureViewForBasemap();
+    maybeBuildBasemap();
+    update();
+}
+
+// With a basemap but no charts, establish a whole-world view so the underlay is
+// visible on its own. A subsequent catalog load will fit to the charts instead.
+void ChartView::ensureViewForBasemap() {
+    if (ppm_ > 0.0 || !basemapFeats_ || width() <= 0 || height() <= 0) return;
+    const double W = proj::lonToX(180.0);
+    ppm_ = std::min(width() / (2.0 * W), height() / (2.0 * W));
+    scx_ = 0.0; scy_ = 0.0;
+    updatePointLOD();
+}
+
+void ChartView::maybeBuildBasemap() {
+    if (!basemapFeats_ || basemapBuilding_ || ppm_ <= 0.0) return;
+
+    BBox view, wantedArea, keepArea;
+    int target;
+    if (!computeViewBoxes(view, wantedArea, keepArea, target)) return;
+
+    const bool zoomStale = basemapBuiltPpm_ <= 0.0 ||
+        ppm_ > basemapBuiltPpm_ * 1.6 || ppm_ < basemapBuiltPpm_ * 0.6;
+    if (!basemap_.empty() && !zoomStale && basemapClipBox_.contains(wantedArea))
+        return;
+
+    const double ww  = worldWidthM();
+    const double W   = proj::lonToX(180.0);
+    const double tol = 0.5 / ppm_;          // ~half a pixel, zoom-appropriate
+
+    // Whole-world copies the view spans (normally {0}; ±1 near the date line).
+    int kmin = static_cast<int>(std::ceil((keepArea.minx - W) / ww));
+    int kmax = static_cast<int>(std::floor((keepArea.maxx + W) / ww));
+    kmin = std::max(kmin, -2); kmax = std::min(kmax, 2);
+
+    std::vector<std::pair<BBox, double>> reqs;   // (clip box real frame, offset)
+    for (int k = kmin; k <= kmax; ++k)
+        reqs.emplace_back(shiftX(keepArea, -k * ww), k * ww);
+    if (reqs.empty()) return;
+
+    basemapBuilding_ = true;
+    basemapClipBox_  = keepArea;
+    basemapBuiltPpm_ = ppm_;
+    auto feats = basemapFeats_;
+
+    auto* watcher = new QFutureWatcher<std::vector<BuiltCell>>(this);
+    connect(watcher, &QFutureWatcher<std::vector<BuiltCell>>::finished, this,
+            [this, watcher, feats]() {
+        std::vector<BuiltCell> cells = watcher->result();
+        watcher->deleteLater();
+        onBasemapBuilt(std::move(cells), feats);
+    });
+    watcher->setFuture(QtConcurrent::run(&pool_, [feats, reqs, tol]() {
+        std::vector<BuiltCell> result;
+        result.reserve(reqs.size());
+        for (const auto& r : reqs) {
+            BuiltCell bc = buildCell(QString(), *feats, 0, r.first, tol);
+            bc.drawOffsetX = r.second;
+            result.push_back(std::move(bc));
+        }
+        return result;
+    }));
+}
+
+void ChartView::onBasemapBuilt(std::vector<BuiltCell> cells, FeatureCache::FeaturesPtr feats) {
+    basemapBuilding_ = false;
+    if (feats != basemapFeats_) return;     // data was reloaded while building
+    basemap_ = std::move(cells);
     update();
 }
 
@@ -578,7 +741,7 @@ void ChartView::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.fillRect(rect(), QColor(204, 224, 242));
 
-    if (!haveCatalog_ || ppm_ <= 0.0) {
+    if (ppm_ <= 0.0) {     // no view established yet (no charts, no basemap)
         p.setPen(QColor(80, 80, 80));
         QFont f = p.font(); f.setPointSize(13); p.setFont(f);
         p.drawText(rect(), Qt::AlignCenter,
@@ -593,23 +756,15 @@ void ChartView::paintEvent(QPaintEvent*) {
                               scy_ - (height() / 2.0) / ppm_,
                               width() / ppm_, height() / ppm_);
 
-    // Coarser bands first so finer detail draws on top.
-    std::vector<const BuiltCell*> order;
-    order.reserve(loaded_.size());
-    for (auto it = loaded_.constBegin(); it != loaded_.constEnd(); ++it)
-        order.push_back(&it.value());
-    std::sort(order.begin(), order.end(),
-              [](const BuiltCell* a, const BuiltCell* b) { return a->band < b->band; });
-
-    // 1) Vector geometry, through the camera (shifted per cell for seam wrap).
     QPen pen; pen.setCosmetic(true);
-    for (const BuiltCell* c : order) {
-        const double off = c->drawOffsetX;
+    // Draw one cell's vector geometry, shifted by its wrap offset.
+    auto drawPaths = [&](const BuiltCell& c) {
+        const double off = c.drawOffsetX;
         QTransform t = cam;
         if (off != 0.0) t.translate(off, 0.0);
         p.setTransform(t);
         const QRectF visFrame = vis.translated(-off, 0.0);   // cull in cell frame
-        for (const BuiltPath& bp : c->paths) {
+        for (const BuiltPath& bp : c.paths) {
             if (bp.isDepthContour && !showDepthContours_) continue;
             if (!bp.bounds.intersects(visFrame)) continue;
             p.setBrush(bp.filled ? QBrush(bp.brush) : QBrush(Qt::NoBrush));
@@ -617,7 +772,20 @@ void ChartView::paintEvent(QPaintEvent*) {
             else           { p.setPen(Qt::NoPen); }
             p.drawPath(bp.path);
         }
-    }
+    };
+
+    // 0) Basemap underlay (land/lakes) beneath everything; charts cover it where
+    //    they exist.
+    for (const BuiltCell& bc : basemap_) drawPaths(bc);
+
+    // 1) Chart cells, coarser bands first so finer detail draws on top.
+    std::vector<const BuiltCell*> order;
+    order.reserve(loaded_.size());
+    for (auto it = loaded_.constBegin(); it != loaded_.constEnd(); ++it)
+        order.push_back(&it.value());
+    std::sort(order.begin(), order.end(),
+              [](const BuiltCell* a, const BuiltCell* b) { return a->band < b->band; });
+    for (const BuiltCell* c : order) drawPaths(*c);
 
     // 2) Soundings / symbols at constant on-screen size, in device space.
     p.resetTransform();
@@ -654,7 +822,7 @@ void ChartView::paintEvent(QPaintEvent*) {
 // ---- input -----------------------------------------------------------------
 
 void ChartView::wheelEvent(QWheelEvent* e) {
-    if (!haveCatalog_ || ppm_ <= 0.0) { e->ignore(); return; }
+    if (ppm_ <= 0.0) { e->ignore(); return; }
     userInteracted_ = true;
     const double step = 1.15;
     const double factor = (e->angleDelta().y() > 0) ? step : 1.0 / step;
@@ -677,7 +845,7 @@ void ChartView::wheelEvent(QWheelEvent* e) {
 }
 
 void ChartView::mousePressEvent(QMouseEvent* e) {
-    if (e->button() == Qt::LeftButton && haveCatalog_) {
+    if (e->button() == Qt::LeftButton && ppm_ > 0.0) {
         dragging_ = true;
         lastDragPos_ = e->position();
         userInteracted_ = true;
@@ -687,7 +855,7 @@ void ChartView::mousePressEvent(QMouseEvent* e) {
 }
 
 void ChartView::mouseMoveEvent(QMouseEvent* e) {
-    if (haveCatalog_ && ppm_ > 0.0) {
+    if (ppm_ > 0.0) {
         const QPointF s = screenToScene(e->position());
         emit cursorMoved(proj::xToLon(s.x()), proj::yToLat(-s.y()));
         if (dragging_) {
@@ -716,5 +884,7 @@ void ChartView::resizeEvent(QResizeEvent* e) {
     QWidget::resizeEvent(e);
     if (haveCatalog_ && !userInteracted_) fitToCatalog();
     else { updatePointLOD(); scheduleUpdate(); }
+    ensureViewForBasemap();   // in case the widget had no size when basemap loaded
+    maybeBuildBasemap();
     update();
 }
