@@ -4,8 +4,8 @@
 #include "geom_clip.hpp"
 
 #include <QGraphicsPathItem>
-#include <QGraphicsSimpleTextItem>
-#include <QGraphicsEllipseItem>
+#include <QGraphicsItem>
+#include <QStyleOptionGraphicsItem>
 #include <QPainterPath>
 #include <QWheelEvent>
 #include <QMouseEvent>
@@ -14,7 +14,10 @@
 #include <QTimer>
 #include <QPainter>
 #include <QPen>
+#include <QBrush>
 #include <QFont>
+#include <QFontMetricsF>
+#include <QTransform>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
@@ -60,6 +63,65 @@ using geom::clipRingToRect;
 using geom::clipPolylineToRect;
 using geom::pointInRect;
 
+// All of a cell's soundings (or point symbols) drawn by a single item at a
+// constant on-screen size. This replaces one QGraphicsItem per point — and,
+// crucially, the per-item ItemIgnoresTransformations flag, which is a major
+// QGraphicsView bottleneck because such items bypass spatial culling and are
+// re-transformed individually every frame. Here we draw directly in device
+// pixels (one paint pass, with our own viewport cull), so a busy harbour view
+// costs two items instead of thousands.
+class ConstantSizePoints : public QGraphicsItem {
+public:
+    enum Kind { Soundings, Symbols };
+    explicit ConstantSizePoints(Kind k) : kind_(k) {}
+
+    // Position is given in scene coordinates (caller has already flipped Y).
+    void add(double sceneX, double sceneY, const QString& text = QString()) {
+        pts_.push_back({QPointF(sceneX, sceneY), text});
+        bounds_ |= QRectF(sceneX, sceneY, 0.0001, 0.0001);
+    }
+    bool empty() const { return pts_.empty(); }
+
+    QRectF boundingRect() const override { return bounds_; }
+
+    void paint(QPainter* p, const QStyleOptionGraphicsItem* opt, QWidget*) override {
+        const QTransform t = p->worldTransform();   // scene -> device
+        const double sx = std::abs(t.m11()) > 1e-12 ? std::abs(t.m11()) : 1.0;
+        // Cull in scene coords, padded so constant-size glyphs near the edge of
+        // the exposed region aren't dropped.
+        const double pad = 32.0 / sx;
+        const QRectF cull = opt->exposedRect.adjusted(-pad, -pad, pad, pad);
+
+        p->save();
+        p->setWorldMatrixEnabled(false);             // draw in device pixels
+        if (kind_ == Soundings) {
+            QFont f = p->font(); f.setPointSizeF(8.0); p->setFont(f);
+            p->setPen(QColor(26, 51, 115));
+            const double asc = QFontMetricsF(f).ascent();
+            for (const E& e : pts_) {
+                if (!cull.contains(e.pos)) continue;
+                const QPointF d = t.map(e.pos);
+                p->drawText(QPointF(d.x() + 1.0, d.y() + asc), e.text);
+            }
+        } else {
+            p->setBrush(QColor(179, 26, 128));
+            p->setPen(Qt::NoPen);
+            for (const E& e : pts_) {
+                if (!cull.contains(e.pos)) continue;
+                const QPointF d = t.map(e.pos);
+                p->drawEllipse(d, 3.0, 3.0);
+            }
+        }
+        p->restore();
+    }
+
+private:
+    struct E { QPointF pos; QString text; };
+    Kind kind_;
+    QRectF bounds_;
+    std::vector<E> pts_;
+};
+
 // Rough in-memory footprint of a parsed cell, for the LRU byte budget.
 std::size_t approxBytes(const std::vector<Feature>& feats) {
     std::size_t b = sizeof(Feature) * feats.capacity();
@@ -71,6 +133,133 @@ std::size_t approxBytes(const std::vector<Feature>& feats) {
     return b;
 }
 
+// Vertex-merge tolerance (projected metres) for a usage band, ~half a pixel at
+// the band's display scale on a typical screen. Band-based rather than live-zoom
+// based, so geometry never needs re-simplifying as you zoom within a band — and
+// the finest bands (berthing/unknown), where the user zooms in most, keep full
+// detail. Bands: 1 overview … 5 harbour.
+double simplifyToleranceM(int band) {
+    switch (band) {
+        case 1: return 1389.0;   // overview
+        case 2: return 278.0;    // general
+        case 3: return 46.0;     // coastal
+        case 4: return 13.9;     // approach
+        case 5: return 2.8;      // harbour
+        default: return 0.0;     // berthing / unknown: keep full detail
+    }
+}
+
+// Clip + simplify one cell to `clipBox` and build its vector primitives. Pure
+// and Qt-value-only, so it runs on a worker thread; the UI thread later wraps
+// the result in QGraphicsItems (see ChartView::instantiateCell).
+BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
+                    int band, const BBox& clipBox) {
+    BuiltCell bc;
+    bc.path    = path;
+    bc.band    = band;
+    bc.clipBox = clipBox;
+
+    // Band-major depth: coarser bands sit beneath finer ones. Feature z-order
+    // orders within a band.
+    const double zb  = static_cast<double>(band) * 1000.0;
+    const double tol = simplifyToleranceM(band);
+
+    std::vector<std::vector<Pt>> clipBuf;   // clipped rings/runs
+    std::vector<std::vector<Pt>> simpBuf;   // simplified rings/runs (reused)
+
+    // Reduce a set of rings/runs by the band tolerance, keeping only those still
+    // large enough to draw. Returns the buffer to build a path from.
+    auto reduce = [&](const std::vector<std::vector<Pt>>& src, std::size_t minPts)
+            -> const std::vector<std::vector<Pt>>& {
+        if (tol <= 0.0) return src;
+        simpBuf.clear();
+        for (const auto& ring : src) {
+            std::vector<Pt> s = geom::simplify(ring, tol);
+            if (s.size() >= minPts) simpBuf.push_back(std::move(s));
+        }
+        return simpBuf;
+    };
+
+    for (const Feature& f : feats) {
+        const bool doClip = clipBox.valid() && !clipBox.contains(f.bbox);
+
+        switch (f.kind) {
+            case FeatureKind::DepthArea:
+            case FeatureKind::LandArea: {
+                const std::vector<std::vector<Pt>>* rings = &f.rings;
+                if (doClip) {
+                    clipBuf.clear();
+                    for (const auto& ring : f.rings) {
+                        std::vector<Pt> c = clipRingToRect(ring, clipBox);
+                        if (c.size() >= 3) clipBuf.push_back(std::move(c));
+                    }
+                    if (clipBuf.empty()) break;
+                    rings = &clipBuf;
+                }
+                const std::vector<std::vector<Pt>>& use = reduce(*rings, 3);
+                if (use.empty()) break;
+
+                BuiltPath bp;
+                bp.path   = buildPathFromRings(use, true);
+                bp.z      = zb + f.zorder;
+                bp.filled = true;
+                bp.brush  = fillColor(f);
+                if (f.kind == FeatureKind::LandArea) {
+                    bp.hasPen = true; bp.penColor = QColor(115, 97, 64); bp.penWidth = 1.0;
+                }
+                bc.paths.push_back(std::move(bp));
+                break;
+            }
+            case FeatureKind::OtherArea:
+            case FeatureKind::DepthContour:
+            case FeatureKind::Coastline:
+            case FeatureKind::OtherLine: {
+                const std::vector<std::vector<Pt>>* rings = &f.rings;
+                if (doClip) {
+                    clipBuf.clear();
+                    for (const auto& ring : f.rings) {
+                        std::vector<std::vector<Pt>> runs = clipPolylineToRect(ring, clipBox);
+                        for (auto& run : runs) clipBuf.push_back(std::move(run));
+                    }
+                    if (clipBuf.empty()) break;
+                    rings = &clipBuf;
+                }
+                const std::vector<std::vector<Pt>>& use = reduce(*rings, 2);
+                if (use.empty()) break;
+
+                BuiltPath bp;
+                bp.path   = buildPathFromRings(use, false);
+                bp.z      = zb + f.zorder;
+                bp.filled = false;
+                bp.hasPen = true;
+                if (f.kind == FeatureKind::Coastline)        { bp.penColor = QColor(64, 51, 31);        bp.penWidth = 1.4; }
+                else if (f.kind == FeatureKind::DepthContour){ bp.penColor = QColor(115, 153, 199);     bp.penWidth = 0.8; }
+                else if (f.kind == FeatureKind::OtherArea)   { bp.penColor = QColor(102, 102, 115, 150); bp.penWidth = 0.7; }
+                else                                         { bp.penColor = QColor(102, 102, 128);     bp.penWidth = 0.8; }
+                bp.isDepthContour = (f.kind == FeatureKind::DepthContour);
+                bc.paths.push_back(std::move(bp));
+                break;
+            }
+            case FeatureKind::Sounding: {
+                if (f.rings.empty() || f.rings[0].empty()) break;
+                if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
+                const QString text = f.hasDepth
+                    ? QString::number(f.depth, 'f', f.depth < 10.0 ? 1 : 0)
+                    : QStringLiteral(".");
+                bc.soundings.emplace_back(QPointF(f.rings[0][0].x, -f.rings[0][0].y), text);
+                break;
+            }
+            case FeatureKind::Point: {
+                if (f.rings.empty() || f.rings[0].empty()) break;
+                if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
+                bc.symbols.emplace_back(f.rings[0][0].x, -f.rings[0][0].y);
+                break;
+            }
+        }
+    }
+    return bc;
+}
+
 } // namespace
 
 ChartView::ChartView(QWidget* parent) : QGraphicsView(parent) {
@@ -80,6 +269,7 @@ ChartView::ChartView(QWidget* parent) : QGraphicsView(parent) {
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setViewportUpdateMode(QGraphicsView::SmartViewportUpdate);
     setOptimizationFlag(QGraphicsView::DontSavePainterState, true);
+    setOptimizationFlag(QGraphicsView::DontAdjustForAntialiasing, true);
     viewport()->setMouseTracking(true);
 
     pool_.setMaxThreadCount(qBound(2, QThread::idealThreadCount(), 8));
@@ -93,6 +283,16 @@ ChartView::ChartView(QWidget* parent) : QGraphicsView(parent) {
     updateTimer_->setSingleShot(true);
     updateTimer_->setInterval(120); // debounce viewport changes
     connect(updateTimer_, &QTimer::timeout, this, &ChartView::updateVisibleCells);
+
+    // While the user is actively panning/zooming we drop antialiasing for speed,
+    // then restore it shortly after movement stops for a crisp static image.
+    aaTimer_ = new QTimer(this);
+    aaTimer_->setSingleShot(true);
+    aaTimer_->setInterval(180);
+    connect(aaTimer_, &QTimer::timeout, this, [this] {
+        setRenderHint(QPainter::Antialiasing, true);
+        viewport()->update();
+    });
 
     connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, &ChartView::scheduleUpdate);
     connect(verticalScrollBar(),   &QScrollBar::valueChanged, this, &ChartView::scheduleUpdate);
@@ -108,6 +308,7 @@ void ChartView::clearAll() {
     scene_.clear();
     loaded_.clear();
     inFlight_.clear();
+    building_.clear();
     wanted_.clear();
     bandByPath_.clear();
     bboxByPath_.clear();
@@ -228,13 +429,14 @@ void ChartView::updateVisibleCells() {
         if (c.bbox.intersects(wantedArea)) wanted_.insert(c.path);
     }
 
-    // Bring in newly-wanted cells. A cache hit rebuilds the scene items straight
-    // from the cached parse on the spot (no worker, no disk) — this is what
-    // makes returning to a recently-seen area instant. A miss dispatches a load.
+    // Bring in newly-wanted cells. A cache hit dispatches a (fast) off-thread
+    // build from the cached parse; a miss dispatches a disk+GDAL load, which then
+    // dispatches the build. Either way the UI thread never clips or builds paths.
     for (const QString& path : wanted_) {
-        if (loaded_.contains(path) || inFlight_.contains(path)) continue;
+        if (loaded_.contains(path) || inFlight_.contains(path) ||
+            building_.contains(path)) continue;
         if (FeatureCache::FeaturesPtr feats = cache_.get(path))
-            addCell(path, *feats, bandByPath_.value(path, 0), keepArea);
+            dispatchBuild(path, feats, bandByPath_.value(path, 0), keepArea);
         else
             dispatchLoad(path);
     }
@@ -254,9 +456,9 @@ void ChartView::updateVisibleCells() {
         // it re-clips with margin to spare — the visible viewport never reaches
         // the edge of the old clip, so no blank sliver can appear.
         const BBox clipBox = loaded_[path].clipBox;
-        if (!clipBox.contains(wantedArea)) {
+        if (!clipBox.contains(wantedArea) && !building_.contains(path)) {
             if (FeatureCache::FeaturesPtr feats = cache_.get(path))
-                addCell(path, *feats, band, keepArea);
+                dispatchBuild(path, feats, band, keepArea);
         }
     }
 
@@ -306,126 +508,83 @@ void ChartView::onCellLoaded(CellLoadResult r, quint64 gen) {
     BBox view, wantedArea, keepArea;
     int target;
     if (!computeViewBoxes(view, wantedArea, keepArea, target)) return;
-    addCell(path, *feats, band, keepArea);
+    dispatchBuild(path, feats, band, keepArea);
+}
+
+void ChartView::dispatchBuild(const QString& path, FeatureCache::FeaturesPtr feats,
+                             int band, const BBox& clipBox) {
+    if (!feats || building_.contains(path)) return;   // one build per cell at a time
+    building_.insert(path);
+    const quint64 gen = generation_;
+    const QString p = path;
+
+    auto* watcher = new QFutureWatcher<BuiltCell>(this);
+    connect(watcher, &QFutureWatcher<BuiltCell>::finished, this, [this, watcher, gen]() {
+        BuiltCell bc = watcher->result();
+        watcher->deleteLater();
+        onCellBuilt(std::move(bc), gen);
+    });
+    watcher->setFuture(QtConcurrent::run(&pool_, [p, feats, band, clipBox]() {
+        return buildCell(p, *feats, band, clipBox);
+    }));
+}
+
+void ChartView::onCellBuilt(BuiltCell bc, quint64 gen) {
+    building_.remove(bc.path);
+    if (gen != generation_) return;            // superseded by a new scan
+    if (!wanted_.contains(bc.path)) return;    // view moved on while building
+    instantiateCell(bc);
     emit statusChanged(QStringLiteral("%1 cell(s) shown").arg(loaded_.size()));
 }
 
-void ChartView::addCell(const QString& path, const std::vector<Feature>& feats,
-                        int band, const BBox& clipBox) {
-    // Rebuilding (re-clip, or cache hit while a stale copy somehow lingers):
-    // drop any existing items for this path first.
-    if (loaded_.contains(path)) removeCell(path);
-
+void ChartView::instantiateCell(const BuiltCell& bc) {
     LoadedCell cell;
-    cell.band    = band;
-    cell.clipBox = clipBox;
+    cell.band    = bc.band;
+    cell.clipBox = bc.clipBox;
 
-    // Band-major depth: coarser bands sit beneath finer ones, so a finer cell's
-    // opaque area fills cover the coarse data within its footprint, while gaps
-    // reveal the coarser band underneath. Feature z-order orders within a band.
-    const double zb = static_cast<double>(band) * 1000.0;
-
-    // Scratch reused across features to avoid per-feature allocation churn.
-    std::vector<std::vector<Pt>> ringsBuf;
-
-    for (const Feature& f : feats) {
-        // Skip clipping entirely when the feature is already inside the region —
-        // the common case for fine cells smaller than the viewport.
-        const bool doClip = clipBox.valid() && !clipBox.contains(f.bbox);
-
-        switch (f.kind) {
-            case FeatureKind::DepthArea:
-            case FeatureKind::LandArea: {
-                const std::vector<std::vector<Pt>>* rings = &f.rings;
-                if (doClip) {
-                    ringsBuf.clear();
-                    for (const auto& ring : f.rings) {
-                        std::vector<Pt> c = clipRingToRect(ring, clipBox);
-                        if (c.size() >= 3) ringsBuf.push_back(std::move(c));
-                    }
-                    if (ringsBuf.empty()) break;       // nothing of this poly is in view
-                    rings = &ringsBuf;
-                }
-                auto* item = new QGraphicsPathItem(buildPathFromRings(*rings, true));
-                item->setBrush(fillColor(f));
-                if (f.kind == FeatureKind::LandArea) {
-                    QPen pen(QColor(115, 97, 64)); pen.setCosmetic(true); pen.setWidthF(1.0);
-                    item->setPen(pen);
-                } else {
-                    item->setPen(Qt::NoPen);
-                }
-                item->setZValue(zb + f.zorder);
-                scene_.addItem(item);
-                cell.items.push_back(item);
-                break;
-            }
-            case FeatureKind::OtherArea:
-            case FeatureKind::DepthContour:
-            case FeatureKind::Coastline:
-            case FeatureKind::OtherLine: {
-                const std::vector<std::vector<Pt>>* rings = &f.rings;
-                if (doClip) {
-                    ringsBuf.clear();
-                    for (const auto& ring : f.rings) {
-                        std::vector<std::vector<Pt>> runs = clipPolylineToRect(ring, clipBox);
-                        for (auto& run : runs) ringsBuf.push_back(std::move(run));
-                    }
-                    if (ringsBuf.empty()) break;
-                    rings = &ringsBuf;
-                }
-                auto* item = new QGraphicsPathItem(buildPathFromRings(*rings, false));
-                item->setBrush(Qt::NoBrush);
-                QPen pen; pen.setCosmetic(true);
-                if (f.kind == FeatureKind::Coastline)       { pen.setColor(QColor(64, 51, 31));   pen.setWidthF(1.4); }
-                else if (f.kind == FeatureKind::DepthContour){ pen.setColor(QColor(115, 153, 199)); pen.setWidthF(0.8); }
-                else if (f.kind == FeatureKind::OtherArea)  { pen.setColor(QColor(102, 102, 115, 150)); pen.setWidthF(0.7); }
-                else                                        { pen.setColor(QColor(102, 102, 128)); pen.setWidthF(0.8); }
-                item->setPen(pen);
-                item->setZValue(zb + f.zorder);
-                scene_.addItem(item);
-                cell.items.push_back(item);
-                if (f.kind == FeatureKind::DepthContour) {
-                    item->setVisible(contourVisible());
-                    cell.contours.push_back(item);
-                }
-                break;
-            }
-            case FeatureKind::Sounding: {
-                if (f.rings.empty() || f.rings[0].empty()) break;
-                if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
-                QString text = f.hasDepth
-                    ? QString::number(f.depth, 'f', f.depth < 10.0 ? 1 : 0)
-                    : QStringLiteral(".");
-                auto* t = new QGraphicsSimpleTextItem(text);
-                QFont fnt = t->font(); fnt.setPointSizeF(8.0); t->setFont(fnt);
-                t->setBrush(QColor(26, 51, 115));
-                t->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
-                t->setPos(f.rings[0][0].x, -f.rings[0][0].y);
-                t->setZValue(zb + f.zorder);
-                t->setVisible(soundingVisible());
-                scene_.addItem(t);
-                cell.items.push_back(t);
-                cell.soundings.push_back(t);
-                break;
-            }
-            case FeatureKind::Point: {
-                if (f.rings.empty() || f.rings[0].empty()) break;
-                if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
-                auto* e = new QGraphicsEllipseItem(-3.0, -3.0, 6.0, 6.0);
-                e->setBrush(QColor(179, 26, 128));
-                e->setPen(Qt::NoPen);
-                e->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
-                e->setPos(f.rings[0][0].x, -f.rings[0][0].y);
-                e->setZValue(zb + f.zorder);
-                e->setVisible(symbolVisible());
-                scene_.addItem(e);
-                cell.items.push_back(e);
-                cell.symbols.push_back(e);
-                break;
-            }
+    for (const BuiltPath& bp : bc.paths) {
+        auto* item = new QGraphicsPathItem(bp.path);
+        item->setBrush(bp.filled ? QBrush(bp.brush) : QBrush(Qt::NoBrush));
+        if (bp.hasPen) {
+            QPen pen(bp.penColor); pen.setCosmetic(true); pen.setWidthF(bp.penWidth);
+            item->setPen(pen);
+        } else {
+            item->setPen(Qt::NoPen);
+        }
+        item->setZValue(bp.z);
+        scene_.addItem(item);
+        cell.items.push_back(item);
+        if (bp.isDepthContour) {
+            item->setVisible(contourVisible());
+            cell.contours.push_back(item);
         }
     }
-    loaded_.insert(path, cell);
+
+    // Collapse all soundings / symbols into one constant-size item each.
+    const double zb = static_cast<double>(bc.band) * 1000.0;
+    if (!bc.soundings.empty()) {
+        auto* it = new ConstantSizePoints(ConstantSizePoints::Soundings);
+        for (const auto& s : bc.soundings) it->add(s.first.x(), s.first.y(), s.second);
+        it->setZValue(zb + 900.0);
+        it->setVisible(soundingVisible());
+        scene_.addItem(it);
+        cell.items.push_back(it);
+        cell.soundings.push_back(it);
+    }
+    if (!bc.symbols.empty()) {
+        auto* it = new ConstantSizePoints(ConstantSizePoints::Symbols);
+        for (const QPointF& q : bc.symbols) it->add(q.x(), q.y());
+        it->setZValue(zb + 901.0);
+        it->setVisible(symbolVisible());
+        scene_.addItem(it);
+        cell.items.push_back(it);
+        cell.symbols.push_back(it);
+    }
+
+    // Swap: the new items are already in the scene, so dropping the old ones now
+    // never leaves a blank frame during a re-clip.
+    removeCell(bc.path);
+    loaded_.insert(bc.path, cell);
 }
 
 void ChartView::removeCell(const QString& path) {
@@ -477,6 +636,16 @@ void ChartView::setShowDepthContours(bool on) {
 
 // ---- input ----------------------------------------------------------------
 
+void ChartView::beginInteraction() {
+    // Drop antialiasing for the duration of the gesture; the timer turns it back
+    // on (and repaints crisply) shortly after the user stops moving.
+    if (renderHints().testFlag(QPainter::Antialiasing)) {
+        setRenderHint(QPainter::Antialiasing, false);
+        viewport()->update();
+    }
+    aaTimer_->start();
+}
+
 void ChartView::wheelEvent(QWheelEvent* e) {
     if (!haveCatalog_) { QGraphicsView::wheelEvent(e); return; }
     userInteracted_ = true;
@@ -485,6 +654,7 @@ void ChartView::wheelEvent(QWheelEvent* e) {
     double target = transform().m11() * factor;
     if (target < 1e-8 || target > 1e3) { e->accept(); return; }
     scale(factor, factor);
+    beginInteraction();
     updatePointLOD();
     scheduleUpdate();
     e->accept();
@@ -499,6 +669,7 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
     if (haveCatalog_) {
         QPointF s = mapToScene(e->position().toPoint());
         emit cursorMoved(proj::xToLon(s.x()), proj::yToLat(-s.y()));
+        if (e->buttons() & Qt::LeftButton) beginInteraction();   // dragging = pan
     }
     QGraphicsView::mouseMoveEvent(e);
 }

@@ -120,4 +120,59 @@ inline bool pointInRect(const Pt& p, const BBox& r) {
     return p.x >= r.minx && p.x <= r.maxx && p.y >= r.miny && p.y <= r.maxy;
 }
 
+// Douglas–Peucker line simplification: drop vertices that lie within `tol`
+// (projected metres) of the polyline they'd otherwise add detail to. Endpoints
+// are always kept, so closed rings stay closed. Iterative (explicit stack) to
+// avoid deep recursion on long coastlines. With tol <= 0 the input is returned
+// unchanged. Used at scene-build time to shed vertices that would be smaller
+// than a fraction of a pixel at the band's display scale.
+inline std::vector<Pt> simplify(const std::vector<Pt>& pts, double tol) {
+    const int n = static_cast<int>(pts.size());
+    if (n < 3 || tol <= 0.0) return pts;
+
+    const double tol2 = tol * tol;
+    std::vector<bool> keep(n, false);
+    keep[0] = keep[n - 1] = true;
+
+    std::vector<std::pair<int, int>> stack;
+    stack.emplace_back(0, n - 1);
+    while (!stack.empty()) {
+        const int a = stack.back().first, b = stack.back().second;
+        stack.pop_back();
+
+        const double ax = pts[a].x, ay = pts[a].y;
+        const double dx = pts[b].x - ax, dy = pts[b].y - ay;
+        const double len2 = dx * dx + dy * dy;
+
+        double maxD2 = 0.0;
+        int idx = -1;
+        for (int i = a + 1; i < b; ++i) {
+            double d2;
+            if (len2 <= 0.0) {                       // a == b: distance to the point
+                const double px = pts[i].x - ax, py = pts[i].y - ay;
+                d2 = px * px + py * py;
+            } else {
+                double t = ((pts[i].x - ax) * dx + (pts[i].y - ay) * dy) / len2;
+                t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+                const double ex = pts[i].x - (ax + t * dx);
+                const double ey = pts[i].y - (ay + t * dy);
+                d2 = ex * ex + ey * ey;
+            }
+            if (d2 > maxD2) { maxD2 = d2; idx = i; }
+        }
+
+        if (idx > 0 && maxD2 > tol2) {
+            keep[idx] = true;
+            stack.emplace_back(a, idx);
+            stack.emplace_back(idx, b);
+        }
+    }
+
+    std::vector<Pt> out;
+    out.reserve(n);
+    for (int i = 0; i < n; ++i)
+        if (keep[i]) out.push_back(pts[i]);
+    return out;
+}
+
 } // namespace geom
