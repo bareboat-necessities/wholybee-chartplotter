@@ -11,6 +11,7 @@
 #include <QMessageBox>
 #include <QDir>
 #include <QEvent>
+#include <QCloseEvent>
 #include <cmath>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -31,6 +32,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
+
+    // Remember the pan/zoom location across runs: the view publishes its location
+    // (debounced) and we persist it. Restoring happens only for the startup
+    // auto-load below, so explicit chart-set switches still fit to the new set.
+    connect(view_, &ChartView::viewChanged, settings_, &Settings::setView);
 
     catalog_ = new ChartCatalog(this);
     connect(catalog_, &ChartCatalog::progress, this, &MainWindow::onScanProgress);
@@ -64,14 +70,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     statusBar()->addPermanentWidget(statusRight_);
 
     const QString saved = settings_->chartDirectory();
-    if (!saved.isEmpty() && QDir(saved).exists())
+    if (!saved.isEmpty() && QDir(saved).exists()) {
+        if (settings_->hasSavedView())
+            view_->setInitialView(settings_->viewLon(), settings_->viewLat(),
+                                  settings_->viewScale());
         startScan(saved);
+    }
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
     if (obj == view_ && e->type() == QEvent::Resize)
         positionMenuButton();
     return QMainWindow::eventFilter(obj, e);
+}
+
+void MainWindow::closeEvent(QCloseEvent* e) {
+    view_->persistViewNow();   // flush the latest location even if mid-debounce
+    QMainWindow::closeEvent(e);
 }
 
 void MainWindow::positionMenuButton() {

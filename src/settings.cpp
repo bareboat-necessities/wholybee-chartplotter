@@ -8,6 +8,9 @@ constexpr auto kChartSets = "charts/sets";
 constexpr auto kSoundings = "display/showSoundings";
 constexpr auto kSymbols   = "display/showSymbols";
 constexpr auto kContours  = "display/showDepthContours";
+constexpr auto kViewLon   = "view/centerLon";
+constexpr auto kViewLat   = "view/centerLat";
+constexpr auto kViewScale = "view/scale";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -16,6 +19,9 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     showSoundings_     = s.value(QLatin1String(kSoundings), true).toBool();
     showSymbols_       = s.value(QLatin1String(kSymbols),   true).toBool();
     showDepthContours_ = s.value(QLatin1String(kContours),  true).toBool();
+    viewLon_   = s.value(QLatin1String(kViewLon),   0.0).toDouble();
+    viewLat_   = s.value(QLatin1String(kViewLat),   0.0).toDouble();
+    viewScale_ = s.value(QLatin1String(kViewScale), 0.0).toDouble();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -62,6 +68,14 @@ void Settings::setChartSets(const QVector<ChartSet>& sets) {
     chartSets_ = sets;
     saveChartSets();
     emit chartSetsChanged();
+}
+
+void Settings::setView(double lon, double lat, double scale) {
+    viewLon_ = lon; viewLat_ = lat; viewScale_ = scale;
+    QSettings s;
+    s.setValue(QLatin1String(kViewLon), lon);
+    s.setValue(QLatin1String(kViewLat), lat);
+    s.setValue(QLatin1String(kViewScale), scale);
 }
 
 void Settings::setChartDirectory(const QString& dir) {

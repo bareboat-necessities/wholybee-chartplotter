@@ -16,6 +16,7 @@ public:
 
 protected:
     bool eventFilter(QObject* obj, QEvent* e) override;
+    void closeEvent(QCloseEvent* e) override;
 
 private slots:
     void onChartSetSelected(const QString& dir);
