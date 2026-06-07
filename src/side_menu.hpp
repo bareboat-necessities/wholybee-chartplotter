@@ -56,6 +56,9 @@ protected:
 private:
     QLabel*      makeHeader(const QString& text);
     QPushButton* makeAction(const QString& text);
+    // Settings-page action: like makeAction but reserves a leading status-dot
+    // column so every item lines up with the ones that show a dot.
+    QPushButton* makeSettingsAction(const QString& text);
     QPushButton* makeToggle(const QString& text, bool checked);
     // Checkable action that shows a check mark when on (like the active set).
     QPushButton* makeCheckAction(const QString& text, bool checked);
