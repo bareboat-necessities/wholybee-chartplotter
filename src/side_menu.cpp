@@ -92,6 +92,7 @@ QWidget* SideMenu::buildMainPage() {
             [this](bool on) { emit autoFollowToggled(on); });
     col->addWidget(autoFollowBtn_);
 
+    col->addWidget(makeHeader(QStringLiteral("Chart Detail")));
     auto* snd = makeToggle(QStringLiteral("Soundings"), settings_->showSoundings());
     connect(snd, &QPushButton::toggled, settings_, &Settings::setShowSoundings);
     col->addWidget(snd);
