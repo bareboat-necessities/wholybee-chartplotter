@@ -75,7 +75,8 @@ private:
 
     ICoreApi* core_ = nullptr;
     std::unique_ptr<HelloWorldOverlay> overlay_;
-    IDataSource* dataSource_ = nullptr;        // owned by the core
+    IDataSource*     dataSource_ = nullptr;    // owned by the core
+    IPluginSettings* settings_ = nullptr;      // owned by the core (persisted)
     std::unique_ptr<QTimer> publishTimer_;
     bool   sourceEnabled_ = false;
     double depthPhase_ = 0.0;

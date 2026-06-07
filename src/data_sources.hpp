@@ -3,46 +3,48 @@
 #include <QStringList>
 #include <QList>
 
-// Registry of known navigation data sources, by the stable id each publisher
-// stamps on its NavValueMeta.source. Used to give the priority dialog readable
-// names and to reconcile a persisted priority order with the sources this build
-// actually knows about.
+// One navigation data source, identified by the stable id its publisher stamps
+// on NavValueMeta.source, plus a human-readable name for the UI.
 struct DataSourceInfo { QString id; QString name; };
 
-namespace datasources {
+// Runtime registry of navigation sources — built-ins (NMEA 0183, Simulator)
+// registered at startup, plus any registered by plugins. Drives the Data
+// Priority dialog and the order applied to the NavDataStore, so plugin sources
+// participate in priority/fall-back like built-in ones.
+class DataSourceRegistry {
+public:
+    void add(const QString& id, const QString& name) {
+        for (const DataSourceInfo& s : sources_)
+            if (s.id == id) return;                 // ignore duplicate ids
+        sources_.push_back({ id, name });
+    }
 
-// Canonical sources, in the default priority order (highest first). Real
-// position data outranks the simulator by default.
-inline QList<DataSourceInfo> known() {
-    return {
-        { QStringLiteral("nmea0183"),  QStringLiteral("NMEA 0183") },
-        { QStringLiteral("simulator"), QStringLiteral("Simulator") },
-    };
-}
+    QString name(const QString& id) const {
+        for (const DataSourceInfo& s : sources_)
+            if (s.id == id) return s.name;
+        return id;
+    }
 
-inline QStringList knownIds() {
-    QStringList ids;
-    for (const DataSourceInfo& d : known()) ids << d.id;
-    return ids;
-}
+    // Registered sources in the saved priority order: ids that appear in `saved`
+    // first (in that order), then any remaining registered sources (registration
+    // order). Saved ids that are no longer registered are dropped.
+    QList<DataSourceInfo> ordered(const QStringList& saved) const {
+        QList<DataSourceInfo> out;
+        QStringList used;
+        for (const QString& id : saved)
+            for (const DataSourceInfo& s : sources_)
+                if (s.id == id && !used.contains(id)) { out.push_back(s); used << id; }
+        for (const DataSourceInfo& s : sources_)
+            if (!used.contains(s.id)) { out.push_back(s); used << s.id; }
+        return out;
+    }
 
-inline QString displayName(const QString& id) {
-    for (const DataSourceInfo& d : known())
-        if (d.id == id) return d.name;
-    return id;   // unknown source: show its raw id
-}
+    QStringList orderedIds(const QStringList& saved) const {
+        QStringList ids;
+        for (const DataSourceInfo& s : ordered(saved)) ids << s.id;
+        return ids;
+    }
 
-// Reconcile a saved order with the known set: keep saved order for ids we still
-// know, drop unknown ids, and append any known ids missing from the saved list
-// (e.g. a source added in a newer build). Highest priority first.
-inline QStringList reconcile(const QStringList& saved) {
-    QStringList out;
-    const QStringList ids = knownIds();
-    for (const QString& s : saved)
-        if (ids.contains(s) && !out.contains(s)) out << s;
-    for (const QString& s : ids)
-        if (!out.contains(s)) out << s;
-    return out;
-}
-
-} // namespace datasources
+private:
+    QList<DataSourceInfo> sources_;   // registration order
+};

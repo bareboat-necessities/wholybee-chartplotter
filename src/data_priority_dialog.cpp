@@ -1,5 +1,4 @@
 #include "data_priority_dialog.hpp"
-#include "data_sources.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -9,7 +8,7 @@
 
 namespace { constexpr int kIdRole = Qt::UserRole; }
 
-DataPriorityDialog::DataPriorityDialog(const QStringList& orderedSourceIds, QWidget* parent)
+DataPriorityDialog::DataPriorityDialog(const QList<DataSourceInfo>& orderedSources, QWidget* parent)
     : QDialog(parent) {
     setWindowTitle(QStringLiteral("Data Priority"));
     resize(420, 380);
@@ -26,9 +25,9 @@ DataPriorityDialog::DataPriorityDialog(const QStringList& orderedSourceIds, QWid
     auto* row = new QHBoxLayout;
     list_ = new QListWidget;
     list_->setStyleSheet(QStringLiteral("QListWidget::item{ padding:12px; }"));
-    for (const QString& id : orderedSourceIds) {
-        auto* item = new QListWidgetItem(datasources::displayName(id), list_);
-        item->setData(kIdRole, id);
+    for (const DataSourceInfo& s : orderedSources) {
+        auto* item = new QListWidgetItem(s.name, list_);
+        item->setData(kIdRole, s.id);
     }
     if (list_->count() > 0) list_->setCurrentRow(0);
     row->addWidget(list_, 1);

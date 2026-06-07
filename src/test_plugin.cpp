@@ -200,14 +200,20 @@ void TestPlugin::initialize(ICoreApi* core) {
     });
 
     // Register as a data source: the core adds a Data Connections item whose
-    // status dot we drive, and routes clicks to our settings dialog.
-    dataSource_ = core_->registerDataSource(QStringLiteral("Test Plugin"),
+    // status dot we drive, routes clicks to our settings dialog, and adds us to
+    // Data Priority under the id we publish with ("test-plugin").
+    dataSource_ = core_->registerDataSource(QStringLiteral("test-plugin"),
+                                            QStringLiteral("Test Plugin"),
                                             [this] { openSettings(); });
 
     publishTimer_ = std::make_unique<QTimer>();
     publishTimer_->setInterval(1000);   // 1 Hz depth stream while enabled
     QObject::connect(publishTimer_.get(), &QTimer::timeout, publishTimer_.get(),
                      [this] { publishDepthTick(); });
+
+    // Restore the persisted enabled state and apply it.
+    settings_ = core_->pluginSettings(QStringLiteral("test-plugin"));
+    setSourceEnabled(settings_->value(QStringLiteral("dataSourceEnabled"), false).toBool());
 }
 
 void TestPlugin::openSettings() {
@@ -225,6 +231,7 @@ void TestPlugin::setSourceEnabled(bool on) {
     if (dataSource_) dataSource_->setActive(on);   // green dot
     if (on) publishTimer_->start();
     else    publishTimer_->stop();
+    if (settings_) settings_->setValue(QStringLiteral("dataSourceEnabled"), on);
 }
 
 void TestPlugin::publishDepthTick() {

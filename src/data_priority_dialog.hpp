@@ -1,6 +1,8 @@
 #pragma once
 #include <QDialog>
 #include <QStringList>
+#include <QList>
+#include "data_sources.hpp"   // DataSourceInfo
 
 class QListWidget;
 
@@ -11,7 +13,7 @@ class QListWidget;
 class DataPriorityDialog : public QDialog {
     Q_OBJECT
 public:
-    DataPriorityDialog(const QStringList& orderedSourceIds, QWidget* parent = nullptr);
+    DataPriorityDialog(const QList<DataSourceInfo>& orderedSources, QWidget* parent = nullptr);
 
     QStringList orderedIds() const;
 

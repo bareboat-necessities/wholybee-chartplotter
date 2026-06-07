@@ -3,6 +3,7 @@
 #include <QPointF>
 #include <QSize>
 #include <QTransform>
+#include <QVariant>
 #include <functional>
 #include <cmath>
 #include "projection.hpp"
@@ -60,6 +61,15 @@ public:
     virtual void setActive(bool on) = 0;   // green dot on/off (plugin-controlled)
 };
 
+// Persistent per-plugin settings, namespaced by plugin id, backed by the same
+// store the core uses (survives restarts). Owned by the core.
+class IPluginSettings {
+public:
+    virtual ~IPluginSettings() = default;
+    virtual void     setValue(const QString& key, const QVariant& value) = 0;
+    virtual QVariant value(const QString& key, const QVariant& def = QVariant()) const = 0;
+};
+
 // A chart overlay: the controlled way for a plugin to draw on the canvas without
 // owning scene items, z-order, or threading. The core calls paint() each frame
 // after its own drawing, in device coordinates.
@@ -92,12 +102,17 @@ public:
     virtual void addMenuToggle(const QString& title, bool checked,
                                std::function<void(bool)> onToggled) = 0;
 
+    // Persistent per-plugin settings, namespaced by `pluginId`. Core-owned.
+    virtual IPluginSettings* pluginSettings(const QString& pluginId) = 0;
+
     // Data sources -----------------------------------------------------------
-    // Register the plugin as a navigation data source. The core adds an item
-    // named `name` under Settings > Data Connections; clicking it invokes
-    // `onOpenSettings` (the plugin shows its own settings dialog). The returned
-    // handle lets the plugin drive its status dot. Core owns the handle.
-    virtual IDataSource* registerDataSource(const QString& name,
+    // Register the plugin as a navigation data source. `sourceId` is the stable
+    // id the plugin stamps on its published values (and how it appears in Data
+    // Priority); `name` is the display name. The core adds an item under
+    // Settings > Data Connections; clicking it invokes `onOpenSettings` (the
+    // plugin shows its own settings dialog). The returned handle lets the plugin
+    // drive its status dot. Core owns the handle.
+    virtual IDataSource* registerDataSource(const QString& sourceId, const QString& name,
                                             std::function<void()> onOpenSettings) = 0;
 
     // Chart overlays ---------------------------------------------------------
