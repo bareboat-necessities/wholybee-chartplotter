@@ -87,6 +87,11 @@ QWidget* SideMenu::buildMainPage() {
     });
     col->addWidget(centerBtn);
 
+    autoFollowBtn_ = makeCheckAction(QStringLiteral("Auto Follow"), false);
+    connect(autoFollowBtn_, &QPushButton::toggled, this,
+            [this](bool on) { emit autoFollowToggled(on); });
+    col->addWidget(autoFollowBtn_);
+
     auto* snd = makeToggle(QStringLiteral("Soundings"), settings_->showSoundings());
     connect(snd, &QPushButton::toggled, settings_, &Settings::setShowSoundings);
     col->addWidget(snd);
@@ -262,6 +267,34 @@ QPushButton* SideMenu::makeToggle(const QString& text, bool checked) {
         "QPushButton:checked{ color:#12407a; }"
         "QPushButton:pressed{ background:#dce6f0; }"));
     return b;
+}
+
+QPushButton* SideMenu::makeCheckAction(const QString& text, bool checked) {
+    auto* b = new QPushButton();
+    b->setCheckable(true);
+    b->setMinimumHeight(56);
+    b->setCursor(Qt::PointingHandCursor);
+    // Same check-mark cue as the active chart set: a tick when on, blank when
+    // off, with the matching blue/bold accent.
+    auto sync = [b, text](bool on) {
+        b->setText((on ? QStringLiteral("✓  ") : QStringLiteral("     ")) + text);
+    };
+    sync(checked);
+    b->setChecked(checked);
+    connect(b, &QPushButton::toggled, b, sync);
+    b->setStyleSheet(QStringLiteral(
+        "QPushButton{ text-align:left; padding-left:24px; border:none;"
+        " font-size:16px; background:#fbfbfb; }"
+        "QPushButton:checked{ color:#12407a; font-weight:600; }"
+        "QPushButton:pressed{ background:#dce6f0; }"));
+    return b;
+}
+
+void SideMenu::setAutoFollowChecked(bool on) {
+    // Guard prevents a feedback loop (the view's setAutoFollow already no-ops on
+    // an unchanged state, but this avoids the redundant toggle/text churn).
+    if (autoFollowBtn_ && autoFollowBtn_->isChecked() != on)
+        autoFollowBtn_->setChecked(on);
 }
 
 // ---- open/close + geometry ------------------------------------------------

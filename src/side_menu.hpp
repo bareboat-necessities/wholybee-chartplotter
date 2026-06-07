@@ -29,9 +29,14 @@ public:
     void closeMenu();
     bool isOpen() const { return open_; }
 
+    // Reflect the view's auto-follow state in the menu's checkmark (e.g. when a
+    // pan turns it off). Does not re-emit autoFollowToggled.
+    void setAutoFollowChecked(bool on);
+
 signals:
     void fitRequested();
     void centerOnOwnshipRequested();                  // recenter on ownship
+    void autoFollowToggled(bool on);                  // auto-follow on/off
     void chartSetSelected(const QString& directory);  // user tapped a set to load
     void manageChartSetsRequested();                  // open the Chart Sets dialog
     void basemapFolderRequested();                    // pick the GSHHG data folder
@@ -47,6 +52,8 @@ private:
     QLabel*      makeHeader(const QString& text);
     QPushButton* makeAction(const QString& text);
     QPushButton* makeToggle(const QString& text, bool checked);
+    // Checkable action that shows a check mark when on (like the active set).
+    QPushButton* makeCheckAction(const QString& text, bool checked);
     QWidget*     buildMainPage();
     QWidget*     buildSettingsPage();
     QWidget*     wrapScroll(QWidget* content);   // scrollable container for a page
@@ -61,6 +68,7 @@ private:
     QLabel*   title_ = nullptr;   // top bar, reflects the current page
     QStackedWidget* stack_ = nullptr;
     QVBoxLayout* chartSetsBox_ = nullptr;   // container for the dynamic set buttons
+    QPushButton* autoFollowBtn_ = nullptr;  // checkable Auto Follow item
     QPropertyAnimation* anim_ = nullptr;
     int  panelWidth_ = 320;
     bool open_ = false;

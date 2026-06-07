@@ -91,6 +91,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     sideMenu_ = new SideMenu(settings_, view_);
     connect(sideMenu_, &SideMenu::fitRequested,             view_, &ChartView::fitToCatalog);
     connect(sideMenu_, &SideMenu::centerOnOwnshipRequested, view_, &ChartView::centerOnOwnship);
+    connect(sideMenu_, &SideMenu::autoFollowToggled,        view_, &ChartView::setAutoFollow);
+    connect(view_, &ChartView::autoFollowChanged,           sideMenu_, &SideMenu::setAutoFollowChecked);
     connect(sideMenu_, &SideMenu::chartSetSelected,         this,  &MainWindow::onChartSetSelected);
     connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
     connect(sideMenu_, &SideMenu::basemapFolderRequested,   this,  &MainWindow::chooseBasemapFolder);

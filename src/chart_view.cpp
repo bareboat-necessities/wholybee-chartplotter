@@ -395,23 +395,39 @@ void ChartView::fitToCatalog() {
     update();
 }
 
-void ChartView::centerOnOwnship() {
-    // Silently do nothing unless an ownship fix is actually being displayed —
-    // same conditions drawOwnship() uses to decide whether to draw the symbol.
-    if (ppm_ <= 0.0) return;
-    if (ownshipFreshness_ == NavFreshness::Invalid) return;
-    if (!ownship_.latitudeDeg.has_value() || !ownship_.longitudeDeg.has_value()) return;
+// Move the view center onto the ownship, leaving zoom untouched. Returns false
+// (and does nothing) unless a fix is actually being displayed — the same
+// conditions drawOwnship() uses. Shared by the one-shot menu action and the
+// continuous auto-follow path.
+bool ChartView::recenterOnOwnship() {
+    if (ppm_ <= 0.0) return false;
+    if (ownshipFreshness_ == NavFreshness::Invalid) return false;
+    if (!ownship_.latitudeDeg.has_value() || !ownship_.longitudeDeg.has_value()) return false;
 
-    // Recenter only; zoom (ppm_) is untouched.
     scx_ = proj::lonToX(*ownship_.longitudeDeg);
     scy_ = -proj::latToY(*ownship_.latitudeDeg);
     normalizeCenter();
-    userInteracted_ = true;       // hold this center on resize instead of refitting
-
-    updateVisibleCells();
-    maybeBuildBasemap();
-    saveTimer_->start();          // persist the new center (debounced)
+    scheduleUpdate();             // refresh cells/basemap (debounced)
     update();
+    return true;
+}
+
+void ChartView::centerOnOwnship() {
+    if (recenterOnOwnship()) {
+        userInteracted_ = true;   // hold this center on resize instead of refitting
+        saveTimer_->start();      // persist the new center (debounced)
+    }
+}
+
+void ChartView::setAutoFollow(bool on) {
+    if (on == autoFollow_) return;
+    autoFollow_ = on;
+    if (on) {
+        userInteracted_ = true;
+        recenterOnOwnship();      // jump to the boat now; stays armed if no fix yet
+        saveTimer_->start();
+    }
+    emit autoFollowChanged(on);
 }
 
 // ---- viewport-driven cell selection ---------------------------------------
@@ -925,7 +941,9 @@ void ChartView::paintEvent(QPaintEvent*) {
 void ChartView::setOwnship(const OwnshipState& s, NavFreshness f) {
     ownship_ = s;
     ownshipFreshness_ = f;
-    update();
+    // When following, keep the boat centered as it moves. recenterOnOwnship()
+    // repaints on success; otherwise repaint here for the symbol's new position.
+    if (!(autoFollow_ && recenterOnOwnship())) update();
 }
 
 void ChartView::setOwnshipPredictionMinutes(double minutes) {
@@ -1024,6 +1042,10 @@ void ChartView::wheelEvent(QWheelEvent* e) {
     scy_ = under.y() - (cur.y() - height() / 2.0) / ppm_;
     normalizeCenter();
 
+    // Zooming must not disable follow; while following, keep the boat centered
+    // through the zoom instead of anchoring on the cursor.
+    if (autoFollow_) recenterOnOwnship();
+
     beginInteraction();
     updatePointLOD();
     scheduleUpdate();
@@ -1048,6 +1070,7 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
         if (dragging_) {
             const QPointF d = e->position() - lastDragPos_;
             lastDragPos_ = e->position();
+            if (autoFollow_) setAutoFollow(false);   // a pan breaks the lock
             scx_ -= d.x() / ppm_;
             scy_ -= d.y() / ppm_;
             normalizeCenter();
