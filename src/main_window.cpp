@@ -7,8 +7,10 @@
 #include "units_dialog.hpp"
 #include "stale_thresholds_dialog.hpp"
 #include "ownship_prediction_dialog.hpp"
+#include "nmea0183_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
+#include "nmea0183_client.hpp"
 
 #include <QStatusBar>
 #include <QLabel>
@@ -89,6 +91,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             simulator_, &Simulator::setRunning);
     if (settings_->simulatorEnabled()) simulator_->setRunning(true);
 
+    // NMEA 0183 network source: another INavDataPublisher feeding the same store.
+    // Re-applies its configuration whenever the user edits it in the dialog.
+    nmea_ = new Nmea0183Client(navStore_, this);
+    connect(settings_, &Settings::nmeaConfigChanged,
+            nmea_, &Nmea0183Client::setConfig);
+    nmea_->setConfig(settings_->nmeaTransport(), settings_->nmeaHost(),
+                     settings_->nmeaPort(), settings_->nmeaEnabled());
+
     // Touch-first navigation: a floating menu button over the chart opens the
     // side drawer. No toolbar, no right-click, large tap targets.
     sideMenu_ = new SideMenu(settings_, view_);
@@ -102,6 +112,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editUnitsRequested,       this,  &MainWindow::editUnits);
     connect(sideMenu_, &SideMenu::editStaleThresholdsRequested,     this, &MainWindow::editStaleThresholds);
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
+    connect(sideMenu_, &SideMenu::editNmeaRequested,                this, &MainWindow::editNmea);
+    // Green status dot on the NMEA item while the link is decoding.
+    connect(nmea_, &Nmea0183Client::decodingChanged, sideMenu_, &SideMenu::setNmeaActive);
+    sideMenu_->setNmeaActive(nmea_->isDecoding());
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
@@ -194,6 +208,14 @@ void MainWindow::editOwnshipPrediction() {
     OwnshipPredictionDialog dlg(settings_->ownshipPredictionMinutes(), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setOwnshipPredictionMinutes(dlg.minutes());
+}
+
+void MainWindow::editNmea() {
+    Nmea0183Dialog dlg(settings_->nmeaTransport(), settings_->nmeaHost(),
+                       settings_->nmeaPort(), settings_->nmeaEnabled(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setNmeaConfig(dlg.transport(), dlg.host(),
+                                 dlg.port(), dlg.enabled());
 }
 
 void MainWindow::publishOwnshipToView() {
