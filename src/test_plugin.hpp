@@ -45,20 +45,12 @@ private:
     QTimer*       timer_ = nullptr;
 };
 
-// The test plugin's settings dialog: a single checkbox enabling/disabling the
-// plugin as a navigation data source. Applies immediately on toggle.
-class TestPluginSettingsDialog : public QDialog {
-    Q_OBJECT
-public:
-    TestPluginSettingsDialog(bool enabled, std::function<void(bool)> onToggled,
-                             QWidget* parent = nullptr);
-};
-
 // Built-in plugin exercising the API: a checkable "Hello World" overlay item, a
-// "Publish Depth…" item that opens DepthEntryDialog, and registration as a data
-// source (auto Data Connections item + status dot + settings dialog). While
-// enabled as a source it publishes a varying depth at 1 Hz.
-class TestPlugin : public IPlugin {
+// "Publish Depth…" item that opens DepthEntryDialog, registration as a data
+// source (auto Data Connections item + status dot), and a settings page (hosted
+// by the core) with a single enable checkbox. While enabled as a source it
+// publishes a varying depth at 1 Hz.
+class TestPlugin : public IPlugin, public ISettingsPageProvider {
 public:
     TestPlugin();             // out-of-line: unique_ptr<QTimer> (incomplete here)
     ~TestPlugin() override;
@@ -68,8 +60,11 @@ public:
     void initialize(ICoreApi* core) override;
     void shutdown() override;
 
+    // ISettingsPageProvider
+    QString  settingsPageTitle() const override { return QStringLiteral("Test Plugin"); }
+    QWidget* createSettingsPage(QWidget* parent) override;
+
 private:
-    void openSettings();
     void setSourceEnabled(bool on);
     void publishDepthTick();
 

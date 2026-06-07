@@ -132,17 +132,16 @@ void DepthEntryDialog::publish() {
     refresh();
 }
 
-// ---- TestPluginSettingsDialog ----------------------------------------------
+// ---- TestPlugin ------------------------------------------------------------
 
-TestPluginSettingsDialog::TestPluginSettingsDialog(bool enabled,
-                                                   std::function<void(bool)> onToggled,
-                                                   QWidget* parent)
-    : QDialog(parent) {
-    setWindowTitle(QStringLiteral("Test Plugin"));
-    resize(360, 160);
-    setWindowFlag(Qt::Window, true);
+TestPlugin::TestPlugin() = default;
+TestPlugin::~TestPlugin() = default;
 
-    auto* col = new QVBoxLayout(this);
+// ISettingsPageProvider: the core hosts this content (chrome + Close button).
+QWidget* TestPlugin::createSettingsPage(QWidget* parent) {
+    auto* page = new QWidget(parent);
+    auto* col = new QVBoxLayout(page);
+    col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(14);
 
     auto* intro = new QLabel(QStringLiteral(
@@ -152,30 +151,16 @@ TestPluginSettingsDialog::TestPluginSettingsDialog(bool enabled,
     col->addWidget(intro);
 
     auto* box = new QCheckBox(QStringLiteral("Enable as data source"));
-    box->setChecked(enabled);
+    box->setChecked(sourceEnabled_);
     box->setMinimumHeight(40);
     box->setStyleSheet(QStringLiteral(
         "QCheckBox{ font-size:16px; }"
         "QCheckBox::indicator{ width:24px; height:24px; }"));
-    connect(box, &QCheckBox::toggled, this,
-            [fn = std::move(onToggled)](bool on) { if (fn) fn(on); });
+    QObject::connect(box, &QCheckBox::toggled, box,
+                     [this](bool on) { setSourceEnabled(on); });
     col->addWidget(box);
-
-    col->addStretch(1);
-
-    auto* closeBtn = new QPushButton(QStringLiteral("Close"));
-    closeBtn->setMinimumHeight(40);
-    auto* footer = new QHBoxLayout;
-    footer->addStretch(1);
-    footer->addWidget(closeBtn);
-    col->addLayout(footer);
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::close);
+    return page;
 }
-
-// ---- TestPlugin ------------------------------------------------------------
-
-TestPlugin::TestPlugin() = default;
-TestPlugin::~TestPlugin() = default;
 
 void TestPlugin::initialize(ICoreApi* core) {
     core_ = core;
@@ -199,12 +184,15 @@ void TestPlugin::initialize(ICoreApi* core) {
         dlg->activateWindow();
     });
 
+    // Settings page hosted by the core (Settings > Plugin Settings).
+    core_->addSettingsPage(this);
+
     // Register as a data source: the core adds a Data Connections item whose
-    // status dot we drive, routes clicks to our settings dialog, and adds us to
+    // status dot we drive, routes clicks to our settings page, and adds us to
     // Data Priority under the id we publish with ("test-plugin").
     dataSource_ = core_->registerDataSource(QStringLiteral("test-plugin"),
                                             QStringLiteral("Test Plugin"),
-                                            [this] { openSettings(); });
+                                            [this] { core_->showSettingsPage(this); });
 
     publishTimer_ = std::make_unique<QTimer>();
     publishTimer_->setInterval(1000);   // 1 Hz depth stream while enabled
@@ -214,15 +202,6 @@ void TestPlugin::initialize(ICoreApi* core) {
     // Restore the persisted enabled state and apply it.
     settings_ = core_->pluginSettings(QStringLiteral("test-plugin"));
     setSourceEnabled(settings_->value(QStringLiteral("dataSourceEnabled"), false).toBool());
-}
-
-void TestPlugin::openSettings() {
-    auto* dlg = new TestPluginSettingsDialog(
-        sourceEnabled_, [this](bool on) { setSourceEnabled(on); }, core_->dialogParent());
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
 }
 
 void TestPlugin::setSourceEnabled(bool on) {

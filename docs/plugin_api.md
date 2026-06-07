@@ -62,6 +62,10 @@ class ICoreApi {
     // Per-plugin persistent settings
     IPluginSettings* pluginSettings(QString pluginId);
 
+    // Settings pages (Settings > Plugin Settings)
+    void addSettingsPage(ISettingsPageProvider* provider);
+    void showSettingsPage(ISettingsPageProvider* provider);
+
     // Data sources (Settings > Data Connections; also joins Data Priority)
     IDataSource* registerDataSource(QString sourceId, QString name,
                                     std::function<void()> onOpenSettings);
@@ -140,6 +144,25 @@ class IPluginSettings {
 Values are stored under `plugins/<pluginId>/<key>`. The Test Plugin uses this to
 remember whether it is enabled as a data source and restores it on the next run.
 
+### Settings pages
+
+A plugin supplies only the **content** of its settings page; the core hosts it
+(window chrome, title, parenting, single-instance) so plugins don't manage their
+own dialogs:
+
+```cpp
+class ISettingsPageProvider {
+    QString  settingsPageTitle() const;
+    QWidget* createSettingsPage(QWidget* parent);   // core takes ownership
+};
+```
+
+`addSettingsPage(provider)` adds an item under **Settings > Plugin Settings**
+(hidden until the first one). `showSettingsPage(provider)` opens it on demand —
+e.g. a data source routes its item's click here, so the same page serves both
+entry points. The Test Plugin implements this; its page is the single
+"Enable as data source" checkbox.
+
 ## Chart overlays
 
 Plugins do not add `QGraphicsItem`s or know how the canvas is implemented. They
@@ -178,12 +201,13 @@ must `removeChartOverlay()` it in `shutdown()`.
 |--------------|----------|--------------|
 | **"Hello World"** toggle (main menu) | `addMenuToggle` + `addChartOverlay` | Toggles an overlay drawing "Hello World", anchored to the ownship via `geoToScreen` (falls back to viewport centre). |
 | **"Publish Depth…"** action (main menu) | `addMenuAction`, `navData`, `navPublisher` | Opens a dialog showing current depth (value / source / age, live, greyed when stale) and publishes a new depth value. |
-| **"Test Plugin"** data source (Data Connections) | `registerDataSource`, `IDataSource::setActive`, `navPublisher` | Settings dialog with one "Enable as data source" checkbox. While enabled, drives its green dot and publishes a varying depth at 1 Hz (source `test-plugin`). |
+| **"Test Plugin"** data source (Data Connections) | `registerDataSource`, `IDataSource::setActive`, `navPublisher` | Drives its green dot; while enabled publishes a varying depth at 1 Hz (source `test-plugin`). Joins Data Priority. |
+| **"Test Plugin"** settings page (Plugin Settings) | `ISettingsPageProvider`, `addSettingsPage`, `pluginSettings` | Core-hosted page with one "Enable as data source" checkbox; the enabled state persists across runs. The data-source item opens this same page. |
 
 Wiring it up in the core is three lines (`MainWindow`):
 
 ```cpp
-coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, this);
+coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, &registry_, this);
 plugins_ = std::make_unique<PluginManager>(coreApi_.get());
 plugins_->add(std::make_unique<TestPlugin>());
 plugins_->initializeAll();
@@ -212,17 +236,14 @@ Strong:
   and plugin sources join the runtime `DataSourceRegistry`, so they appear in the
   Data Priority dialog and arbitrate alongside built-in sources.
 - Plugins persist their own settings via `pluginSettings(pluginId)`, namespaced
-  and backed by the core store.
+  and backed by the core store, and contribute a core-hosted settings page via
+  `ISettingsPageProvider` (the plugin supplies only the content widget).
 
 Where it will grow (additions, not rewrites):
 
 - **Dynamic loading.** No DLL/SO discovery, versioning, or ABI freeze yet. The
   `PluginManager` is the seam — it would enumerate plugins from disk and create
   them behind `IPlugin`, with everything downstream unchanged.
-
-- **Settings pages.** Plugins persist key/values today but build their own
-  dialogs. The spec's `ISettingsPageProvider` would let a plugin contribute a
-  settings page hosted by the core's settings UI.
 
 - **More contribution points.** `IChartProvider` (chart formats), `IAisProvider`,
   `IInstrumentProvider`, `IRouteTool`, and overlay `hitTest` routing are sketched

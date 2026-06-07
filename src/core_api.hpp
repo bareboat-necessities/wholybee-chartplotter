@@ -1,9 +1,13 @@
 #pragma once
 #include "plugin_api.hpp"
 #include <QString>
+#include <QHash>
+#include <QPointer>
 #include <map>
 #include <memory>
 #include <vector>
+
+class QDialog;
 
 class NavDataStore;
 class SideMenu;
@@ -28,6 +32,9 @@ public:
 
     IPluginSettings* pluginSettings(const QString& pluginId) override;
 
+    void addSettingsPage(ISettingsPageProvider* provider) override;
+    void showSettingsPage(ISettingsPageProvider* provider) override;
+
     IDataSource* registerDataSource(const QString& sourceId, const QString& name,
                                     std::function<void()> onOpenSettings) override;
 
@@ -45,4 +52,5 @@ private:
     QWidget*            dialogParent_ = nullptr;
     std::vector<std::unique_ptr<IDataSource>>     dataSources_;     // owns handles
     std::map<QString, std::unique_ptr<IPluginSettings>> pluginSettings_;  // by plugin id
+    QHash<ISettingsPageProvider*, QPointer<QDialog>> settingsDialogs_;    // single-instance
 };
