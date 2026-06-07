@@ -84,6 +84,8 @@ public:
 
     void setCatalog(ChartCatalog* catalog);
     void fitToCatalog();
+    // Recenter on the ownship without changing zoom. No-op if no fix is shown.
+    void centerOnOwnship();
 
     // Chart display settings (driven by the core Settings object).
     void setShowSoundings(bool on);
