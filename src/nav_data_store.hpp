@@ -4,41 +4,54 @@
 #include <QDateTime>
 #include <optional>
 
-// Per-value provenance: where this navigation value came from, when it was
-// produced, and whether the receiver still considers it usable. Tracked
-// per-value so individual fields can age out independently of each other (e.g.
-// heading goes stale while position is still fresh).
-struct NavValueMeta {
-    QString   source;              // e.g. "simulator", "nmea0183.serial1"
-    QDateTime timestampUtc;        // when the source produced this value
-    double    ageSeconds = 0.0;    // cached; updated by NavDataStore
-    bool      valid = false;       // age within the invalid threshold
-};
+class QTimer;
 
-// Live ownship navigation state. Optional fields are absent when the active
-// source hasn't supplied them. Inspired by Signal K path names but stored as
-// typed C++; see ProjectSpec.md for the conceptual mapping.
-struct OwnshipState {
-    std::optional<double> latitudeDeg;
-    std::optional<double> longitudeDeg;
-    std::optional<double> cogDegTrue;       // course over ground (true)
-    std::optional<double> sogKnots;         // speed over ground
-    std::optional<double> headingDegTrue;
-    std::optional<double> headingDegMag;
-    std::optional<double> variationDeg;
-    std::optional<double> depthMeters;
-    std::optional<double> windSpeedKnots;
-    std::optional<double> windAngleDeg;
-    NavValueMeta meta;              // applies to the position fix (extend later)
-};
-
-// Freshness of the ownship fix, derived from staleSeconds + invalidSeconds.
+// Freshness of a single navigation value, derived from its age against the
+// stale/invalid thresholds.
 enum class NavFreshness { Fresh, Stale, Invalid };
 
-// Stable API plugins (built-in or future dynamic) call to publish navigation
-// updates. The core owns the data and reconciles sources/timestamps/validity;
-// plugins never reach into shared state directly. Matches the publish/subscribe
-// contract in ProjectSpec.md.
+// Provenance a publisher supplies when it sets a value: which source produced
+// it and when. The store derives age/freshness from this.
+struct NavValueMeta {
+    QString   source;              // e.g. "nmea0183", "nmea2000", "simulator"
+    QDateTime timestampUtc;        // when the source produced the value
+};
+
+// A single navigation value with its own provenance and freshness, so each
+// field ages out independently and may come from a different source — e.g.
+// position from NMEA 0183 while depth/wind arrive from NMEA 2000.
+struct NavValue {
+    double       value = 0.0;
+    QString      source;                       // empty until first set
+    QDateTime    timestampUtc;                 // invalid until first set
+    double       ageSeconds = 0.0;             // maintained by the store
+    NavFreshness freshness = NavFreshness::Invalid;
+
+    bool   valid() const { return freshness != NavFreshness::Invalid; }
+    bool   stale() const { return freshness == NavFreshness::Stale; }
+    double valueOr(double fallback) const { return valid() ? value : fallback; }
+};
+
+// Live ownship navigation state: one self-describing value per field. A field
+// whose freshness is Invalid is either never set or has aged out; consumers
+// treat both as "not available". See ProjectSpec.md for the Signal K mapping.
+struct OwnshipState {
+    NavValue latitudeDeg;
+    NavValue longitudeDeg;
+    NavValue cogDegTrue;       // course over ground (true)
+    NavValue sogKnots;         // speed over ground
+    NavValue headingDegTrue;
+    NavValue headingDegMag;
+    NavValue variationDeg;
+    NavValue depthMeters;
+    NavValue windSpeedKnots;
+    NavValue windAngleDeg;
+};
+
+// Stable API publishers (built-in or future dynamic plugins) call to publish
+// navigation updates. Each call carries its own meta, so different fields can
+// originate from different sources and age independently. The core owns the
+// data and computes freshness; publishers never touch shared state directly.
 class INavDataPublisher {
 public:
     virtual ~INavDataPublisher() = default;
@@ -49,22 +62,27 @@ public:
     virtual void publishHeading(double headingDegTrue,
                                 std::optional<double> headingDegMag,
                                 const NavValueMeta& meta) = 0;
+    virtual void publishDepth(double depthMeters, const NavValueMeta& meta) = 0;
+    virtual void publishWind(double windSpeedKnots, double windAngleDeg,
+                             const NavValueMeta& meta) = 0;
+    virtual void publishVariation(double variationDeg, const NavValueMeta& meta) = 0;
 };
 
 // Central navigation data store. Single source of truth for live nav state;
-// publishers call set*, consumers subscribe to ownshipChanged().
+// publishers call publish*, consumers subscribe to ownshipChanged().
 //
-// Stale-data tracking: a background tick updates ageSeconds on the current
-// meta and transitions freshness through Fresh -> Stale -> Invalid as the
-// configured thresholds elapse. Consumers can render the ownship symbol
-// differently in each state (dimmed when stale, hidden/outlined when invalid).
+// Per-value staleness: a background tick ages every value and transitions it
+// Fresh -> Stale -> Invalid as the thresholds elapse. ownshipChanged() fires on
+// any publish and on any freshness transition, so consumers re-read and can
+// render each value by its own freshness.
 class NavDataStore : public QObject, public INavDataPublisher {
     Q_OBJECT
 public:
     explicit NavDataStore(QObject* parent = nullptr);
 
     const OwnshipState& ownship() const { return ownship_; }
-    NavFreshness freshness() const { return freshness_; }
+    // Freshness of the position fix (drives the ownship symbol).
+    NavFreshness positionFreshness() const { return ownship_.latitudeDeg.freshness; }
     double staleSeconds()   const { return staleSeconds_; }
     double invalidSeconds() const { return invalidSeconds_; }
 
@@ -76,25 +94,28 @@ public:
     void publishHeading(double headingDegTrue,
                         std::optional<double> headingDegMag,
                         const NavValueMeta& meta) override;
+    void publishDepth(double depthMeters, const NavValueMeta& meta) override;
+    void publishWind(double windSpeedKnots, double windAngleDeg,
+                     const NavValueMeta& meta) override;
+    void publishVariation(double variationDeg, const NavValueMeta& meta) override;
 
 public slots:
     void setStaleSeconds(double s);
     void setInvalidSeconds(double s);
 
 signals:
-    void ownshipChanged();            // any ownship field updated
-    void freshnessChanged(NavFreshness f);
-    void thresholdsChanged();
+    void ownshipChanged();            // a value or a freshness transitioned
 
 private slots:
     void tick();
 
 private:
-    void recomputeFreshness();        // updates meta.age + freshness_
+    void setValue(NavValue& v, double value, const NavValueMeta& meta);
+    bool ageValue(NavValue& v, const QDateTime& now);   // true if freshness changed
+    bool recompute();                                   // age all; true if any changed
 
     OwnshipState ownship_;
-    NavFreshness freshness_ = NavFreshness::Invalid;
     double staleSeconds_   = 5.0;
     double invalidSeconds_ = 30.0;
-    class QTimer* tickTimer_ = nullptr;
+    QTimer* tickTimer_ = nullptr;
 };

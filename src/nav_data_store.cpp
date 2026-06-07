@@ -12,67 +12,99 @@ NavDataStore::NavDataStore(QObject* parent) : QObject(parent) {
 void NavDataStore::setStaleSeconds(double s) {
     if (s == staleSeconds_) return;
     staleSeconds_ = s;
-    emit thresholdsChanged();
-    recomputeFreshness();
+    if (recompute()) emit ownshipChanged();
 }
 
 void NavDataStore::setInvalidSeconds(double s) {
     if (s == invalidSeconds_) return;
     invalidSeconds_ = s;
-    emit thresholdsChanged();
-    recomputeFreshness();
+    if (recompute()) emit ownshipChanged();
+}
+
+// ---- publishing ------------------------------------------------------------
+
+void NavDataStore::setValue(NavValue& v, double value, const NavValueMeta& meta) {
+    v.value        = value;
+    v.source       = meta.source;
+    v.timestampUtc = meta.timestampUtc.isValid() ? meta.timestampUtc
+                                                 : QDateTime::currentDateTimeUtc();
+    v.ageSeconds   = 0.0;
+    v.freshness    = NavFreshness::Fresh;
 }
 
 void NavDataStore::publishOwnshipPosition(double latDeg, double lonDeg,
                                           const NavValueMeta& meta) {
-    ownship_.latitudeDeg  = latDeg;
-    ownship_.longitudeDeg = lonDeg;
-    ownship_.meta = meta;
-    ownship_.meta.valid = true;
-    ownship_.meta.ageSeconds = 0.0;
-    recomputeFreshness();
+    setValue(ownship_.latitudeDeg,  latDeg, meta);
+    setValue(ownship_.longitudeDeg, lonDeg, meta);
     emit ownshipChanged();
 }
 
 void NavDataStore::publishCogSog(double cogDegTrue, double sogKnots,
-                                 const NavValueMeta&) {
-    ownship_.cogDegTrue = cogDegTrue;
-    ownship_.sogKnots   = sogKnots;
+                                 const NavValueMeta& meta) {
+    setValue(ownship_.cogDegTrue, cogDegTrue, meta);
+    setValue(ownship_.sogKnots,   sogKnots,   meta);
     emit ownshipChanged();
 }
 
 void NavDataStore::publishHeading(double headingDegTrue,
                                   std::optional<double> headingDegMag,
-                                  const NavValueMeta&) {
-    ownship_.headingDegTrue = headingDegTrue;
-    if (headingDegMag.has_value()) ownship_.headingDegMag = headingDegMag;
+                                  const NavValueMeta& meta) {
+    setValue(ownship_.headingDegTrue, headingDegTrue, meta);
+    if (headingDegMag.has_value())
+        setValue(ownship_.headingDegMag, *headingDegMag, meta);
     emit ownshipChanged();
 }
 
-void NavDataStore::tick() {
-    recomputeFreshness();
+void NavDataStore::publishDepth(double depthMeters, const NavValueMeta& meta) {
+    setValue(ownship_.depthMeters, depthMeters, meta);
+    emit ownshipChanged();
 }
 
-void NavDataStore::recomputeFreshness() {
-    if (!ownship_.meta.timestampUtc.isValid()) {
-        if (freshness_ != NavFreshness::Invalid) {
-            freshness_ = NavFreshness::Invalid;
-            emit freshnessChanged(freshness_);
+void NavDataStore::publishWind(double windSpeedKnots, double windAngleDeg,
+                               const NavValueMeta& meta) {
+    setValue(ownship_.windSpeedKnots, windSpeedKnots, meta);
+    setValue(ownship_.windAngleDeg,   windAngleDeg,   meta);
+    emit ownshipChanged();
+}
+
+void NavDataStore::publishVariation(double variationDeg, const NavValueMeta& meta) {
+    setValue(ownship_.variationDeg, variationDeg, meta);
+    emit ownshipChanged();
+}
+
+// ---- aging -----------------------------------------------------------------
+
+bool NavDataStore::ageValue(NavValue& v, const QDateTime& now) {
+    if (!v.timestampUtc.isValid()) {           // never set
+        if (v.freshness != NavFreshness::Invalid) {
+            v.freshness = NavFreshness::Invalid;
+            return true;
         }
-        return;
+        return false;
     }
-    const double age = ownship_.meta.timestampUtc.msecsTo(
-                           QDateTime::currentDateTimeUtc()) / 1000.0;
-    ownship_.meta.ageSeconds = age;
-
+    v.ageSeconds = v.timestampUtc.msecsTo(now) / 1000.0;
     NavFreshness f;
-    if      (age < staleSeconds_)   f = NavFreshness::Fresh;
-    else if (age < invalidSeconds_) f = NavFreshness::Stale;
-    else                            f = NavFreshness::Invalid;
+    if      (v.ageSeconds < staleSeconds_)   f = NavFreshness::Fresh;
+    else if (v.ageSeconds < invalidSeconds_) f = NavFreshness::Stale;
+    else                                     f = NavFreshness::Invalid;
 
-    ownship_.meta.valid = (f != NavFreshness::Invalid);
-    if (f != freshness_) {
-        freshness_ = f;
-        emit freshnessChanged(freshness_);
-    }
+    if (f != v.freshness) { v.freshness = f; return true; }
+    return false;
+}
+
+bool NavDataStore::recompute() {
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    NavValue* all[] = {
+        &ownship_.latitudeDeg,  &ownship_.longitudeDeg, &ownship_.cogDegTrue,
+        &ownship_.sogKnots,     &ownship_.headingDegTrue, &ownship_.headingDegMag,
+        &ownship_.variationDeg, &ownship_.depthMeters,  &ownship_.windSpeedKnots,
+        &ownship_.windAngleDeg,
+    };
+    bool changed = false;
+    for (NavValue* v : all) changed |= ageValue(*v, now);
+    return changed;
+}
+
+void NavDataStore::tick() {
+    if (recompute()) emit ownshipChanged();
 }

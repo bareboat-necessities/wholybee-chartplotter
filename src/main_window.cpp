@@ -81,8 +81,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         navStore_->setStaleSeconds(s);
         navStore_->setInvalidSeconds(i);
     });
-    connect(navStore_, &NavDataStore::ownshipChanged,    this, &MainWindow::publishOwnshipToView);
-    connect(navStore_, &NavDataStore::freshnessChanged,  this, [this](NavFreshness) { publishOwnshipToView(); });
+    // ownshipChanged fires on new data and on any per-value freshness transition.
+    connect(navStore_, &NavDataStore::ownshipChanged, this, &MainWindow::publishOwnshipToView);
 
     simulator_ = new Simulator(navStore_, this);
     simulator_->setPosition(settings_->simulatorLat(), settings_->simulatorLon());
@@ -243,7 +243,7 @@ void MainWindow::showNavDataBrowser() {
 }
 
 void MainWindow::publishOwnshipToView() {
-    if (view_) view_->setOwnship(navStore_->ownship(), navStore_->freshness());
+    if (view_) view_->setOwnship(navStore_->ownship());
 }
 
 void MainWindow::startScan(const QString& dir) {

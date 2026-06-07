@@ -401,11 +401,10 @@ void ChartView::fitToCatalog() {
 // continuous auto-follow path.
 bool ChartView::recenterOnOwnship() {
     if (ppm_ <= 0.0) return false;
-    if (ownshipFreshness_ == NavFreshness::Invalid) return false;
-    if (!ownship_.latitudeDeg.has_value() || !ownship_.longitudeDeg.has_value()) return false;
+    if (!ownship_.latitudeDeg.valid() || !ownship_.longitudeDeg.valid()) return false;
 
-    scx_ = proj::lonToX(*ownship_.longitudeDeg);
-    scy_ = -proj::latToY(*ownship_.latitudeDeg);
+    scx_ = proj::lonToX(ownship_.longitudeDeg.value);
+    scy_ = -proj::latToY(ownship_.latitudeDeg.value);
     normalizeCenter();
     scheduleUpdate();             // refresh cells/basemap (debounced)
     update();
@@ -946,9 +945,10 @@ void ChartView::paintEvent(QPaintEvent*) {
     drawScaleBar(p);
 }
 
-void ChartView::setOwnship(const OwnshipState& s, NavFreshness f) {
+void ChartView::setOwnship(const OwnshipState& s) {
     ownship_ = s;
-    ownshipFreshness_ = f;
+    // The ownship symbol's freshness follows the position fix specifically.
+    ownshipFreshness_ = s.latitudeDeg.freshness;
     // When following, keep the boat centered as it moves. recenterOnOwnship()
     // repaints on success; otherwise repaint here for the symbol's new position.
     if (!(autoFollow_ && recenterOnOwnship())) update();
@@ -961,23 +961,22 @@ void ChartView::setOwnshipPredictionMinutes(double minutes) {
 }
 
 void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
-    if (ownshipFreshness_ == NavFreshness::Invalid) return;
-    if (!ownship_.latitudeDeg.has_value() || !ownship_.longitudeDeg.has_value()) return;
+    if (!ownship_.latitudeDeg.valid() || !ownship_.longitudeDeg.valid()) return;
 
     // Project ownship into the scene, then to the nearest world copy so it shows
     // on-screen even when the user has wrapped across the date line.
-    const double sx = proj::lonToX(*ownship_.longitudeDeg);
-    const double sy = -proj::latToY(*ownship_.latitudeDeg);
+    const double sx = proj::lonToX(ownship_.longitudeDeg.value);
+    const double sy = -proj::latToY(ownship_.latitudeDeg.value);
     const double off = wrapOffsetFor(sx);
     const QPointF d = cam.map(QPointF(sx + off, sy));
 
     // Heading for the triangle: prefer true heading, fall back to COG.
     double headingDeg = 0.0;
     bool   haveHeading = false;
-    if (ownship_.headingDegTrue.has_value()) {
-        headingDeg = *ownship_.headingDegTrue; haveHeading = true;
-    } else if (ownship_.cogDegTrue.has_value()) {
-        headingDeg = *ownship_.cogDegTrue;     haveHeading = true;
+    if (ownship_.headingDegTrue.valid()) {
+        headingDeg = ownship_.headingDegTrue.value; haveHeading = true;
+    } else if (ownship_.cogDegTrue.valid()) {
+        headingDeg = ownship_.cogDegTrue.value;     haveHeading = true;
     }
 
     p.save();
@@ -990,9 +989,9 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
     // ownshipPredMin_ minutes at the current SOG. Drawn before the triangle so
     // the symbol sits on top. No clamping — the line represents an actual
     // predicted distance the user configured.
-    if (ownship_.sogKnots.value_or(0.0) > 0.1 && ppm_ > 0.0 &&
+    if (ownship_.sogKnots.valueOr(0.0) > 0.1 && ppm_ > 0.0 &&
         ownshipPredMin_ > 0.0) {
-        const double dist_m = (*ownship_.sogKnots) * (1852.0 / 60.0)
+        const double dist_m = ownship_.sogKnots.value * (1852.0 / 60.0)
                               * ownshipPredMin_;
         const double len = dist_m * ppm_;
         if (len >= 1.0) {
