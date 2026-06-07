@@ -182,6 +182,13 @@ void Nmea0183Client::handleSentence(const QString& sentence) {
     const QStringList f = body.split(',');
     if (f.isEmpty() || f[0].size() < 4) return;
     const QString type = f[0].right(3).toUpper();
+    // AIS rides the same connection; forward it (we don't decode it here) and
+    // count it as activity so the link is considered "decoding".
+    if (type == QLatin1String("VDM") || type == QLatin1String("VDO")) {
+        emit aisSentence(sentence);
+        markDecoding();
+        return;
+    }
     if      (type == QLatin1String("RMC")) parseRmc(f);
     else if (type == QLatin1String("GLL")) parseGll(f);
     else if (type == QLatin1String("GGA")) parseGga(f);

@@ -13,9 +13,10 @@ holds many independent vessels instead of one ownship state.
 +-----------+              +----------------+             +------------------+
 ```
 
-A decoder is **not** part of this step — only the store and its API. An AIS
-source (e.g. a decoder plugin reading AIVDM/AIVDO from the NMEA stream) will feed
-it later via `IAisPublisher`, reachable from plugins as `ICoreApi::aisPublisher()`.
+Today the store is fed by `AisDecoder`, owned by the NMEA 0183 plugin: AIS rides
+the same connection as the nav sentences, so the plugin forwards `!AIVDM`/`!AIVDO`
+lines to the decoder, which publishes via `IAisPublisher`. Sources reach the
+publisher from plugins as `ICoreApi::aisPublisher()`.
 
 ## Data model
 
@@ -82,10 +83,22 @@ signals:
 Consumers connect to the signals and read `targets()`. CPA/TCPA are attached by a
 collision component via `setCpaTcpa(mmsi, cpa, tcpa)`, which emits `targetUpdated`.
 
+## AisDecoder
+
+`AisDecoder` turns raw `!AIVDM`/`!AIVDO` lines into store updates. It is
+transport-agnostic — fed by whoever owns the connection (today the NMEA 0183
+plugin) — and handles:
+
+- **Multi-fragment reassembly** (long messages span several sentences, keyed by
+  the sequential message id).
+- **6-bit ASCII payload** unpacking with typed bit-field readers.
+- The common message types: **1/2/3** (Class A position), **5** (Class A static
+  & voyage), **18/19** (Class B position; 19 also carries static), **24** (Class
+  B static, Parts A & B). "Not available" sentinels (lat 91°, lon 181°, COG 3600,
+  heading 511, SOG 1023, ROT −128) decode to absent fields.
+
 ## Not yet (next steps)
 
-- **AIS decoder source** — an `!AIVDM`/`!AIVDO` 6-bit decoder (likely a plugin)
-  producing `AisPositionReport` / `AisStaticData` from the NMEA feed.
 - **AIS overlay** — an `IChartOverlay` drawing targets (triangles, headings,
   names), greyed when stale.
 - **CPA/TCPA computation** — a component reading ownship (`NavDataStore`) and

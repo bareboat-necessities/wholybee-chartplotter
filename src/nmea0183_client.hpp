@@ -43,6 +43,8 @@ signals:
     void decodingChanged(bool on);
     // Every raw line received (after CR/LF trimming), for the debug window.
     void sentenceReceived(const QString& line);
+    // A checksum-valid AIS sentence (!AIVDM / !AIVDO), forwarded for decoding.
+    void aisSentence(const QString& line);
 
 private slots:
     void onTcpConnected();
