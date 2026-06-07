@@ -70,6 +70,17 @@ public:
     virtual QVariant value(const QString& key, const QVariant& def = QVariant()) const = 0;
 };
 
+// A plugin's settings page. The plugin supplies only the content widget; the
+// core hosts it (window chrome, title, parenting, single-instance) so plugins
+// don't manage their own dialogs. Register via ICoreApi::addSettingsPage().
+class ISettingsPageProvider {
+public:
+    virtual ~ISettingsPageProvider() = default;
+    virtual QString  settingsPageTitle() const = 0;
+    // Build the page content, parented to `parent`. The core takes ownership.
+    virtual QWidget* createSettingsPage(QWidget* parent) = 0;
+};
+
 // A chart overlay: the controlled way for a plugin to draw on the canvas without
 // owning scene items, z-order, or threading. The core calls paint() each frame
 // after its own drawing, in device coordinates.
@@ -104,6 +115,13 @@ public:
 
     // Persistent per-plugin settings, namespaced by `pluginId`. Core-owned.
     virtual IPluginSettings* pluginSettings(const QString& pluginId) = 0;
+
+    // Settings pages -------------------------------------------------------
+    // Contribute a settings page: the core adds an item under Settings >
+    // Plugin Settings that hosts the provider's page. showSettingsPage opens
+    // that page on demand (e.g. from a data-source item's click).
+    virtual void addSettingsPage(ISettingsPageProvider* provider) = 0;
+    virtual void showSettingsPage(ISettingsPageProvider* provider) = 0;
 
     // Data sources -----------------------------------------------------------
     // Register the plugin as a navigation data source. `sourceId` is the stable

@@ -227,6 +227,16 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit editOwnshipPredictionRequested(); });
     col->addWidget(predBtn);
 
+    // Plugin settings pages: hidden until a plugin contributes one.
+    pluginSettingsHeader_ = makeHeader(QStringLiteral("Plugin Settings"));
+    pluginSettingsHeader_->setVisible(false);
+    col->addWidget(pluginSettingsHeader_);
+    auto* psHolder = new QWidget(page);
+    pluginSettingsBox_ = new QVBoxLayout(psHolder);
+    pluginSettingsBox_->setContentsMargins(0, 0, 0, 0);
+    pluginSettingsBox_->setSpacing(0);
+    col->addWidget(psHolder);
+
     col->addStretch(1);
 
     auto* backBtn = makeSettingsAction(QStringLiteral("Back"));
@@ -407,6 +417,14 @@ QPushButton* SideMenu::addDataSourceItem(const QString& title, std::function<voi
 
 void SideMenu::setItemDot(QPushButton* item, bool on) {
     if (item) item->setIcon(statusDotIcon(on));
+}
+
+void SideMenu::addPluginSettingsItem(const QString& title, std::function<void()> onClicked) {
+    if (!pluginSettingsBox_) return;
+    if (pluginSettingsHeader_) pluginSettingsHeader_->setVisible(true);
+    auto* b = makeSettingsAction(title);
+    connect(b, &QPushButton::clicked, this, [fn = std::move(onClicked)] { if (fn) fn(); });
+    pluginSettingsBox_->addWidget(b);
 }
 
 // ---- open/close + geometry ------------------------------------------------

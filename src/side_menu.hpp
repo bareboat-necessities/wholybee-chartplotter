@@ -47,6 +47,10 @@ public:
     QPushButton* addDataSourceItem(const QString& title, std::function<void()> onClicked);
     void setItemDot(QPushButton* item, bool on);   // green dot on/off
 
+    // A plugin settings page entry under the Settings page's Plugin Settings
+    // section (hidden until the first one is added).
+    void addPluginSettingsItem(const QString& title, std::function<void()> onClicked);
+
 signals:
     void fitRequested();
     void centerOnOwnshipRequested();                  // recenter on ownship
@@ -97,6 +101,8 @@ private:
     QLabel*      pluginHeader_ = nullptr;   // "Plugins" header (hidden until used)
     QVBoxLayout* pluginBox_ = nullptr;      // container for plugin-contributed items
     QVBoxLayout* dataSourceBox_ = nullptr;  // plugin data-source items (Data Connections)
+    QLabel*      pluginSettingsHeader_ = nullptr;  // "Plugin Settings" header (hidden until used)
+    QVBoxLayout* pluginSettingsBox_ = nullptr;     // plugin settings-page items
     QPropertyAnimation* anim_ = nullptr;
     int  panelWidth_ = 320;
     bool open_ = false;

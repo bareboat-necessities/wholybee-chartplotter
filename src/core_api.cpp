@@ -6,6 +6,9 @@
 
 #include <QPushButton>
 #include <QSettings>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
 
 namespace {
 // Handle handed back to a plugin data source: drives its menu item's status dot.
@@ -60,6 +63,44 @@ IPluginSettings* CoreApi::pluginSettings(const QString& pluginId) {
         it = pluginSettings_.emplace(pluginId,
                                      std::make_unique<PluginSettings>(pluginId)).first;
     return it->second.get();
+}
+
+void CoreApi::addSettingsPage(ISettingsPageProvider* provider) {
+    if (!provider) return;
+    menu_->addPluginSettingsItem(provider->settingsPageTitle(),
+                                 [this, provider] { showSettingsPage(provider); });
+}
+
+void CoreApi::showSettingsPage(ISettingsPageProvider* provider) {
+    if (!provider) return;
+    // Single instance: reuse an already-open page for this provider.
+    if (QDialog* existing = settingsDialogs_.value(provider)) {
+        existing->show(); existing->raise(); existing->activateWindow();
+        return;
+    }
+    // Host the plugin's content in a standard dialog (chrome owned by the core).
+    auto* dlg = new QDialog(dialogParent_);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowFlag(Qt::Window, true);
+    dlg->setWindowTitle(provider->settingsPageTitle());
+    dlg->resize(400, 220);
+
+    auto* col = new QVBoxLayout(dlg);
+    if (QWidget* page = provider->createSettingsPage(dlg))
+        col->addWidget(page);
+    col->addStretch(1);
+    auto* closeBtn = new QPushButton(QStringLiteral("Close"));
+    closeBtn->setMinimumHeight(40);
+    auto* footer = new QHBoxLayout;
+    footer->addStretch(1);
+    footer->addWidget(closeBtn);
+    col->addLayout(footer);
+    QObject::connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::close);
+
+    settingsDialogs_.insert(provider, dlg);   // QPointer clears when destroyed
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
 }
 
 IDataSource* CoreApi::registerDataSource(const QString& sourceId, const QString& name,
