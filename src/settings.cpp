@@ -19,6 +19,8 @@ constexpr auto kSimLon    = "sim/lon";
 constexpr auto kStaleS    = "nav/staleSeconds";
 constexpr auto kInvalidS  = "nav/invalidSeconds";
 constexpr auto kPredMin   = "ships/ownshipPredictionMinutes";
+constexpr auto kDepthUnit = "units/depth";
+constexpr auto kDistUnit  = "units/distance";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -47,6 +49,10 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     staleSeconds_   = s.value(QLatin1String(kStaleS),   5.0).toDouble();
     invalidSeconds_ = s.value(QLatin1String(kInvalidS), 30.0).toDouble();
     ownshipPredMin_ = s.value(QLatin1String(kPredMin),  6.0).toDouble();
+    depthUnit_    = units::depthUnitFromKey(s.value(QLatin1String(kDepthUnit)).toString(),
+                                            DepthUnit::Feet);
+    distanceUnit_ = units::distanceUnitFromKey(s.value(QLatin1String(kDistUnit)).toString(),
+                                               DistanceUnit::NauticalMiles);
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -123,6 +129,20 @@ void Settings::setOwnshipPredictionMinutes(double minutes) {
     ownshipPredMin_ = minutes;
     QSettings().setValue(QLatin1String(kPredMin), minutes);
     emit ownshipPredictionMinutesChanged(minutes);
+}
+
+void Settings::setDepthUnit(DepthUnit u) {
+    if (u == depthUnit_) return;
+    depthUnit_ = u;
+    QSettings().setValue(QLatin1String(kDepthUnit), units::depthUnitKey(u));
+    emit depthUnitChanged(u);
+}
+
+void Settings::setDistanceUnit(DistanceUnit u) {
+    if (u == distanceUnit_) return;
+    distanceUnit_ = u;
+    QSettings().setValue(QLatin1String(kDistUnit), units::distanceUnitKey(u));
+    emit distanceUnitChanged(u);
 }
 
 void Settings::setStaleThresholds(double staleS, double invalidS) {

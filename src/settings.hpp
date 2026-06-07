@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QString>
 #include <QVector>
+#include "units.hpp"
 
 // A named chart directory the user can switch between from the menu.
 struct ChartSet {
@@ -56,6 +57,11 @@ public:
     // the current SOG. Drawn from the bow along the boat's heading.
     double ownshipPredictionMinutes() const { return ownshipPredMin_; }
 
+    // Display units. Depth drives how chart soundings are labelled; distance is
+    // stored for upcoming range/route features and not consumed yet.
+    DepthUnit    depthUnit()    const { return depthUnit_; }
+    DistanceUnit distanceUnit() const { return distanceUnit_; }
+
 public slots:
     void setChartDirectory(const QString& dir);
     void setShowSoundings(bool on);
@@ -68,6 +74,8 @@ public slots:
     void setSimulatorPosition(double lat, double lon);
     void setStaleThresholds(double staleS, double invalidS);
     void setOwnshipPredictionMinutes(double minutes);
+    void setDepthUnit(DepthUnit u);
+    void setDistanceUnit(DistanceUnit u);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -79,6 +87,8 @@ signals:
     void simulatorEnabledChanged(bool on);
     void staleThresholdsChanged(double staleS, double invalidS);
     void ownshipPredictionMinutesChanged(double minutes);
+    void depthUnitChanged(DepthUnit u);
+    void distanceUnitChanged(DistanceUnit u);
 
 private:
     void loadChartSets();
@@ -99,4 +109,6 @@ private:
     double staleSeconds_   = 5.0;
     double invalidSeconds_ = 30.0;
     double ownshipPredMin_ = 6.0;   // minutes of run-time ahead
+    DepthUnit    depthUnit_    = DepthUnit::Feet;
+    DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;
 };

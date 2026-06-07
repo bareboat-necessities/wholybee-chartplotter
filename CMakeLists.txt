@@ -27,6 +27,7 @@ qt_add_executable(chartviewer
     src/side_menu.cpp
     src/settings.cpp
     src/chart_sets_dialog.cpp
+    src/units_dialog.cpp
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp

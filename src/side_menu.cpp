@@ -119,6 +119,11 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit basemapFolderRequested(); });
     col->addWidget(basemapBtn);
 
+    auto* unitsBtn = makeAction(QStringLiteral("Units…"));
+    connect(unitsBtn, &QPushButton::clicked, this,
+            [this] { emit editUnitsRequested(); });
+    col->addWidget(unitsBtn);
+
     col->addWidget(makeHeader(QStringLiteral("Data Connections")));
     auto* sim = makeToggle(QStringLiteral("Simulator"), settings_->simulatorEnabled());
     connect(sim, &QPushButton::toggled, settings_, &Settings::setSimulatorEnabled);
