@@ -139,7 +139,7 @@ private:
     AisTarget& touch(quint32 mmsi, AisClass cls, const QString& source);  // upsert + refresh
 
     QHash<quint32, AisTarget> targets_;
-    double  staleSeconds_ = 90.0;     // greyed after this with no message
-    double  lostSeconds_  = 360.0;    // removed after this (~6 min)
+    double  staleSeconds_ = 360.0;    // greyed after this with no message (6 min)
+    double  lostSeconds_  = 720.0;    // removed after this (12 min)
     QTimer* tickTimer_ = nullptr;
 };

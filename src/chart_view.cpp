@@ -2,6 +2,7 @@
 #include "chart_catalog.hpp"
 #include "projection.hpp"
 #include "geom_clip.hpp"
+#include "vessel_symbol.hpp"
 
 #include <QPainter>
 #include <QPaintEvent>
@@ -996,61 +997,17 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
     const QPointF d = cam.map(QPointF(sx + off, sy));
 
     // Heading for the triangle: prefer true heading, fall back to COG.
-    double headingDeg = 0.0;
-    bool   haveHeading = false;
-    if (ownship_.headingDegTrue.valid()) {
-        headingDeg = ownship_.headingDegTrue.value; haveHeading = true;
-    } else if (ownship_.cogDegTrue.valid()) {
-        headingDeg = ownship_.cogDegTrue.value;     haveHeading = true;
-    }
+    std::optional<double> headingDeg;
+    if (ownship_.headingDegTrue.valid())  headingDeg = ownship_.headingDegTrue.value;
+    else if (ownship_.cogDegTrue.valid()) headingDeg = ownship_.cogDegTrue.value;
 
-    p.save();
-    p.resetTransform();                   // draw in device pixels, constant size
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.translate(d);
-    if (haveHeading) p.rotate(headingDeg);
-
-    // Course-prediction line ahead of the boat: where it will be in
-    // ownshipPredMin_ minutes at the current SOG. Drawn before the triangle so
-    // the symbol sits on top. No clamping — the line represents an actual
-    // predicted distance the user configured.
-    if (ownship_.sogKnots.valueOr(0.0) > 0.1 && ppm_ > 0.0 &&
-        ownshipPredMin_ > 0.0) {
-        const double dist_m = ownship_.sogKnots.value * (1852.0 / 60.0)
-                              * ownshipPredMin_;
-        const double len = dist_m * ppm_;
-        if (len >= 1.0) {
-            QPen line(QColor(20, 20, 20, 220)); line.setWidthF(1.5);
-            p.setPen(line);
-            p.drawLine(QPointF(0, 0), QPointF(0, -len));
-        }
-    }
-
-    // Triangle pointing along heading (or COG fallback). Dimmer when stale.
-    QPolygonF tri;
-    tri << QPointF(0, -14) << QPointF(8, 8) << QPointF(-8, 8);
-    const bool stale = (ownshipFreshness_ == NavFreshness::Stale);
-    QColor fill = stale ? QColor(200, 110, 110, 200) : QColor(220, 30, 30);
-    QPen edge(QColor(40, 0, 0)); edge.setWidthF(1.2);
-    p.setBrush(fill);
-    p.setPen(edge);
-    if (haveHeading) {
-        p.drawPolygon(tri);
-    } else {
-        // No heading at all: render a circle so the user sees position without
-        // implying a direction we don't have.
-        p.drawEllipse(QPointF(0, 0), 7.0, 7.0);
-    }
-
-    if (stale) {
-        // Cancellation slash through the position: a short black line at right
-        // angles to the centerline, following the marine convention for an
-        // invalid / DR (dead-reckoned) fix.
-        QPen slash(QColor(0, 0, 0)); slash.setWidthF(1.6);
-        p.setPen(slash);
-        p.drawLine(QPointF(-8.0, 0.0), QPointF(8.0, 0.0));
-    }
-    p.restore();
+    // Red ownship glyph (shared with AIS so they look alike).
+    static const vessel::SymbolStyle kOwnship{
+        QColor(220, 30, 30), QColor(200, 110, 110, 200),
+        QColor(40, 0, 0),    QColor(20, 20, 20, 220) };
+    vessel::drawSymbol(p, d, headingDeg, ownship_.sogKnots.valueOr(0.0),
+                       ownshipPredMin_, ppm_,
+                       ownshipFreshness_ == NavFreshness::Stale, kOwnship);
 }
 
 // A vertical scale bar in the lower-right corner. Five segments alternating

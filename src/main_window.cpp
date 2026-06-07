@@ -11,6 +11,7 @@
 #include "data_priority_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
+#include "ais_overlay.hpp"
 #include "simulator.hpp"
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
@@ -92,9 +93,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // ownshipChanged fires on new data and on any per-value freshness transition.
     connect(navStore_, &NavDataStore::ownshipChanged, this, &MainWindow::publishOwnshipToView);
 
-    // AIS target store: keyed by MMSI, fed by a future AIS source/plugin via the
-    // IAisPublisher API; consumers (overlay, target list) subscribe to it.
+    // AIS target store: keyed by MMSI, fed by the NMEA 0183 plugin's AIS decoder
+    // via IAisPublisher; consumers subscribe to it. Stale at 6 min, lost at 12.
     aisStore_ = new AisTargetStore(this);
+
+    // AIS chart overlay: green vessel glyphs (same shape as ownship, predictor
+    // line + cancellation slash when stale). Kept in step with ownship's
+    // configurable predictor length, and triggers a repaint as targets change.
+    aisOverlay_ = std::make_unique<AisOverlay>(aisStore_);
+    aisOverlay_->setPredictionMinutes(settings_->ownshipPredictionMinutes());
+    view_->addOverlay(aisOverlay_.get());
+    connect(settings_, &Settings::ownshipPredictionMinutesChanged,
+            this, [this](double m) {
+        if (aisOverlay_) aisOverlay_->setPredictionMinutes(m);
+        if (view_) view_->update();
+    });
+    connect(aisStore_, &AisTargetStore::targetUpdated, this, [this](quint32) {
+        if (view_) view_->update();
+    });
+    connect(aisStore_, &AisTargetStore::targetExpired, this, [this](quint32) {
+        if (view_) view_->update();
+    });
 
     simulator_ = new Simulator(navStore_, this);
     simulator_->setPosition(settings_->simulatorLat(), settings_->simulatorLon());
