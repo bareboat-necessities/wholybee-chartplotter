@@ -86,8 +86,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         navStore_->setInvalidSeconds(i);
     });
     // Source arbitration: highest-priority source wins, falling back when its
-    // data goes invalid. Applied now and kept in sync with the dialog.
-    navStore_->setSourcePriority(settings_->dataSourcePriority());
+    // data goes invalid. Built-in sources are registered now; plugin sources add
+    // themselves during plugin init, after which the order is applied (below).
+    registry_.add(QStringLiteral("nmea0183"),  QStringLiteral("NMEA 0183"));
+    registry_.add(QStringLiteral("simulator"), QStringLiteral("Simulator"));
     connect(settings_, &Settings::dataSourcePriorityChanged,
             navStore_, &NavDataStore::setSourcePriority);
     // ownshipChanged fires on new data and on any per-value freshness transition.
@@ -135,10 +137,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
     // plugin would use later. The test plugin exercises menus, overlays, and the
     // nav data API in both directions.
-    coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, this);
+    coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<TestPlugin>());
     plugins_->initializeAll();
+
+    // Now that built-in and plugin sources are all registered, apply the saved
+    // priority (reconciled against the registry, so plugin sources are included).
+    navStore_->setSourcePriority(registry_.orderedIds(settings_->dataSourcePriority()));
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
@@ -267,7 +273,8 @@ void MainWindow::showNavDataBrowser() {
 }
 
 void MainWindow::editDataPriority() {
-    DataPriorityDialog dlg(settings_->dataSourcePriority(), this);
+    // Show all registered sources (built-in + plugin) in the saved order.
+    DataPriorityDialog dlg(registry_.ordered(settings_->dataSourcePriority()), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setDataSourcePriority(dlg.orderedIds());
 }

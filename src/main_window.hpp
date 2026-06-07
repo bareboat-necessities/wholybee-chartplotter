@@ -2,6 +2,7 @@
 #include <QMainWindow>
 #include <QString>
 #include <memory>
+#include "data_sources.hpp"   // DataSourceRegistry (value member)
 
 class ChartView;
 class ChartCatalog;
@@ -57,6 +58,7 @@ private:
     Nmea0183Client* nmea_ = nullptr;
     Nmea0183DebugWindow* nmeaDebug_ = nullptr;
     NavDataBrowserWindow* navBrowser_ = nullptr;
+    DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins
     QPushButton*  menuButton_ = nullptr;

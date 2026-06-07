@@ -59,8 +59,12 @@ class ICoreApi {
     void addMenuAction(QString title, std::function<void()> onTriggered);
     void addMenuToggle(QString title, bool checked, std::function<void(bool)> onToggled);
 
-    // Data sources (Settings > Data Connections)
-    IDataSource* registerDataSource(QString name, std::function<void()> onOpenSettings);
+    // Per-plugin persistent settings
+    IPluginSettings* pluginSettings(QString pluginId);
+
+    // Data sources (Settings > Data Connections; also joins Data Priority)
+    IDataSource* registerDataSource(QString sourceId, QString name,
+                                    std::function<void()> onOpenSettings);
 
     // Chart overlays
     void addChartOverlay(IChartOverlay* overlay);
@@ -102,11 +106,15 @@ as the built-in toggles. Callbacks fire on the GUI thread.
 
 ### Data sources
 
-`registerDataSource(name, onOpenSettings)` makes the plugin a first-class
-navigation source:
+`registerDataSource(sourceId, name, onOpenSettings)` makes the plugin a
+first-class navigation source:
 
 - The core adds an item named `name` under **Settings > Data Connections**, with
   a status dot, sitting alongside NMEA 0183 and Simulator.
+- `sourceId` (the stable id the plugin stamps on `NavValueMeta.source`) is added
+  to the runtime `DataSourceRegistry`, so the source **appears in the Data
+  Priority dialog** and participates in priority/fall-back arbitration like a
+  built-in source.
 - Clicking the item invokes `onOpenSettings` — typically the plugin's own
   settings dialog.
 - The returned `IDataSource*` lets the plugin drive its dot:
@@ -116,6 +124,21 @@ class IDataSource { virtual void setActive(bool on) = 0; };   // green dot on/of
 ```
 
 The core owns the handle; the plugin holds a non-owning pointer.
+
+### Persistent settings
+
+`pluginSettings(pluginId)` returns an `IPluginSettings` namespaced to the plugin,
+backed by the same store the core uses (survives restarts):
+
+```cpp
+class IPluginSettings {
+    void     setValue(const QString& key, const QVariant& value);
+    QVariant value(const QString& key, const QVariant& def = {}) const;
+};
+```
+
+Values are stored under `plugins/<pluginId>/<key>`. The Test Plugin uses this to
+remember whether it is enabled as a data source and restores it on the next run.
 
 ## Chart overlays
 
@@ -185,7 +208,11 @@ Strong:
   or settings directly.
 - Built-in plugins use the exact interfaces a dynamic plugin will, so the
   contract is being shaken out before ABI concerns appear.
-- Nav publishing rides the existing per-value source / aging / priority model.
+- Nav publishing rides the existing per-value source / aging / priority model,
+  and plugin sources join the runtime `DataSourceRegistry`, so they appear in the
+  Data Priority dialog and arbitrate alongside built-in sources.
+- Plugins persist their own settings via `pluginSettings(pluginId)`, namespaced
+  and backed by the core store.
 
 Where it will grow (additions, not rewrites):
 
@@ -193,13 +220,9 @@ Where it will grow (additions, not rewrites):
   `PluginManager` is the seam — it would enumerate plugins from disk and create
   them behind `IPlugin`, with everything downstream unchanged.
 
-- **Plugin settings persistence.** Plugin state (e.g. the Test Plugin's enabled
-  flag) is session-only. The spec's `ISettingsPageProvider` would let a plugin
-  contribute a persisted settings page rather than an ad-hoc dialog.
-
-- **Data Priority integration.** Plugin-registered sources don't yet appear in
-  the Data Priority dialog (its `data_sources::known()` list is static). Making
-  that registry dynamic would let plugin sources participate in arbitration.
+- **Settings pages.** Plugins persist key/values today but build their own
+  dialogs. The spec's `ISettingsPageProvider` would let a plugin contribute a
+  settings page hosted by the core's settings UI.
 
 - **More contribution points.** `IChartProvider` (chart formats), `IAisProvider`,
   `IInstrumentProvider`, `IRouteTool`, and overlay `hitTest` routing are sketched

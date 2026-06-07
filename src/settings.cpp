@@ -1,5 +1,4 @@
 #include "settings.hpp"
-#include "data_sources.hpp"
 #include <QSettings>
 #include <QDir>
 #include <cmath>
@@ -64,10 +63,9 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     nmeaHost_    = s.value(QLatin1String(kNmeaHost)).toString();
     nmeaPort_    = quint16(s.value(QLatin1String(kNmeaPort), 10110).toUInt());
     nmeaEnabled_ = s.value(QLatin1String(kNmeaOn), false).toBool();
-    // Reconcile the saved priority with the sources this build knows about, so
-    // new sources appear and removed ones drop out.
-    dataSourcePriority_ = datasources::reconcile(
-        s.value(QLatin1String(kSrcPrio)).toStringList());
+    // Raw saved order; reconciled against the runtime DataSourceRegistry (which
+    // includes plugin sources) where it is consumed.
+    dataSourcePriority_ = s.value(QLatin1String(kSrcPrio)).toStringList();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
