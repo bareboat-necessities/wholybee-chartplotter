@@ -5,6 +5,7 @@
 #include "side_menu.hpp"
 #include "chart_sets_dialog.hpp"
 #include "units_dialog.hpp"
+#include "stale_thresholds_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
 
@@ -178,18 +179,9 @@ void MainWindow::editUnits() {
 }
 
 void MainWindow::editStaleThresholds() {
-    bool ok = false;
-    const double s = QInputDialog::getDouble(
-        this, QStringLiteral("Stale Threshold"),
-        QStringLiteral("Mark the ownship fix Stale after (seconds):"),
-        settings_->staleSeconds(), 0.5, 600.0, 1, &ok);
-    if (!ok) return;
-    const double inv = QInputDialog::getDouble(
-        this, QStringLiteral("Invalid Threshold"),
-        QStringLiteral("Mark the fix Invalid (hidden) after (seconds):"),
-        std::max(settings_->invalidSeconds(), s + 1.0), s + 0.5, 3600.0, 1, &ok);
-    if (!ok) return;
-    settings_->setStaleThresholds(s, inv);
+    StaleThresholdsDialog dlg(settings_->staleSeconds(), settings_->invalidSeconds(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setStaleThresholds(dlg.staleSeconds(), dlg.invalidSeconds());
 }
 
 void MainWindow::editOwnshipPrediction() {
