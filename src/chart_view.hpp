@@ -86,6 +86,10 @@ public:
     void fitToCatalog();
     // Recenter on the ownship without changing zoom. No-op if no fix is shown.
     void centerOnOwnship();
+    // Auto-follow: keep the view centered on the ownship as it moves. Panning
+    // turns it off (zooming does not). No-op-until-data if no fix yet.
+    void setAutoFollow(bool on);
+    bool autoFollow() const { return autoFollow_; }
 
     // Chart display settings (driven by the core Settings object).
     void setShowSoundings(bool on);
@@ -114,6 +118,9 @@ signals:
     void statusChanged(const QString& text);
     // Debounced after panning/zooming; carries the view center (degrees) + zoom.
     void viewChanged(double lon, double lat, double scale);
+    // Auto-follow turned on/off (e.g. off when the user pans). Lets the menu
+    // keep its checkmark in sync.
+    void autoFollowChanged(bool on);
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -164,6 +171,7 @@ private:
     void   restoreView(double lon, double lat, double scale);
     bool   currentView(double& lon, double& lat, double& scale) const;
     void   beginInteraction();
+    bool   recenterOnOwnship();   // move center to the ownship; false if no fix
 
     bool soundingVisible() const { return showSoundings_ && pointLodVisible_; }
     bool symbolVisible()   const { return showSymbols_   && pointLodVisible_; }
@@ -220,6 +228,7 @@ private:
     bool showDepthContours_ = true;
     DepthUnit depthUnit_ = DepthUnit::Feet;   // how soundings are labelled
     bool userInteracted_ = false;
+    bool autoFollow_ = false;                 // keep view centered on ownship
 
     bool    dragging_ = false;
     QPointF lastDragPos_;
