@@ -10,6 +10,7 @@
 #include "nav_data_browser_window.hpp"
 #include "data_priority_dialog.hpp"
 #include "nav_data_store.hpp"
+#include "ais_target_store.hpp"
 #include "simulator.hpp"
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
@@ -91,6 +92,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // ownshipChanged fires on new data and on any per-value freshness transition.
     connect(navStore_, &NavDataStore::ownshipChanged, this, &MainWindow::publishOwnshipToView);
 
+    // AIS target store: keyed by MMSI, fed by a future AIS source/plugin via the
+    // IAisPublisher API; consumers (overlay, target list) subscribe to it.
+    aisStore_ = new AisTargetStore(this);
+
     simulator_ = new Simulator(navStore_, this);
     simulator_->setPosition(settings_->simulatorLat(), settings_->simulatorLon());
     // Persist the simulator's position as it moves so it resumes where it left off.
@@ -120,7 +125,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
     // plugin would use later. NMEA 0183 is a plugin; the test plugin exercises
     // menus, overlays, and the nav data API. Plugins register their sources here.
-    coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, &registry_, this);
+    coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
     plugins_->add(std::make_unique<TestPlugin>());

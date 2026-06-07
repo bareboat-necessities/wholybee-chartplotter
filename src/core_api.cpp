@@ -1,5 +1,6 @@
 #include "core_api.hpp"
 #include "nav_data_store.hpp"
+#include "ais_target_store.hpp"
 #include "side_menu.hpp"
 #include "chart_view.hpp"
 #include "data_sources.hpp"
@@ -37,15 +38,19 @@ private:
 };
 } // namespace
 
-CoreApi::CoreApi(NavDataStore* store, SideMenu* menu, ChartView* view,
+CoreApi::CoreApi(NavDataStore* store, AisTargetStore* ais, SideMenu* menu, ChartView* view,
                  DataSourceRegistry* registry, QWidget* dialogParent)
-    : store_(store), menu_(menu), view_(view), registry_(registry),
+    : store_(store), ais_(ais), menu_(menu), view_(view), registry_(registry),
       dialogParent_(dialogParent) {}
 
 CoreApi::~CoreApi() = default;
 
 INavDataPublisher* CoreApi::navPublisher() {
     return store_;   // NavDataStore implements INavDataPublisher
+}
+
+IAisPublisher* CoreApi::aisPublisher() {
+    return ais_;     // AisTargetStore implements IAisPublisher
 }
 
 void CoreApi::addMenuAction(const QString& title, std::function<void()> onTriggered) {

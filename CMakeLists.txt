@@ -42,6 +42,7 @@ qt_add_executable(chartviewer
     src/chart_catalog.cpp
     src/chart_loader.cpp
     src/nav_data_store.cpp
+    src/ais_target_store.cpp
     src/simulator.cpp
     src/nmea0183_client.cpp
 )
