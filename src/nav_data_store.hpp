@@ -39,14 +39,20 @@ struct NavValue {
 struct OwnshipState {
     NavValue latitudeDeg;
     NavValue longitudeDeg;
-    NavValue cogDegTrue;       // course over ground (true)
-    NavValue sogKnots;         // speed over ground
+    NavValue cogDegTrue;             // course over ground (true)
+    NavValue sogKnots;               // speed over ground
+    NavValue waterSpeedKnots;        // speed through the water
     NavValue headingDegTrue;
     NavValue headingDegMag;
     NavValue variationDeg;
     NavValue depthMeters;
-    NavValue windSpeedKnots;
-    NavValue windAngleDeg;
+    // Wind. Apparent and true are distinct quantities (relative to the bow);
+    // true wind direction is geographic (relative to true north).
+    NavValue apparentWindAngleDeg;   // relative to bow, 0..360 (0 = ahead)
+    NavValue apparentWindSpeedKnots;
+    NavValue trueWindAngleDeg;       // relative to bow, 0..360
+    NavValue trueWindSpeedKnots;
+    NavValue trueWindDirectionDeg;   // geographic (relative to true north)
 };
 
 // Stable API publishers (built-in or future dynamic plugins) call to publish
@@ -60,13 +66,21 @@ public:
                                         const NavValueMeta& meta) = 0;
     virtual void publishCogSog(double cogDegTrue, double sogKnots,
                                const NavValueMeta& meta) = 0;
-    virtual void publishHeading(double headingDegTrue,
+    // Heading: either component may be absent (e.g. HDT gives true only).
+    virtual void publishHeading(std::optional<double> headingDegTrue,
                                 std::optional<double> headingDegMag,
                                 const NavValueMeta& meta) = 0;
-    virtual void publishDepth(double depthMeters, const NavValueMeta& meta) = 0;
-    virtual void publishWind(double windSpeedKnots, double windAngleDeg,
-                             const NavValueMeta& meta) = 0;
     virtual void publishVariation(double variationDeg, const NavValueMeta& meta) = 0;
+    virtual void publishDepth(double depthMeters, const NavValueMeta& meta) = 0;
+    virtual void publishWaterSpeed(double knots, const NavValueMeta& meta) = 0;
+    // Apparent / true wind angle (relative to the bow) + speed.
+    virtual void publishApparentWind(double speedKnots, double angleDeg,
+                                     const NavValueMeta& meta) = 0;
+    virtual void publishTrueWind(double speedKnots, double angleDeg,
+                                 const NavValueMeta& meta) = 0;
+    // True wind direction (geographic) + speed.
+    virtual void publishTrueWindDirection(double directionDeg, double speedKnots,
+                                          const NavValueMeta& meta) = 0;
 };
 
 // Central navigation data store. Single source of truth for live nav state;
@@ -97,13 +111,18 @@ public:
                                 const NavValueMeta& meta) override;
     void publishCogSog(double cogDegTrue, double sogKnots,
                        const NavValueMeta& meta) override;
-    void publishHeading(double headingDegTrue,
+    void publishHeading(std::optional<double> headingDegTrue,
                         std::optional<double> headingDegMag,
                         const NavValueMeta& meta) override;
-    void publishDepth(double depthMeters, const NavValueMeta& meta) override;
-    void publishWind(double windSpeedKnots, double windAngleDeg,
-                     const NavValueMeta& meta) override;
     void publishVariation(double variationDeg, const NavValueMeta& meta) override;
+    void publishDepth(double depthMeters, const NavValueMeta& meta) override;
+    void publishWaterSpeed(double knots, const NavValueMeta& meta) override;
+    void publishApparentWind(double speedKnots, double angleDeg,
+                             const NavValueMeta& meta) override;
+    void publishTrueWind(double speedKnots, double angleDeg,
+                         const NavValueMeta& meta) override;
+    void publishTrueWindDirection(double directionDeg, double speedKnots,
+                                  const NavValueMeta& meta) override;
 
 public slots:
     void setStaleSeconds(double s);

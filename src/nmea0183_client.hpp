@@ -4,6 +4,7 @@
 #include <QByteArray>
 
 class INavDataPublisher;
+struct NavValueMeta;
 class QTcpSocket;
 class QUdpSocket;
 class QTimer;
@@ -57,8 +58,22 @@ private:
     void feed(const QByteArray& bytes);      // assemble + dispatch lines (TCP)
     void processLine(QByteArray line);       // one raw sentence
     void handleSentence(const QString& sentence);
-    void parseRmc(const QStringList& f);
-    void parseGll(const QStringList& f);
+    NavValueMeta meta() const;               // source + now() for a publish
+    void markDecoding();                     // mark active + restart the timeout
+
+    void parseRmc(const QStringList& f);     // position, COG/SOG, variation
+    void parseGll(const QStringList& f);     // position
+    void parseGga(const QStringList& f);     // position
+    void parseVtg(const QStringList& f);     // COG/SOG
+    void parseHdt(const QStringList& f);     // heading (true)
+    void parseHdg(const QStringList& f);     // heading (mag) + variation
+    void parseVhw(const QStringList& f);     // heading + water speed
+    void parseDbt(const QStringList& f);     // depth below transducer
+    void parseDpt(const QStringList& f);     // depth + offset
+    void parseMwv(const QStringList& f);     // wind angle/speed (apparent or true)
+    void parseMwd(const QStringList& f);     // true wind direction + speed
+    void parseVwr(const QStringList& f);     // relative (apparent) wind
+    void parseVwt(const QStringList& f);     // true wind (rel. to bow)
 
     INavDataPublisher* publisher_ = nullptr;
 
