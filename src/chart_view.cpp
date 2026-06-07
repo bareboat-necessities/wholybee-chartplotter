@@ -395,6 +395,25 @@ void ChartView::fitToCatalog() {
     update();
 }
 
+void ChartView::centerOnOwnship() {
+    // Silently do nothing unless an ownship fix is actually being displayed —
+    // same conditions drawOwnship() uses to decide whether to draw the symbol.
+    if (ppm_ <= 0.0) return;
+    if (ownshipFreshness_ == NavFreshness::Invalid) return;
+    if (!ownship_.latitudeDeg.has_value() || !ownship_.longitudeDeg.has_value()) return;
+
+    // Recenter only; zoom (ppm_) is untouched.
+    scx_ = proj::lonToX(*ownship_.longitudeDeg);
+    scy_ = -proj::latToY(*ownship_.latitudeDeg);
+    normalizeCenter();
+    userInteracted_ = true;       // hold this center on resize instead of refitting
+
+    updateVisibleCells();
+    maybeBuildBasemap();
+    saveTimer_->start();          // persist the new center (debounced)
+    update();
+}
+
 // ---- viewport-driven cell selection ---------------------------------------
 
 int ChartView::bandForVisibleWidth(double metres) {

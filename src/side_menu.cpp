@@ -80,6 +80,13 @@ QWidget* SideMenu::buildMainPage() {
     });
     col->addWidget(fitBtn);
 
+    auto* centerBtn = makeAction(QStringLiteral("Center on Own Ship"));
+    connect(centerBtn, &QPushButton::clicked, this, [this] {
+        emit centerOnOwnshipRequested();
+        closeMenu();
+    });
+    col->addWidget(centerBtn);
+
     auto* snd = makeToggle(QStringLiteral("Soundings"), settings_->showSoundings());
     connect(snd, &QPushButton::toggled, settings_, &Settings::setShowSoundings);
     col->addWidget(snd);
