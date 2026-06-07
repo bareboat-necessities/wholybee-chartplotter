@@ -47,6 +47,7 @@ signals:
     void editStaleThresholdsRequested();              // open stale-data dialog
     void editOwnshipPredictionRequested();            // open predictor-length dialog
     void editNmeaRequested();                         // open NMEA 0183 dialog
+    void nmeaDebugRequested();                         // open raw-data debug window
 
 protected:
     void resizeEvent(QResizeEvent* e) override;
