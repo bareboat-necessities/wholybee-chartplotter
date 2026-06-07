@@ -9,6 +9,7 @@ class ChartCatalog;
 class Settings;
 class SideMenu;
 class NavDataStore;
+class AisTargetStore;
 class Simulator;
 class NavDataBrowserWindow;
 class CoreApi;
@@ -50,6 +51,7 @@ private:
     Settings*     settings_ = nullptr;
     SideMenu*     sideMenu_ = nullptr;
     NavDataStore* navStore_ = nullptr;
+    AisTargetStore* aisStore_ = nullptr;
     Simulator*    simulator_ = nullptr;
     NavDataBrowserWindow* navBrowser_ = nullptr;
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)

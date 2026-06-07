@@ -12,6 +12,8 @@ class QPainter;
 class QWidget;
 class INavDataPublisher;
 class NavDataStore;
+class IAisPublisher;
+class AisTargetStore;
 
 // Plugin API surface (Milestone 3 in ProjectSpec.md).
 //
@@ -105,6 +107,12 @@ public:
     virtual INavDataPublisher* navPublisher() = 0;
     // Read current state and connect to its ownshipChanged() signal to subscribe.
     virtual const NavDataStore* navData() const = 0;
+
+    // AIS targets ------------------------------------------------------------
+    // Publish AIS targets (e.g. from an AIS decoder plugin).
+    virtual IAisPublisher* aisPublisher() = 0;
+    // Read targets; connect to targetUpdated/targetExpired to subscribe.
+    virtual const AisTargetStore* aisData() const = 0;
 
     // Menu contributions -----------------------------------------------------
     // Append items to the main menu's Plugins section.
