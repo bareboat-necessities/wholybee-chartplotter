@@ -12,6 +12,7 @@ class NavDataStore;
 class AisTargetStore;
 class Simulator;
 class NavDataBrowserWindow;
+class AisOverlay;
 class CoreApi;
 class PluginManager;
 class QLabel;
@@ -54,6 +55,7 @@ private:
     AisTargetStore* aisStore_ = nullptr;
     Simulator*    simulator_ = nullptr;
     NavDataBrowserWindow* navBrowser_ = nullptr;
+    std::unique_ptr<AisOverlay>    aisOverlay_;  // core-owned AIS chart overlay
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins

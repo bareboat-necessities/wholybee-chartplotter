@@ -43,9 +43,9 @@ Per-target lifecycle, on AIS timescales (minutes, not the ownship's seconds):
 
 | state     | when                                  |
 |-----------|---------------------------------------|
-| `Current` | `age < staleSeconds` (default 90 s)   |
+| `Current` | `age < staleSeconds` (default 6 min)  |
 | `Stale`   | `staleSeconds ≤ age < lostSeconds`    |
-| `Lost`    | `age ≥ lostSeconds` (default 360 s)   |
+| `Lost`    | `age ≥ lostSeconds` (default 12 min)  |
 
 A 1 Hz tick ages every target. On reaching `Lost` the target is **removed** and
 `targetExpired(mmsi)` fires; while `Current`/`Stale` it stays in the store (an
@@ -97,10 +97,18 @@ plugin) — and handles:
   B static, Parts A & B). "Not available" sentinels (lat 91°, lon 181°, COG 3600,
   heading 511, SOG 1023, ROT −128) decode to absent fields.
 
+## AisOverlay
+
+`AisOverlay` (`IChartOverlay`) draws each `AisTarget` with `hasPosition()` using
+the shared `vessel::drawSymbol` glyph — the same triangle / course-prediction
+line / cancellation slash as the ownship symbol, just green so the two are
+distinguishable. Targets are dimmed and crossed when their freshness is `Stale`
+(default ≥ 6 min since the last message); `Lost` targets are already gone from
+the store, so the overlay never has to draw them. The predictor length tracks
+the ownship one (a single user-configurable value, kept in sync).
+
 ## Not yet (next steps)
 
-- **AIS overlay** — an `IChartOverlay` drawing targets (triangles, headings,
-  names), greyed when stale.
 - **CPA/TCPA computation** — a component reading ownship (`NavDataStore`) and
   targets, computing closest approach and calling `setCpaTcpa`.
 - **Per-source arbitration** — currently last-writer-wins per MMSI (fine for a
