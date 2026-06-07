@@ -16,6 +16,24 @@
 #include <QPainter>
 #include <QIcon>
 
+namespace {
+// A 14px status dot: a filled green circle when active, otherwise transparent.
+// Used both as a live indicator and (transparent) to reserve the dot column so
+// every settings item lines up.
+QIcon statusDotIcon(bool active) {
+    QPixmap pm(14, 14);
+    pm.fill(Qt::transparent);
+    if (active) {
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(40, 170, 70));   // green
+        p.drawEllipse(QPointF(7, 7), 5, 5);
+    }
+    return QIcon(pm);
+}
+} // namespace
+
 SideMenu::SideMenu(Settings* settings, QWidget* parent)
     : QWidget(parent), settings_(settings) {
     setVisible(false);
@@ -125,54 +143,60 @@ QWidget* SideMenu::buildSettingsPage() {
     col->setSpacing(0);
 
     col->addWidget(makeHeader(QStringLiteral("Charts")));
-    auto* chartSetsBtn = makeAction(QStringLiteral("Chart Sets"));
+    auto* chartSetsBtn = makeSettingsAction(QStringLiteral("Chart Sets"));
     connect(chartSetsBtn, &QPushButton::clicked, this,
             [this] { emit manageChartSetsRequested(); });
     col->addWidget(chartSetsBtn);
 
-    auto* basemapBtn = makeAction(QStringLiteral("Basemap Folder…"));
+    auto* basemapBtn = makeSettingsAction(QStringLiteral("Basemap Folder…"));
     connect(basemapBtn, &QPushButton::clicked, this,
             [this] { emit basemapFolderRequested(); });
     col->addWidget(basemapBtn);
 
-    auto* unitsBtn = makeAction(QStringLiteral("Units…"));
+    auto* unitsBtn = makeSettingsAction(QStringLiteral("Units…"));
     connect(unitsBtn, &QPushButton::clicked, this,
             [this] { emit editUnitsRequested(); });
     col->addWidget(unitsBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Data Connections")));
-    nmeaBtn_ = makeAction(QStringLiteral("NMEA 0183"));
-    nmeaBtn_->setIconSize(QSize(14, 14));   // reserve space so text never shifts
+    nmeaBtn_ = makeSettingsAction(QStringLiteral("NMEA 0183"));
     connect(nmeaBtn_, &QPushButton::clicked, this,
             [this] { emit editNmeaRequested(); });
     col->addWidget(nmeaBtn_);
 
-    auto* nmeaDbgBtn = makeAction(QStringLiteral("NMEA 0183 Debug"));
+    auto* nmeaDbgBtn = makeSettingsAction(QStringLiteral("NMEA 0183 Debug"));
     connect(nmeaDbgBtn, &QPushButton::clicked, this,
             [this] { emit nmeaDebugRequested(); });
     col->addWidget(nmeaDbgBtn);
 
-    auto* sim = makeToggle(QStringLiteral("Simulator"), settings_->simulatorEnabled());
-    connect(sim, &QPushButton::toggled, settings_, &Settings::setSimulatorEnabled);
-    // Keep the toggle in sync if the setting changes elsewhere.
+    // Simulator shows the same green dot as NMEA 0183 when it is running.
+    auto* sim = makeSettingsAction(QStringLiteral("Simulator"));
+    sim->setCheckable(true);
+    sim->setChecked(settings_->simulatorEnabled());
+    sim->setIcon(statusDotIcon(settings_->simulatorEnabled()));
+    connect(sim, &QPushButton::toggled, this, [this, sim](bool on) {
+        sim->setIcon(statusDotIcon(on));
+        settings_->setSimulatorEnabled(on);
+    });
     connect(settings_, &Settings::simulatorEnabledChanged, sim, [sim](bool on) {
-        if (sim->isChecked() != on) sim->setChecked(on);
+        if (sim->isChecked() != on) sim->setChecked(on);   // toggled() refreshes the dot
     });
     col->addWidget(sim);
-    auto* staleBtn = makeAction(QStringLiteral("Stale Data Thresholds…"));
+
+    auto* staleBtn = makeSettingsAction(QStringLiteral("Stale Data Thresholds…"));
     connect(staleBtn, &QPushButton::clicked, this,
             [this] { emit editStaleThresholdsRequested(); });
     col->addWidget(staleBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Ships")));
-    auto* predBtn = makeAction(QStringLiteral("Ownship Course Prediction…"));
+    auto* predBtn = makeSettingsAction(QStringLiteral("Ownship Course Prediction…"));
     connect(predBtn, &QPushButton::clicked, this,
             [this] { emit editOwnshipPredictionRequested(); });
     col->addWidget(predBtn);
 
     col->addStretch(1);
 
-    auto* backBtn = makeAction(QStringLiteral("Back"));
+    auto* backBtn = makeSettingsAction(QStringLiteral("Back"));
     connect(backBtn, &QPushButton::clicked, this, &SideMenu::showMainPage);
     col->addWidget(backBtn);
 
@@ -263,6 +287,13 @@ QPushButton* SideMenu::makeAction(const QString& text) {
     return b;
 }
 
+QPushButton* SideMenu::makeSettingsAction(const QString& text) {
+    auto* b = makeAction(text);
+    b->setIconSize(QSize(14, 14));
+    b->setIcon(statusDotIcon(false));   // transparent: reserves the dot column
+    return b;
+}
+
 QPushButton* SideMenu::makeToggle(const QString& text, bool checked) {
     auto* b = new QPushButton();
     b->setCheckable(true);
@@ -313,19 +344,7 @@ void SideMenu::setAutoFollowChecked(bool on) {
 }
 
 void SideMenu::setNmeaActive(bool on) {
-    if (!nmeaBtn_) return;
-    // Always set a 14px icon (transparent when off) so the label never shifts as
-    // the status dot appears or clears.
-    QPixmap pm(14, 14);
-    pm.fill(Qt::transparent);
-    if (on) {
-        QPainter p(&pm);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(40, 170, 70));   // green
-        p.drawEllipse(QPointF(7, 7), 5, 5);
-    }
-    nmeaBtn_->setIcon(QIcon(pm));
+    if (nmeaBtn_) nmeaBtn_->setIcon(statusDotIcon(on));
 }
 
 // ---- open/close + geometry ------------------------------------------------
