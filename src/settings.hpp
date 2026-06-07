@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include "units.hpp"
 #include "nmea0183_client.hpp"   // NmeaTransport
@@ -69,6 +70,9 @@ public:
     quint16       nmeaPort()      const { return nmeaPort_; }
     bool          nmeaEnabled()   const { return nmeaEnabled_; }
 
+    // Data-source priority: ordered source ids, highest priority first.
+    QStringList dataSourcePriority() const { return dataSourcePriority_; }
+
 public slots:
     void setChartDirectory(const QString& dir);
     void setShowSoundings(bool on);
@@ -85,6 +89,7 @@ public slots:
     void setDistanceUnit(DistanceUnit u);
     void setNmeaConfig(NmeaTransport transport, const QString& host,
                        quint16 port, bool enabled);
+    void setDataSourcePriority(const QStringList& orderedSourceIds);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -100,6 +105,7 @@ signals:
     void distanceUnitChanged(DistanceUnit u);
     void nmeaConfigChanged(NmeaTransport transport, const QString& host,
                            quint16 port, bool enabled);
+    void dataSourcePriorityChanged(const QStringList& orderedSourceIds);
 
 private:
     void loadChartSets();
@@ -126,4 +132,5 @@ private:
     QString       nmeaHost_;
     quint16       nmeaPort_ = 10110;   // IANA-registered NMEA-0183 port
     bool          nmeaEnabled_ = false;
+    QStringList   dataSourcePriority_;
 };

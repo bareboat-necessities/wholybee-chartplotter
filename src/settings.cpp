@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "data_sources.hpp"
 #include <QSettings>
 #include <QDir>
 #include <cmath>
@@ -25,6 +26,7 @@ constexpr auto kNmeaProto = "nmea0183/transport";
 constexpr auto kNmeaHost  = "nmea0183/host";
 constexpr auto kNmeaPort  = "nmea0183/port";
 constexpr auto kNmeaOn    = "nmea0183/enabled";
+constexpr auto kSrcPrio   = "data/sourcePriority";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -62,6 +64,10 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     nmeaHost_    = s.value(QLatin1String(kNmeaHost)).toString();
     nmeaPort_    = quint16(s.value(QLatin1String(kNmeaPort), 10110).toUInt());
     nmeaEnabled_ = s.value(QLatin1String(kNmeaOn), false).toBool();
+    // Reconcile the saved priority with the sources this build knows about, so
+    // new sources appear and removed ones drop out.
+    dataSourcePriority_ = datasources::reconcile(
+        s.value(QLatin1String(kSrcPrio)).toStringList());
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -168,6 +174,13 @@ void Settings::setNmeaConfig(NmeaTransport transport, const QString& host,
     s.setValue(QLatin1String(kNmeaPort), port);
     s.setValue(QLatin1String(kNmeaOn),   enabled);
     emit nmeaConfigChanged(transport, host, port, enabled);
+}
+
+void Settings::setDataSourcePriority(const QStringList& orderedSourceIds) {
+    if (orderedSourceIds == dataSourcePriority_) return;
+    dataSourcePriority_ = orderedSourceIds;
+    QSettings().setValue(QLatin1String(kSrcPrio), orderedSourceIds);
+    emit dataSourcePriorityChanged(orderedSourceIds);
 }
 
 void Settings::setStaleThresholds(double staleS, double invalidS) {
