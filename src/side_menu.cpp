@@ -170,15 +170,12 @@ QWidget* SideMenu::buildSettingsPage() {
     col->addWidget(unitsBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Data Connections")));
+
+    // --- The sources themselves, at the top of the section ---
     nmeaBtn_ = makeSettingsAction(QStringLiteral("NMEA 0183"));
     connect(nmeaBtn_, &QPushButton::clicked, this,
             [this] { emit editNmeaRequested(); });
     col->addWidget(nmeaBtn_);
-
-    auto* nmeaDbgBtn = makeSettingsAction(QStringLiteral("NMEA 0183 Debug"));
-    connect(nmeaDbgBtn, &QPushButton::clicked, this,
-            [this] { emit nmeaDebugRequested(); });
-    col->addWidget(nmeaDbgBtn);
 
     // Simulator shows the same green dot as NMEA 0183 when it is running.
     auto* sim = makeSettingsAction(QStringLiteral("Simulator"));
@@ -200,6 +197,14 @@ QWidget* SideMenu::buildSettingsPage() {
     dataSourceBox_->setContentsMargins(0, 0, 0, 0);
     dataSourceBox_->setSpacing(0);
     col->addWidget(dsHolder);
+
+    // --- Separator, then the tools that act on the connections ---
+    col->addWidget(makeSeparator());
+
+    auto* nmeaDbgBtn = makeSettingsAction(QStringLiteral("NMEA 0183 Debug"));
+    connect(nmeaDbgBtn, &QPushButton::clicked, this,
+            [this] { emit nmeaDebugRequested(); });
+    col->addWidget(nmeaDbgBtn);
 
     auto* priorityBtn = makeSettingsAction(QStringLiteral("Data Priority"));
     connect(priorityBtn, &QPushButton::clicked, this,
@@ -302,6 +307,20 @@ QLabel* SideMenu::makeHeader(const QString& text) {
         "font-size:12px; font-weight:600; color:#5a5a5a;"
         "padding:14px 20px 6px 20px; background:#eef1f4;"));
     return h;
+}
+
+QWidget* SideMenu::makeSeparator() {
+    // A 1px rule inset from the edges, with a little breathing room above/below.
+    auto* wrap = new QWidget;
+    wrap->setStyleSheet(QStringLiteral("background:#fbfbfb;"));
+    auto* lay = new QVBoxLayout(wrap);
+    lay->setContentsMargins(20, 6, 20, 6);
+    auto* line = new QFrame;
+    line->setFrameShape(QFrame::HLine);
+    line->setFrameShadow(QFrame::Plain);
+    line->setStyleSheet(QStringLiteral("color:#d4d9de;"));
+    lay->addWidget(line);
+    return wrap;
 }
 
 QPushButton* SideMenu::makeAction(const QString& text) {

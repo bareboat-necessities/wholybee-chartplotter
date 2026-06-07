@@ -68,6 +68,7 @@ protected:
 
 private:
     QLabel*      makeHeader(const QString& text);
+    QWidget*     makeSeparator();           // thin divider line within a section
     QPushButton* makeAction(const QString& text);
     // Settings-page action: like makeAction but reserves a leading status-dot
     // column so every item lines up with the ones that show a dot.
