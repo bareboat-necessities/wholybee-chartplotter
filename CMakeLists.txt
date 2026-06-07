@@ -33,6 +33,7 @@ qt_add_executable(chartviewer
     src/ownship_prediction_dialog.cpp
     src/nmea0183_dialog.cpp
     src/nmea0183_debug_window.cpp
+    src/nav_data_browser_window.cpp
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp

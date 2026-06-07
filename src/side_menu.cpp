@@ -94,14 +94,14 @@ QWidget* SideMenu::buildMainPage() {
     rebuildChartSets();
 
     col->addWidget(makeHeader(QStringLiteral("View")));
-    auto* fitBtn = makeAction(QStringLiteral("Fit to Charts"));
+    auto* fitBtn = makeIndentedAction(QStringLiteral("Fit to Charts"));
     connect(fitBtn, &QPushButton::clicked, this, [this] {
         emit fitRequested();
         closeMenu();
     });
     col->addWidget(fitBtn);
 
-    auto* centerBtn = makeAction(QStringLiteral("Center on Own Ship"));
+    auto* centerBtn = makeIndentedAction(QStringLiteral("Center on Own Ship"));
     connect(centerBtn, &QPushButton::clicked, this, [this] {
         emit centerOnOwnshipRequested();
         closeMenu();
@@ -114,22 +114,22 @@ QWidget* SideMenu::buildMainPage() {
     col->addWidget(autoFollowBtn_);
 
     col->addWidget(makeHeader(QStringLiteral("Chart Detail")));
-    auto* snd = makeToggle(QStringLiteral("Soundings"), settings_->showSoundings());
+    auto* snd = makeCheckAction(QStringLiteral("Soundings"), settings_->showSoundings());
     connect(snd, &QPushButton::toggled, settings_, &Settings::setShowSoundings);
     col->addWidget(snd);
-    auto* sym = makeToggle(QStringLiteral("Symbols"), settings_->showSymbols());
+    auto* sym = makeCheckAction(QStringLiteral("Symbols"), settings_->showSymbols());
     connect(sym, &QPushButton::toggled, settings_, &Settings::setShowSymbols);
     col->addWidget(sym);
-    auto* con = makeToggle(QStringLiteral("Depth Contours"), settings_->showDepthContours());
+    auto* con = makeCheckAction(QStringLiteral("Depth Contours"), settings_->showDepthContours());
     connect(con, &QPushButton::toggled, settings_, &Settings::setShowDepthContours);
     col->addWidget(con);
 
     col->addStretch(1);
 
-    auto* settingsBtn = makeAction(QStringLiteral("Settings"));
+    auto* settingsBtn = makeIndentedAction(QStringLiteral("Settings"));
     connect(settingsBtn, &QPushButton::clicked, this, &SideMenu::showSettingsPage);
     col->addWidget(settingsBtn);
-    auto* closeBtn = makeAction(QStringLiteral("Close"));
+    auto* closeBtn = makeIndentedAction(QStringLiteral("Close"));
     connect(closeBtn, &QPushButton::clicked, this, &SideMenu::closeMenu);
     col->addWidget(closeBtn);
 
@@ -187,6 +187,11 @@ QWidget* SideMenu::buildSettingsPage() {
     connect(staleBtn, &QPushButton::clicked, this,
             [this] { emit editStaleThresholdsRequested(); });
     col->addWidget(staleBtn);
+
+    auto* navBrowserBtn = makeSettingsAction(QStringLiteral("NavData Browser"));
+    connect(navBrowserBtn, &QPushButton::clicked, this,
+            [this] { emit navDataBrowserRequested(); });
+    col->addWidget(navBrowserBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Ships")));
     auto* predBtn = makeSettingsAction(QStringLiteral("Ownship Course Prediction…"));
@@ -294,25 +299,10 @@ QPushButton* SideMenu::makeSettingsAction(const QString& text) {
     return b;
 }
 
-QPushButton* SideMenu::makeToggle(const QString& text, bool checked) {
-    auto* b = new QPushButton();
-    b->setCheckable(true);
-    b->setMinimumHeight(56);
-    b->setCursor(Qt::PointingHandCursor);
-    // A filled/hollow bullet shows state clearly without relying on the
-    // platform checkbox indicator, which is too small for touch.
-    auto sync = [b, text](bool on) {
-        b->setText((on ? QStringLiteral("●   ") : QStringLiteral("○   ")) + text);
-    };
-    sync(checked);
-    b->setChecked(checked);
-    connect(b, &QPushButton::toggled, b, sync);
-    b->setStyleSheet(QStringLiteral(
-        "QPushButton{ text-align:left; padding-left:24px; border:none;"
-        " font-size:16px; background:#fbfbfb; }"
-        "QPushButton:checked{ color:#12407a; }"
-        "QPushButton:pressed{ background:#dce6f0; }"));
-    return b;
+QPushButton* SideMenu::makeIndentedAction(const QString& text) {
+    // Blank check-mark column (same width as the unchecked ✓ slot) so plain
+    // items line up with the checkable ones.
+    return makeAction(QStringLiteral("     ") + text);
 }
 
 QPushButton* SideMenu::makeCheckAction(const QString& text, bool checked) {
