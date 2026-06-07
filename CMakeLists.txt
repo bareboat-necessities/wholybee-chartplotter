@@ -31,8 +31,8 @@ qt_add_executable(chartviewer
     src/touch_spin_box.cpp
     src/stale_thresholds_dialog.cpp
     src/ownship_prediction_dialog.cpp
-    src/nmea0183_dialog.cpp
     src/nmea0183_debug_window.cpp
+    src/nmea0183_plugin.cpp
     src/nav_data_browser_window.cpp
     src/data_priority_dialog.cpp
     src/core_api.cpp

@@ -34,9 +34,6 @@ public:
     // pan turns it off). Does not re-emit autoFollowToggled.
     void setAutoFollowChecked(bool on);
 
-    // Show/clear a green dot next to the NMEA 0183 item while it is decoding.
-    void setNmeaActive(bool on);
-
     // Plugin contributions to the main menu's Plugins section.
     void addPluginAction(const QString& title, std::function<void()> onTriggered);
     void addPluginToggle(const QString& title, bool checked,
@@ -61,8 +58,6 @@ signals:
     void editUnitsRequested();                        // open the Units dialog
     void editStaleThresholdsRequested();              // open stale-data dialog
     void editOwnshipPredictionRequested();            // open predictor-length dialog
-    void editNmeaRequested();                         // open NMEA 0183 dialog
-    void nmeaDebugRequested();                         // open raw-data debug window
     void navDataBrowserRequested();                    // open NavData Browser window
     void editDataPriorityRequested();                  // open Data Priority dialog
 
@@ -97,7 +92,6 @@ private:
     QStackedWidget* stack_ = nullptr;
     QVBoxLayout* chartSetsBox_ = nullptr;   // container for the dynamic set buttons
     QPushButton* autoFollowBtn_ = nullptr;  // checkable Auto Follow item
-    QPushButton* nmeaBtn_ = nullptr;        // NMEA 0183 item (carries status dot)
     QLabel*      pluginHeader_ = nullptr;   // "Plugins" header (hidden until used)
     QVBoxLayout* pluginBox_ = nullptr;      // container for plugin-contributed items
     QVBoxLayout* dataSourceBox_ = nullptr;  // plugin data-source items (Data Connections)

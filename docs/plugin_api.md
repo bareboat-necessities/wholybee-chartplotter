@@ -10,6 +10,11 @@ This is deliberately **built-in plugins first**: the same interfaces a dynamic
 (DLL/SO) plugin will use later, exercised by in-process plugins so the contract
 can be refined before ABI stability, versioning, and platform loaders matter.
 
+The **NMEA 0183** connection is itself a plugin (`Nmea0183Plugin`) — a real data
+source built entirely on these interfaces (data-source registration, settings
+page, persisted settings, a status dot, and its raw-data debug window), which is
+the best validation that the API is sufficient for non-toy use.
+
 ```
 +-----------+   initialize(core)   +-----------+   bridges to   +---------------+
 |  plugin   | <------------------- | PluginMgr |                | core objects  |
