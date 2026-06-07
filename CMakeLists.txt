@@ -30,6 +30,7 @@ qt_add_executable(chartviewer
     src/units_dialog.cpp
     src/touch_spin_box.cpp
     src/stale_thresholds_dialog.cpp
+    src/ownship_prediction_dialog.cpp
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp
