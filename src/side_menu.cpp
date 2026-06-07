@@ -172,12 +172,8 @@ QWidget* SideMenu::buildSettingsPage() {
     col->addWidget(makeHeader(QStringLiteral("Data Connections")));
 
     // --- The sources themselves, at the top of the section ---
-    nmeaBtn_ = makeSettingsAction(QStringLiteral("NMEA 0183"));
-    connect(nmeaBtn_, &QPushButton::clicked, this,
-            [this] { emit editNmeaRequested(); });
-    col->addWidget(nmeaBtn_);
-
-    // Simulator shows the same green dot as NMEA 0183 when it is running.
+    // Simulator is the built-in source; its dot shows when it is running. Other
+    // sources (NMEA 0183, plugins) register themselves into dataSourceBox_ below.
     auto* sim = makeSettingsAction(QStringLiteral("Simulator"));
     sim->setCheckable(true);
     sim->setChecked(settings_->simulatorEnabled());
@@ -200,11 +196,6 @@ QWidget* SideMenu::buildSettingsPage() {
 
     // --- Separator, then the tools that act on the connections ---
     col->addWidget(makeSeparator());
-
-    auto* nmeaDbgBtn = makeSettingsAction(QStringLiteral("NMEA 0183 Debug"));
-    connect(nmeaDbgBtn, &QPushButton::clicked, this,
-            [this] { emit nmeaDebugRequested(); });
-    col->addWidget(nmeaDbgBtn);
 
     auto* priorityBtn = makeSettingsAction(QStringLiteral("Data Priority"));
     connect(priorityBtn, &QPushButton::clicked, this,
@@ -383,10 +374,6 @@ void SideMenu::setAutoFollowChecked(bool on) {
     // an unchanged state, but this avoids the redundant toggle/text churn).
     if (autoFollowBtn_ && autoFollowBtn_->isChecked() != on)
         autoFollowBtn_->setChecked(on);
-}
-
-void SideMenu::setNmeaActive(bool on) {
-    if (nmeaBtn_) nmeaBtn_->setIcon(statusDotIcon(on));
 }
 
 void SideMenu::addPluginAction(const QString& title, std::function<void()> onTriggered) {

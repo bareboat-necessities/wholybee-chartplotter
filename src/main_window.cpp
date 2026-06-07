@@ -7,15 +7,13 @@
 #include "units_dialog.hpp"
 #include "stale_thresholds_dialog.hpp"
 #include "ownship_prediction_dialog.hpp"
-#include "nmea0183_dialog.hpp"
-#include "nmea0183_debug_window.hpp"
 #include "nav_data_browser_window.hpp"
 #include "data_priority_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
-#include "nmea0183_client.hpp"
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
+#include "nmea0183_plugin.hpp"
 #include "test_plugin.hpp"
 
 #include <QStatusBar>
@@ -86,10 +84,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         navStore_->setInvalidSeconds(i);
     });
     // Source arbitration: highest-priority source wins, falling back when its
-    // data goes invalid. Built-in sources are registered now; plugin sources add
-    // themselves during plugin init, after which the order is applied (below).
-    registry_.add(QStringLiteral("nmea0183"),  QStringLiteral("NMEA 0183"));
-    registry_.add(QStringLiteral("simulator"), QStringLiteral("Simulator"));
+    // data goes invalid. Sources register into registry_ (NMEA via its plugin,
+    // simulator below); the saved order is applied after plugin init (below).
     connect(settings_, &Settings::dataSourcePriorityChanged,
             navStore_, &NavDataStore::setSourcePriority);
     // ownshipChanged fires on new data and on any per-value freshness transition.
@@ -104,14 +100,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             simulator_, &Simulator::setRunning);
     if (settings_->simulatorEnabled()) simulator_->setRunning(true);
 
-    // NMEA 0183 network source: another INavDataPublisher feeding the same store.
-    // Re-applies its configuration whenever the user edits it in the dialog.
-    nmea_ = new Nmea0183Client(navStore_, this);
-    connect(settings_, &Settings::nmeaConfigChanged,
-            nmea_, &Nmea0183Client::setConfig);
-    nmea_->setConfig(settings_->nmeaTransport(), settings_->nmeaHost(),
-                     settings_->nmeaPort(), settings_->nmeaEnabled());
-
     // Touch-first navigation: a floating menu button over the chart opens the
     // side drawer. No toolbar, no right-click, large tap targets.
     sideMenu_ = new SideMenu(settings_, view_);
@@ -125,25 +113,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editUnitsRequested,       this,  &MainWindow::editUnits);
     connect(sideMenu_, &SideMenu::editStaleThresholdsRequested,     this, &MainWindow::editStaleThresholds);
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
-    connect(sideMenu_, &SideMenu::editNmeaRequested,                this, &MainWindow::editNmea);
-    connect(sideMenu_, &SideMenu::nmeaDebugRequested,               this, &MainWindow::showNmeaDebug);
     connect(sideMenu_, &SideMenu::navDataBrowserRequested,          this, &MainWindow::showNavDataBrowser);
     connect(sideMenu_, &SideMenu::editDataPriorityRequested,        this, &MainWindow::editDataPriority);
-    // Green status dot on the NMEA item while the link is decoding.
-    connect(nmea_, &Nmea0183Client::decodingChanged, sideMenu_, &SideMenu::setNmeaActive);
-    sideMenu_->setNmeaActive(nmea_->isDecoding());
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
-    // plugin would use later. The test plugin exercises menus, overlays, and the
-    // nav data API in both directions.
+    // plugin would use later. NMEA 0183 is a plugin; the test plugin exercises
+    // menus, overlays, and the nav data API. Plugins register their sources here.
     coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
+    plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
     plugins_->add(std::make_unique<TestPlugin>());
     plugins_->initializeAll();
 
-    // Now that built-in and plugin sources are all registered, apply the saved
-    // priority (reconciled against the registry, so plugin sources are included).
+    // Simulator is a core built-in source; register it last so real data
+    // (NMEA) outranks it by default. Then apply the saved priority order.
+    registry_.add(QStringLiteral("simulator"), QStringLiteral("Simulator"));
     navStore_->setSourcePriority(registry_.orderedIds(settings_->dataSourcePriority()));
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
@@ -242,26 +227,6 @@ void MainWindow::editOwnshipPrediction() {
     OwnshipPredictionDialog dlg(settings_->ownshipPredictionMinutes(), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setOwnshipPredictionMinutes(dlg.minutes());
-}
-
-void MainWindow::editNmea() {
-    Nmea0183Dialog dlg(settings_->nmeaTransport(), settings_->nmeaHost(),
-                       settings_->nmeaPort(), settings_->nmeaEnabled(), this);
-    if (dlg.exec() == QDialog::Accepted)
-        settings_->setNmeaConfig(dlg.transport(), dlg.host(),
-                                 dlg.port(), dlg.enabled());
-}
-
-void MainWindow::showNmeaDebug() {
-    // Created lazily and kept alive; reused (raised) on subsequent opens.
-    if (!nmeaDebug_) {
-        nmeaDebug_ = new Nmea0183DebugWindow(this);
-        connect(nmea_, &Nmea0183Client::sentenceReceived,
-                nmeaDebug_, &Nmea0183DebugWindow::appendLine);
-    }
-    nmeaDebug_->show();
-    nmeaDebug_->raise();
-    nmeaDebug_->activateWindow();
 }
 
 void MainWindow::showNavDataBrowser() {

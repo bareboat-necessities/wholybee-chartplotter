@@ -10,8 +10,6 @@ class Settings;
 class SideMenu;
 class NavDataStore;
 class Simulator;
-class Nmea0183Client;
-class Nmea0183DebugWindow;
 class NavDataBrowserWindow;
 class CoreApi;
 class PluginManager;
@@ -35,8 +33,6 @@ private slots:
     void editUnits();
     void editStaleThresholds();
     void editOwnshipPrediction();
-    void editNmea();
-    void showNmeaDebug();
     void showNavDataBrowser();
     void editDataPriority();
     void publishOwnshipToView();
@@ -55,8 +51,6 @@ private:
     SideMenu*     sideMenu_ = nullptr;
     NavDataStore* navStore_ = nullptr;
     Simulator*    simulator_ = nullptr;
-    Nmea0183Client* nmea_ = nullptr;
-    Nmea0183DebugWindow* nmeaDebug_ = nullptr;
     NavDataBrowserWindow* navBrowser_ = nullptr;
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services

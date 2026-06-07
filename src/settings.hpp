@@ -4,7 +4,6 @@
 #include <QStringList>
 #include <QVector>
 #include "units.hpp"
-#include "nmea0183_client.hpp"   // NmeaTransport
 
 // A named chart directory the user can switch between from the menu.
 struct ChartSet {
@@ -64,12 +63,6 @@ public:
     DepthUnit    depthUnit()    const { return depthUnit_; }
     DistanceUnit distanceUnit() const { return distanceUnit_; }
 
-    // NMEA 0183 network gateway connection.
-    NmeaTransport nmeaTransport() const { return nmeaTransport_; }
-    QString       nmeaHost()      const { return nmeaHost_; }
-    quint16       nmeaPort()      const { return nmeaPort_; }
-    bool          nmeaEnabled()   const { return nmeaEnabled_; }
-
     // Data-source priority: ordered source ids, highest priority first.
     QStringList dataSourcePriority() const { return dataSourcePriority_; }
 
@@ -87,8 +80,6 @@ public slots:
     void setOwnshipPredictionMinutes(double minutes);
     void setDepthUnit(DepthUnit u);
     void setDistanceUnit(DistanceUnit u);
-    void setNmeaConfig(NmeaTransport transport, const QString& host,
-                       quint16 port, bool enabled);
     void setDataSourcePriority(const QStringList& orderedSourceIds);
 
 signals:
@@ -103,8 +94,6 @@ signals:
     void ownshipPredictionMinutesChanged(double minutes);
     void depthUnitChanged(DepthUnit u);
     void distanceUnitChanged(DistanceUnit u);
-    void nmeaConfigChanged(NmeaTransport transport, const QString& host,
-                           quint16 port, bool enabled);
     void dataSourcePriorityChanged(const QStringList& orderedSourceIds);
 
 private:
@@ -128,9 +117,5 @@ private:
     double ownshipPredMin_ = 6.0;   // minutes of run-time ahead
     DepthUnit    depthUnit_    = DepthUnit::Feet;
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;
-    NmeaTransport nmeaTransport_ = NmeaTransport::Tcp;
-    QString       nmeaHost_;
-    quint16       nmeaPort_ = 10110;   // IANA-registered NMEA-0183 port
-    bool          nmeaEnabled_ = false;
     QStringList   dataSourcePriority_;
 };
