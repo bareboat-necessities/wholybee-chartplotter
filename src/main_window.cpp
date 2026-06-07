@@ -39,9 +39,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
 
-    // Depth unit drives how soundings are labelled.
+    // Depth unit drives how soundings are labelled; distance unit drives the
+    // scale bar.
     view_->setDepthUnit(settings_->depthUnit());
     connect(settings_, &Settings::depthUnitChanged, view_, &ChartView::setDepthUnit);
+    view_->setDistanceUnit(settings_->distanceUnit());
+    connect(settings_, &Settings::distanceUnitChanged, view_, &ChartView::setDistanceUnit);
 
     // Ownship course-prediction length (minutes), persisted via Settings.
     view_->setOwnshipPredictionMinutes(settings_->ownshipPredictionMinutes());
