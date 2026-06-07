@@ -145,6 +145,7 @@ private:
     QTransform cameraTransform() const;     // scene metres -> screen pixels
     QPointF screenToScene(const QPointF& screen) const;
     static double worldWidthM();            // scene width of 360° of longitude
+    double minPpm() const;                  // most zoomed-out: globe fills width once
     void   normalizeCenter();               // wrap center X into [-W, W)
     double wrapOffsetFor(double cellCenterX) const;  // nearest whole-world shift
     void   restoreView(double lon, double lat, double scale);

@@ -278,6 +278,15 @@ void ChartView::setCatalog(ChartCatalog* catalog) {
 
 double ChartView::worldWidthM() { return 2.0 * proj::lonToX(180.0); }
 
+// The most zoomed-out scale we allow: exactly enough that 360° of longitude
+// fills the viewport width once. Zooming out past this would make the world
+// narrower than the screen, so the wraparound would tile copies of the globe
+// side by side. (The repeat is horizontal only, so this is keyed to width.)
+double ChartView::minPpm() const {
+    if (width() <= 0) return 1e-9;
+    return width() / worldWidthM();
+}
+
 QTransform ChartView::cameraTransform() const {
     QTransform t;
     t.translate(width() / 2.0, height() / 2.0);
@@ -311,7 +320,7 @@ void ChartView::restoreView(double lon, double lat, double s) {
     if (s <= 0.0) { fitToCatalog(); return; }
     scx_ = proj::lonToX(lon);
     scy_ = -proj::latToY(lat);
-    ppm_ = s;
+    ppm_ = std::max(s, minPpm());   // never restore past the whole-globe floor
     normalizeCenter();
     updatePointLOD();
     update();
@@ -622,8 +631,10 @@ void ChartView::reloadBasemap() {
 // visible on its own. A subsequent catalog load will fit to the charts instead.
 void ChartView::ensureViewForBasemap() {
     if (ppm_ > 0.0 || availableTiers_.isEmpty() || width() <= 0 || height() <= 0) return;
-    const double W = proj::lonToX(180.0);
-    ppm_ = std::min(width() / (2.0 * W), height() / (2.0 * W));
+    // The whole globe across the width, with no wraparound tiling — the same
+    // floor the user can zoom out to. (On a landscape window this clips the
+    // extreme polar latitudes, which is unavoidable without tiling the globe.)
+    ppm_ = minPpm();
     scx_ = 0.0; scy_ = 0.0;
     updatePointLOD();
 }
@@ -964,8 +975,11 @@ void ChartView::wheelEvent(QWheelEvent* e) {
     userInteracted_ = true;
     const double step = 1.15;
     const double factor = (e->angleDelta().y() > 0) ? step : 1.0 / step;
-    const double target = ppm_ * factor;
-    if (target < 1e-9 || target > 1e6) { e->accept(); return; }
+    // Clamp zoom-out at the whole-globe view (no wraparound tiling) and keep a
+    // sane zoom-in ceiling. Clamping rather than ignoring lets a coarse wheel
+    // step settle exactly on the floor instead of stopping short of it.
+    const double target = std::clamp(ppm_ * factor, minPpm(), 1e6);
+    if (target == ppm_) { e->accept(); return; }
 
     // Keep the scene point under the cursor fixed.
     const QPointF cur = e->position();
@@ -1023,6 +1037,9 @@ void ChartView::resizeEvent(QResizeEvent* e) {
     if (haveCatalog_ && !userInteracted_) fitToCatalog();
     else { updatePointLOD(); scheduleUpdate(); }
     ensureViewForBasemap();   // in case the widget had no size when basemap loaded
+    // Widening the window raises the whole-globe floor; re-enforce it so we
+    // never sit below the new minimum and tile the world.
+    if (ppm_ > 0.0 && ppm_ < minPpm()) ppm_ = minPpm();
     maybeBuildBasemap();
     update();
 }
