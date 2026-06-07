@@ -4,6 +4,7 @@
 #include "settings.hpp"
 #include "side_menu.hpp"
 #include "chart_sets_dialog.hpp"
+#include "units_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
 
@@ -36,6 +37,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
+
+    // Depth unit drives how soundings are labelled.
+    view_->setDepthUnit(settings_->depthUnit());
+    connect(settings_, &Settings::depthUnitChanged, view_, &ChartView::setDepthUnit);
 
     // Ownship course-prediction length (minutes), persisted via Settings.
     view_->setOwnshipPredictionMinutes(settings_->ownshipPredictionMinutes());
@@ -87,6 +92,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::chartSetSelected,         this,  &MainWindow::onChartSetSelected);
     connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
     connect(sideMenu_, &SideMenu::basemapFolderRequested,   this,  &MainWindow::chooseBasemapFolder);
+    connect(sideMenu_, &SideMenu::editUnitsRequested,       this,  &MainWindow::editUnits);
     connect(sideMenu_, &SideMenu::editStaleThresholdsRequested,     this, &MainWindow::editStaleThresholds);
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
 
@@ -161,6 +167,14 @@ void MainWindow::chooseBasemapFolder() {
         this, QStringLiteral("Select GSHHG Basemap Folder (contains GSHHS_shp)"), start);
     if (!dir.isEmpty())
         settings_->setBasemapDirectory(dir);
+}
+
+void MainWindow::editUnits() {
+    UnitsDialog dlg(settings_->depthUnit(), settings_->distanceUnit(), this);
+    if (dlg.exec() == QDialog::Accepted) {
+        settings_->setDepthUnit(dlg.depthUnit());
+        settings_->setDistanceUnit(dlg.distanceUnit());
+    }
 }
 
 void MainWindow::editStaleThresholds() {

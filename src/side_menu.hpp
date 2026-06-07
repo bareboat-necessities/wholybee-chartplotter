@@ -34,6 +34,7 @@ signals:
     void chartSetSelected(const QString& directory);  // user tapped a set to load
     void manageChartSetsRequested();                  // open the Chart Sets dialog
     void basemapFolderRequested();                    // pick the GSHHG data folder
+    void editUnitsRequested();                        // open the Units dialog
     void editStaleThresholdsRequested();              // open stale-data dialog
     void editOwnshipPredictionRequested();            // open predictor-length dialog
 

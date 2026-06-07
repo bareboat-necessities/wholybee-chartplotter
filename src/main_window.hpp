@@ -24,6 +24,7 @@ private slots:
     void onChartSetSelected(const QString& dir);
     void manageChartSets();
     void chooseBasemapFolder();
+    void editUnits();
     void editStaleThresholds();
     void editOwnshipPrediction();
     void publishOwnshipToView();

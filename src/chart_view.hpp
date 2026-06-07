@@ -16,6 +16,7 @@
 #include "chart_loader.hpp"
 #include "feature_cache.hpp"
 #include "nav_data_store.hpp"   // OwnshipState, NavFreshness
+#include "units.hpp"            // DepthUnit
 
 class ChartCatalog;
 class QTimer;
@@ -48,13 +49,22 @@ struct BuiltPath {
 // A whole cell, clipped to a region and ready to draw. drawOffsetX shifts it by a
 // whole-world width so cells near the date line can be drawn on the far side of
 // the 180° seam (longitude wrap-around).
+// A single sounding: scene position plus the raw depth in metres (S-57's native
+// unit). The label is formatted at paint time from the current depth unit, so
+// switching feet/metres is a repaint — no rebuild of the cell geometry.
+struct Sounding {
+    QPointF pos;            // scene position (Y already flipped north-up)
+    double  depthM = 0.0;   // raw depth, metres
+    bool    hasDepth = false;
+};
+
 struct BuiltCell {
     QString path;
     int  band = 0;
     BBox clipBox;                                          // region (real frame)
     double drawOffsetX = 0.0;                              // scene-X wrap offset
     std::vector<BuiltPath> paths;                          // sorted by z
-    std::vector<std::pair<QPointF, QString>> soundings;    // scene pos + label
+    std::vector<Sounding> soundings;                       // scene pos + depth
     std::vector<QPointF> symbols;                          // scene pos
 };
 
@@ -79,6 +89,7 @@ public:
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
+    void setDepthUnit(DepthUnit u);   // relabels soundings (repaint, no rebuild)
 
     // Folder holding GSHHG data (containing GSHHS_shp/). Empty triggers a search
     // of the standard install locations. Loads the basemap underlay async.
@@ -156,6 +167,9 @@ private:
     bool symbolVisible()   const { return showSymbols_   && pointLodVisible_; }
     bool contourVisible()  const { return showDepthContours_; }
 
+    // Format a sounding label from raw metres using the current depth unit.
+    QString formatSounding(double depthM) const;
+
     void drawOwnship(QPainter& p, const QTransform& cam);
 
     // Camera state (scene metres = projected Mercator, Y flipped north-up).
@@ -202,6 +216,7 @@ private:
     bool showSoundings_ = true;
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
+    DepthUnit depthUnit_ = DepthUnit::Feet;   // how soundings are labelled
     bool userInteracted_ = false;
 
     bool    dragging_ = false;

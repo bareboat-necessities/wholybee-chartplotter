@@ -209,10 +209,10 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
             case FeatureKind::Sounding: {
                 if (f.rings.empty() || f.rings[0].empty()) break;
                 if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
-                const QString text = f.hasDepth
-                    ? QString::number(f.depth, 'f', f.depth < 10.0 ? 1 : 0)
-                    : QStringLiteral(".");
-                bc.soundings.emplace_back(QPointF(f.rings[0][0].x, -f.rings[0][0].y), text);
+                // Keep the raw depth (metres); the label is formatted at paint
+                // time so the depth-unit preference is a repaint, not a rebuild.
+                bc.soundings.push_back(
+                    { QPointF(f.rings[0][0].x, -f.rings[0][0].y), f.depth, f.hasDepth });
                 break;
             }
             case FeatureKind::Point: {
@@ -784,6 +784,20 @@ void ChartView::setShowDepthContours(bool on) {
     showDepthContours_ = on; update();
 }
 
+void ChartView::setDepthUnit(DepthUnit u) {
+    if (u == depthUnit_) return;
+    depthUnit_ = u; update();   // soundings are relabelled on repaint
+}
+
+// Soundings come from S-57 in metres. Show one decimal in the shallows (where
+// the extra precision matters) and whole units in deeper water.
+QString ChartView::formatSounding(double depthM) const {
+    const double v = (depthUnit_ == DepthUnit::Meters)
+                       ? depthM
+                       : depthM * units::kMetersToFeet;
+    return QString::number(v, 'f', v < 10.0 ? 1 : 0);
+}
+
 void ChartView::setInitialView(double lon, double lat, double scale) {
     pendingLon_ = lon; pendingLat_ = lat; pendingScale_ = scale;
     havePendingView_ = (scale > 0.0);
@@ -862,10 +876,12 @@ void ChartView::paintEvent(QPaintEvent*) {
             const double asc = QFontMetricsF(f).ascent();
             for (const BuiltCell* c : order) {
                 const double off = c->drawOffsetX;
-                for (const auto& s : c->soundings) {
-                    const QPointF d = cam.map(QPointF(s.first.x() + off, s.first.y()));
+                for (const Sounding& s : c->soundings) {
+                    const QPointF d = cam.map(QPointF(s.pos.x() + off, s.pos.y()));
                     if (!screen.contains(d)) continue;
-                    p.drawText(QPointF(d.x() + 1.0, d.y() + asc), s.second);
+                    const QString text = s.hasDepth ? formatSounding(s.depthM)
+                                                    : QStringLiteral(".");
+                    p.drawText(QPointF(d.x() + 1.0, d.y() + asc), text);
                 }
             }
         }
