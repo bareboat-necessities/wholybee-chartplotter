@@ -147,6 +147,11 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit editNmeaRequested(); });
     col->addWidget(nmeaBtn_);
 
+    auto* nmeaDbgBtn = makeAction(QStringLiteral("NMEA 0183 Debug"));
+    connect(nmeaDbgBtn, &QPushButton::clicked, this,
+            [this] { emit nmeaDebugRequested(); });
+    col->addWidget(nmeaDbgBtn);
+
     auto* sim = makeToggle(QStringLiteral("Simulator"), settings_->simulatorEnabled());
     connect(sim, &QPushButton::toggled, settings_, &Settings::setSimulatorEnabled);
     // Keep the toggle in sync if the setting changes elsewhere.

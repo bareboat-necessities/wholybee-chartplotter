@@ -8,6 +8,7 @@
 #include "stale_thresholds_dialog.hpp"
 #include "ownship_prediction_dialog.hpp"
 #include "nmea0183_dialog.hpp"
+#include "nmea0183_debug_window.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
 #include "nmea0183_client.hpp"
@@ -113,6 +114,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editStaleThresholdsRequested,     this, &MainWindow::editStaleThresholds);
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
     connect(sideMenu_, &SideMenu::editNmeaRequested,                this, &MainWindow::editNmea);
+    connect(sideMenu_, &SideMenu::nmeaDebugRequested,               this, &MainWindow::showNmeaDebug);
     // Green status dot on the NMEA item while the link is decoding.
     connect(nmea_, &Nmea0183Client::decodingChanged, sideMenu_, &SideMenu::setNmeaActive);
     sideMenu_->setNmeaActive(nmea_->isDecoding());
@@ -216,6 +218,18 @@ void MainWindow::editNmea() {
     if (dlg.exec() == QDialog::Accepted)
         settings_->setNmeaConfig(dlg.transport(), dlg.host(),
                                  dlg.port(), dlg.enabled());
+}
+
+void MainWindow::showNmeaDebug() {
+    // Created lazily and kept alive; reused (raised) on subsequent opens.
+    if (!nmeaDebug_) {
+        nmeaDebug_ = new Nmea0183DebugWindow(this);
+        connect(nmea_, &Nmea0183Client::sentenceReceived,
+                nmeaDebug_, &Nmea0183DebugWindow::appendLine);
+    }
+    nmeaDebug_->show();
+    nmeaDebug_->raise();
+    nmeaDebug_->activateWindow();
 }
 
 void MainWindow::publishOwnshipToView() {

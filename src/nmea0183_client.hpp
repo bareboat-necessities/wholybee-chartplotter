@@ -40,6 +40,8 @@ public slots:
 signals:
     // True while valid position sentences are arriving (within the timeout).
     void decodingChanged(bool on);
+    // Every raw line received (after CR/LF trimming), for the debug window.
+    void sentenceReceived(const QString& line);
 
 private slots:
     void onTcpConnected();

@@ -149,6 +149,9 @@ void Nmea0183Client::processLine(QByteArray line) {
     while (!line.isEmpty() && (line.endsWith('\r') || line.endsWith('\n') ||
                               line.endsWith(' '))) line.chop(1);
     if (line.isEmpty()) return;
+    // Surface the raw line first so the debug window shows everything received,
+    // including noise or sentences we don't decode.
+    emit sentenceReceived(QString::fromLatin1(line));
     if (line.front() != '$' && line.front() != '!') return;
     if (!checksumOk(line)) return;
     handleSentence(QString::fromLatin1(line));
