@@ -824,6 +824,11 @@ void ChartView::setDepthUnit(DepthUnit u) {
     depthUnit_ = u; update();   // soundings are relabelled on repaint
 }
 
+void ChartView::setDistanceUnit(DistanceUnit u) {
+    if (u == distanceUnit_) return;
+    distanceUnit_ = u; update();   // scale bar relabels on repaint
+}
+
 // Soundings come from S-57 in metres. Show one decimal in the shallows (where
 // the extra precision matters) and whole units in deeper water.
 QString ChartView::formatSounding(double depthM) const {
@@ -936,6 +941,9 @@ void ChartView::paintEvent(QPaintEvent*) {
 
     // 3) Ownship overlay (top of stack).
     drawOwnship(p, cam);
+
+    // 4) Scale bar (lower-right), drawn last so it sits above everything.
+    drawScaleBar(p);
 }
 
 void ChartView::setOwnship(const OwnshipState& s, NavFreshness f) {
@@ -1018,6 +1026,107 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
         p.setPen(slash);
         p.drawLine(QPointF(-8.0, 0.0), QPointF(8.0, 0.0));
     }
+    p.restore();
+}
+
+// A vertical scale bar in the lower-right corner. Five segments alternating
+// filled/hollow; 0 at the bottom, the total at the top. The total is a "nice"
+// 1-2-5 number of the chosen distance unit, sized so the bar is at most about a
+// third of the view width. Mercator stretches north-south with latitude, so the
+// ground distance per pixel is taken at the screen-center latitude as specified.
+void ChartView::drawScaleBar(QPainter& p) {
+    if (ppm_ <= 0.0 || width() <= 0 || height() <= 0) return;
+
+    // Ground metres per pixel at the center latitude: scene metres are true
+    // ground metres at the equator and Mercator scales them by 1/cos(lat).
+    const double latC = proj::yToLat(-scy_);
+    const double cosLat = std::cos(latC * proj::kDeg2Rad);
+    if (cosLat <= 1e-6) return;                 // give up very near the poles
+    const double mPerPx = cosLat / ppm_;
+
+    // Distance unit: metres per unit and a short label.
+    double unitM = 1852.0;
+    QString suffix = QStringLiteral("nm");
+    switch (distanceUnit_) {
+        case DistanceUnit::StatuteMiles:  unitM = 1609.344; suffix = QStringLiteral("mi"); break;
+        case DistanceUnit::Kilometers:    unitM = 1000.0;   suffix = QStringLiteral("km"); break;
+        case DistanceUnit::NauticalMiles: break;            // defaults above
+    }
+
+    // Target length ~1/3 of the view width, but never taller than the view.
+    const double margin = 14.0;
+    const double maxBarPx = height() - 2.0 * margin - 26.0;   // leave room for labels
+    const double targetPx = std::min(width() / 3.0, maxBarPx);
+    if (targetPx < 24.0) return;                // too small to be meaningful
+
+    const double targetUnits = targetPx * mPerPx / unitM;
+    if (!(targetUnits > 0.0) || !std::isfinite(targetUnits)) return;
+
+    // Largest 1-2-5 x 10^n value not exceeding the target.
+    const double p10 = std::pow(10.0, std::floor(std::log10(targetUnits)));
+    const double m = targetUnits / p10;
+    const double niceUnits = (m >= 5.0 ? 5.0 : m >= 2.0 ? 2.0 : 1.0) * p10;
+
+    const double barPx = niceUnits * unitM / mPerPx;
+    if (!(barPx > 0.0) || !std::isfinite(barPx)) return;
+
+    // Labels.
+    const QString topLabel = (niceUnits < 1.0 ? QString::number(niceUnits, 'g', 2)
+                                              : QString::number(niceUnits, 'f', 0))
+                             + QStringLiteral(" ") + suffix;
+    const QString botLabel = QStringLiteral("0");
+
+    p.save();
+    p.resetTransform();
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    QFont f = p.font();
+    f.setPointSizeF(9.0);
+    p.setFont(f);
+    QFontMetricsF fm(f);
+    const double labelW = std::max(fm.horizontalAdvance(topLabel),
+                                   fm.horizontalAdvance(botLabel));
+
+    // Geometry, laid out from the right edge: [panel [labels] gap [bar]] margin.
+    const double barThick = 9.0;
+    const double gap = 6.0;
+    const double barRight = width() - margin;
+    const double barLeft  = barRight - barThick;
+    const double bottomY  = height() - margin;
+    const double topY     = bottomY - barPx;
+
+    // Faint backing panel so the bar reads over any chart colour.
+    const double pad = 6.0;
+    const QRectF panel(barLeft - gap - labelW - pad, topY - fm.height() / 2.0 - pad,
+                       (barRight - (barLeft - gap - labelW)) + 2.0 * pad,
+                       (bottomY - topY) + fm.height() + 2.0 * pad);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 190));
+    p.drawRoundedRect(panel, 5.0, 5.0);
+
+    // Five alternating segments, filled at the bottom (0) end.
+    const double segPx = barPx / 5.0;
+    QPen edge(QColor(0, 0, 0));
+    edge.setWidthF(1.2);
+    p.setPen(edge);
+    for (int i = 0; i < 5; ++i) {
+        const double y0 = bottomY - (i + 1) * segPx;
+        const QRectF seg(barLeft, y0, barThick, segPx);
+        p.setBrush((i % 2 == 0) ? QBrush(QColor(0, 0, 0)) : QBrush(Qt::white));
+        p.drawRect(seg);
+    }
+
+    // End labels, right-aligned against the bar and vertically centered on
+    // each end.
+    p.setPen(QColor(0, 0, 0));
+    const double textRight = barLeft - gap;
+    const double textLeft  = textRight - labelW;
+    const double lineH = fm.height();
+    p.drawText(QRectF(textLeft, topY - lineH / 2.0, labelW, lineH),
+               Qt::AlignRight | Qt::AlignVCenter, topLabel);
+    p.drawText(QRectF(textLeft, bottomY - lineH / 2.0, labelW, lineH),
+               Qt::AlignRight | Qt::AlignVCenter, botLabel);
+
     p.restore();
 }
 

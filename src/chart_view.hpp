@@ -96,6 +96,7 @@ public:
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
     void setDepthUnit(DepthUnit u);   // relabels soundings (repaint, no rebuild)
+    void setDistanceUnit(DistanceUnit u);   // scale-bar units (repaint)
 
     // Folder holding GSHHG data (containing GSHHS_shp/). Empty triggers a search
     // of the standard install locations. Loads the basemap underlay async.
@@ -181,6 +182,7 @@ private:
     QString formatSounding(double depthM) const;
 
     void drawOwnship(QPainter& p, const QTransform& cam);
+    void drawScaleBar(QPainter& p);   // lower-right scale bar, in device pixels
 
     // Camera state (scene metres = projected Mercator, Y flipped north-up).
     double scx_ = 0.0;
@@ -227,6 +229,7 @@ private:
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
     DepthUnit depthUnit_ = DepthUnit::Feet;   // how soundings are labelled
+    DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;   // scale-bar units
     bool userInteracted_ = false;
     bool autoFollow_ = false;                 // keep view centered on ownship
 
