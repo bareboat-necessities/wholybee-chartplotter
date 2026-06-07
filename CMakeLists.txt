@@ -28,6 +28,8 @@ qt_add_executable(chartviewer
     src/settings.cpp
     src/chart_sets_dialog.cpp
     src/units_dialog.cpp
+    src/touch_spin_box.cpp
+    src/stale_thresholds_dialog.cpp
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp
