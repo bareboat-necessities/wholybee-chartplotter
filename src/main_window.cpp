@@ -10,6 +10,7 @@
 #include "nmea0183_dialog.hpp"
 #include "nmea0183_debug_window.hpp"
 #include "nav_data_browser_window.hpp"
+#include "data_priority_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
 #include "nmea0183_client.hpp"
@@ -81,6 +82,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         navStore_->setStaleSeconds(s);
         navStore_->setInvalidSeconds(i);
     });
+    // Source arbitration: highest-priority source wins, falling back when its
+    // data goes invalid. Applied now and kept in sync with the dialog.
+    navStore_->setSourcePriority(settings_->dataSourcePriority());
+    connect(settings_, &Settings::dataSourcePriorityChanged,
+            navStore_, &NavDataStore::setSourcePriority);
     // ownshipChanged fires on new data and on any per-value freshness transition.
     connect(navStore_, &NavDataStore::ownshipChanged, this, &MainWindow::publishOwnshipToView);
 
@@ -117,6 +123,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editNmeaRequested,                this, &MainWindow::editNmea);
     connect(sideMenu_, &SideMenu::nmeaDebugRequested,               this, &MainWindow::showNmeaDebug);
     connect(sideMenu_, &SideMenu::navDataBrowserRequested,          this, &MainWindow::showNavDataBrowser);
+    connect(sideMenu_, &SideMenu::editDataPriorityRequested,        this, &MainWindow::editDataPriority);
     // Green status dot on the NMEA item while the link is decoding.
     connect(nmea_, &Nmea0183Client::decodingChanged, sideMenu_, &SideMenu::setNmeaActive);
     sideMenu_->setNmeaActive(nmea_->isDecoding());
@@ -240,6 +247,12 @@ void MainWindow::showNavDataBrowser() {
     navBrowser_->show();
     navBrowser_->raise();
     navBrowser_->activateWindow();
+}
+
+void MainWindow::editDataPriority() {
+    DataPriorityDialog dlg(settings_->dataSourcePriority(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setDataSourcePriority(dlg.orderedIds());
 }
 
 void MainWindow::publishOwnshipToView() {

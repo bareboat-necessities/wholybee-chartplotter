@@ -183,6 +183,11 @@ QWidget* SideMenu::buildSettingsPage() {
     });
     col->addWidget(sim);
 
+    auto* priorityBtn = makeSettingsAction(QStringLiteral("Data Priority"));
+    connect(priorityBtn, &QPushButton::clicked, this,
+            [this] { emit editDataPriorityRequested(); });
+    col->addWidget(priorityBtn);
+
     auto* staleBtn = makeSettingsAction(QStringLiteral("Stale Data Thresholds…"));
     connect(staleBtn, &QPushButton::clicked, this,
             [this] { emit editStaleThresholdsRequested(); });

@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QDateTime>
 #include <optional>
 
@@ -75,6 +76,11 @@ public:
 // Fresh -> Stale -> Invalid as the thresholds elapse. ownshipChanged() fires on
 // any publish and on any freshness transition, so consumers re-read and can
 // render each value by its own freshness.
+//
+// Source arbitration: each value is taken from the highest-priority source. A
+// lower-priority source can only overwrite a value once the current one becomes
+// Invalid (aged out) — i.e. priority with fall-back. Priority is the ordered
+// source-id list set via setSourcePriority() (highest first).
 class NavDataStore : public QObject, public INavDataPublisher {
     Q_OBJECT
 public:
@@ -102,6 +108,9 @@ public:
 public slots:
     void setStaleSeconds(double s);
     void setInvalidSeconds(double s);
+    // Ordered source ids, highest priority first. Takes effect on subsequent
+    // publishes (values switch as sources refresh / age out).
+    void setSourcePriority(const QStringList& orderedSourceIds);
 
 signals:
     void ownshipChanged();            // a value or a freshness transitioned
@@ -110,12 +119,15 @@ private slots:
     void tick();
 
 private:
-    void setValue(NavValue& v, double value, const NavValueMeta& meta);
+    bool setValue(NavValue& v, double value, const NavValueMeta& meta);  // true if accepted
+    bool accept(const NavValue& current, const QString& source) const;   // arbitration
+    int  rank(const QString& source) const;             // priority index (lower = higher)
     bool ageValue(NavValue& v, const QDateTime& now);   // true if freshness changed
     bool recompute();                                   // age all; true if any changed
 
     OwnshipState ownship_;
     double staleSeconds_   = 5.0;
     double invalidSeconds_ = 30.0;
+    QStringList sourcePriority_;     // highest priority first
     QTimer* tickTimer_ = nullptr;
 };

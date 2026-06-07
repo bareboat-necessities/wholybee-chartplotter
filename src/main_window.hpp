@@ -33,6 +33,7 @@ private slots:
     void editNmea();
     void showNmeaDebug();
     void showNavDataBrowser();
+    void editDataPriority();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);

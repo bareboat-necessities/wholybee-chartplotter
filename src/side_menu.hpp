@@ -49,6 +49,7 @@ signals:
     void editNmeaRequested();                         // open NMEA 0183 dialog
     void nmeaDebugRequested();                         // open raw-data debug window
     void navDataBrowserRequested();                    // open NavData Browser window
+    void editDataPriorityRequested();                  // open Data Priority dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

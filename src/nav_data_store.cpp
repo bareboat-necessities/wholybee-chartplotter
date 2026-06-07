@@ -21,55 +21,76 @@ void NavDataStore::setInvalidSeconds(double s) {
     if (recompute()) emit ownshipChanged();
 }
 
+void NavDataStore::setSourcePriority(const QStringList& orderedSourceIds) {
+    sourcePriority_ = orderedSourceIds;
+    // Takes effect as sources next publish / age out; no immediate value change.
+}
+
 // ---- publishing ------------------------------------------------------------
 
-void NavDataStore::setValue(NavValue& v, double value, const NavValueMeta& meta) {
+// Priority index of a source (0 = highest). Unknown sources rank below all
+// listed ones, so a listed source always wins over an unlisted one.
+int NavDataStore::rank(const QString& source) const {
+    const int i = sourcePriority_.indexOf(source);
+    return i < 0 ? sourcePriority_.size() : i;
+}
+
+// Decide whether an update from `source` may overwrite the current value.
+bool NavDataStore::accept(const NavValue& current, const QString& source) const {
+    if (!current.timestampUtc.isValid()) return true;   // nothing there yet
+    const double age = current.timestampUtc.msecsTo(QDateTime::currentDateTimeUtc()) / 1000.0;
+    if (age >= invalidSeconds_) return true;            // current invalid -> fall back to anyone
+    if (current.source == source) return true;          // same source refreshing itself
+    return rank(source) <= rank(current.source);        // else only a >= priority source wins
+}
+
+bool NavDataStore::setValue(NavValue& v, double value, const NavValueMeta& meta) {
+    if (!accept(v, meta.source)) return false;
     v.value        = value;
     v.source       = meta.source;
     v.timestampUtc = meta.timestampUtc.isValid() ? meta.timestampUtc
                                                  : QDateTime::currentDateTimeUtc();
     v.ageSeconds   = 0.0;
     v.freshness    = NavFreshness::Fresh;
+    return true;
 }
 
 void NavDataStore::publishOwnshipPosition(double latDeg, double lonDeg,
                                           const NavValueMeta& meta) {
-    setValue(ownship_.latitudeDeg,  latDeg, meta);
-    setValue(ownship_.longitudeDeg, lonDeg, meta);
-    emit ownshipChanged();
+    const bool a = setValue(ownship_.latitudeDeg,  latDeg, meta);
+    const bool b = setValue(ownship_.longitudeDeg, lonDeg, meta);
+    if (a || b) emit ownshipChanged();
 }
 
 void NavDataStore::publishCogSog(double cogDegTrue, double sogKnots,
                                  const NavValueMeta& meta) {
-    setValue(ownship_.cogDegTrue, cogDegTrue, meta);
-    setValue(ownship_.sogKnots,   sogKnots,   meta);
-    emit ownshipChanged();
+    const bool a = setValue(ownship_.cogDegTrue, cogDegTrue, meta);
+    const bool b = setValue(ownship_.sogKnots,   sogKnots,   meta);
+    if (a || b) emit ownshipChanged();
 }
 
 void NavDataStore::publishHeading(double headingDegTrue,
                                   std::optional<double> headingDegMag,
                                   const NavValueMeta& meta) {
-    setValue(ownship_.headingDegTrue, headingDegTrue, meta);
+    bool changed = setValue(ownship_.headingDegTrue, headingDegTrue, meta);
     if (headingDegMag.has_value())
-        setValue(ownship_.headingDegMag, *headingDegMag, meta);
-    emit ownshipChanged();
+        changed |= setValue(ownship_.headingDegMag, *headingDegMag, meta);
+    if (changed) emit ownshipChanged();
 }
 
 void NavDataStore::publishDepth(double depthMeters, const NavValueMeta& meta) {
-    setValue(ownship_.depthMeters, depthMeters, meta);
-    emit ownshipChanged();
+    if (setValue(ownship_.depthMeters, depthMeters, meta)) emit ownshipChanged();
 }
 
 void NavDataStore::publishWind(double windSpeedKnots, double windAngleDeg,
                                const NavValueMeta& meta) {
-    setValue(ownship_.windSpeedKnots, windSpeedKnots, meta);
-    setValue(ownship_.windAngleDeg,   windAngleDeg,   meta);
-    emit ownshipChanged();
+    const bool a = setValue(ownship_.windSpeedKnots, windSpeedKnots, meta);
+    const bool b = setValue(ownship_.windAngleDeg,   windAngleDeg,   meta);
+    if (a || b) emit ownshipChanged();
 }
 
 void NavDataStore::publishVariation(double variationDeg, const NavValueMeta& meta) {
-    setValue(ownship_.variationDeg, variationDeg, meta);
-    emit ownshipChanged();
+    if (setValue(ownship_.variationDeg, variationDeg, meta)) emit ownshipChanged();
 }
 
 // ---- aging -----------------------------------------------------------------
