@@ -68,12 +68,18 @@ NavValue latitudeDeg;
 NavValue longitudeDeg;
 NavValue cogDegTrue;
 NavValue sogKnots;
+NavValue waterSpeedKnots;
 NavValue headingDegTrue;
 NavValue headingDegMag;
 NavValue variationDeg;
 NavValue depthMeters;
-NavValue windSpeedKnots;
-NavValue windAngleDeg;
+// Wind: apparent and true are distinct (relative to the bow); true wind
+// direction is geographic.
+NavValue apparentWindAngleDeg;
+NavValue apparentWindSpeedKnots;
+NavValue trueWindAngleDeg;
+NavValue trueWindSpeedKnots;
+NavValue trueWindDirectionDeg;
 ```
 
 ### `NavFreshness`
@@ -101,15 +107,24 @@ class INavDataPublisher {
                                         const NavValueMeta& meta) = 0;
     virtual void publishCogSog(double cogDegTrue, double sogKnots,
                                const NavValueMeta& meta) = 0;
-    virtual void publishHeading(double headingDegTrue,
+    virtual void publishHeading(std::optional<double> headingDegTrue,
                                 std::optional<double> headingDegMag,
                                 const NavValueMeta& meta) = 0;
-    virtual void publishDepth(double depthMeters, const NavValueMeta& meta) = 0;
-    virtual void publishWind(double windSpeedKnots, double windAngleDeg,
-                             const NavValueMeta& meta) = 0;
     virtual void publishVariation(double variationDeg, const NavValueMeta& meta) = 0;
+    virtual void publishDepth(double depthMeters, const NavValueMeta& meta) = 0;
+    virtual void publishWaterSpeed(double knots, const NavValueMeta& meta) = 0;
+    virtual void publishApparentWind(double speedKnots, double angleDeg,
+                                     const NavValueMeta& meta) = 0;
+    virtual void publishTrueWind(double speedKnots, double angleDeg,
+                                 const NavValueMeta& meta) = 0;
+    virtual void publishTrueWindDirection(double directionDeg, double speedKnots,
+                                          const NavValueMeta& meta) = 0;
 };
 ```
+
+The NMEA 0183 plugin decodes RMC, GLL, GGA, VTG, HDT, HDG, VHW, DBT, DPT, MWV,
+MWD, VWR, and VWT into these (apparent wind from MWV-R / VWR, true wind from
+MWV-T / VWT, true wind direction from MWD, water speed from VHW, etc.).
 
 `NavDataStore` implements this; `Simulator` and `Nmea0183Client` call it. The
 store is the only place that knows about the underlying data.

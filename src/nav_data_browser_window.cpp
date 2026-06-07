@@ -74,16 +74,20 @@ void NavDataBrowserWindow::refresh() {
     auto knots = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral(" kn"); };
     auto metres = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral(" m"); };
 
-    add(QStringLiteral("Latitude"),       s.latitudeDeg,    coord);
-    add(QStringLiteral("Longitude"),      s.longitudeDeg,   coord);
-    add(QStringLiteral("COG (true)"),     s.cogDegTrue,     angle);
-    add(QStringLiteral("SOG"),            s.sogKnots,       knots);
-    add(QStringLiteral("Heading (true)"), s.headingDegTrue, angle);
-    add(QStringLiteral("Heading (mag)"),  s.headingDegMag,  angle);
-    add(QStringLiteral("Variation"),      s.variationDeg,   angle);
-    add(QStringLiteral("Depth"),          s.depthMeters,    metres);
-    add(QStringLiteral("Wind speed"),     s.windSpeedKnots, knots);
-    add(QStringLiteral("Wind angle"),     s.windAngleDeg,   angle);
+    add(QStringLiteral("Latitude"),         s.latitudeDeg,            coord);
+    add(QStringLiteral("Longitude"),        s.longitudeDeg,           coord);
+    add(QStringLiteral("COG (true)"),       s.cogDegTrue,             angle);
+    add(QStringLiteral("SOG"),              s.sogKnots,               knots);
+    add(QStringLiteral("Water speed"),      s.waterSpeedKnots,        knots);
+    add(QStringLiteral("Heading (true)"),   s.headingDegTrue,         angle);
+    add(QStringLiteral("Heading (mag)"),    s.headingDegMag,          angle);
+    add(QStringLiteral("Variation"),        s.variationDeg,           angle);
+    add(QStringLiteral("Depth"),            s.depthMeters,            metres);
+    add(QStringLiteral("App. wind angle"),  s.apparentWindAngleDeg,   angle);
+    add(QStringLiteral("App. wind speed"),  s.apparentWindSpeedKnots, knots);
+    add(QStringLiteral("True wind angle"),  s.trueWindAngleDeg,       angle);
+    add(QStringLiteral("True wind speed"),  s.trueWindSpeedKnots,     knots);
+    add(QStringLiteral("True wind dir"),    s.trueWindDirectionDeg,   angle);
 
     // Update in place (resize only when the field set changes) to avoid flicker.
     if (table_->rowCount() != int(rows.size()))

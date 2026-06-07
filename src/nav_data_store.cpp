@@ -69,28 +69,48 @@ void NavDataStore::publishCogSog(double cogDegTrue, double sogKnots,
     if (a || b) emit ownshipChanged();
 }
 
-void NavDataStore::publishHeading(double headingDegTrue,
+void NavDataStore::publishHeading(std::optional<double> headingDegTrue,
                                   std::optional<double> headingDegMag,
                                   const NavValueMeta& meta) {
-    bool changed = setValue(ownship_.headingDegTrue, headingDegTrue, meta);
+    bool changed = false;
+    if (headingDegTrue.has_value())
+        changed |= setValue(ownship_.headingDegTrue, *headingDegTrue, meta);
     if (headingDegMag.has_value())
         changed |= setValue(ownship_.headingDegMag, *headingDegMag, meta);
     if (changed) emit ownshipChanged();
+}
+
+void NavDataStore::publishVariation(double variationDeg, const NavValueMeta& meta) {
+    if (setValue(ownship_.variationDeg, variationDeg, meta)) emit ownshipChanged();
 }
 
 void NavDataStore::publishDepth(double depthMeters, const NavValueMeta& meta) {
     if (setValue(ownship_.depthMeters, depthMeters, meta)) emit ownshipChanged();
 }
 
-void NavDataStore::publishWind(double windSpeedKnots, double windAngleDeg,
-                               const NavValueMeta& meta) {
-    const bool a = setValue(ownship_.windSpeedKnots, windSpeedKnots, meta);
-    const bool b = setValue(ownship_.windAngleDeg,   windAngleDeg,   meta);
+void NavDataStore::publishWaterSpeed(double knots, const NavValueMeta& meta) {
+    if (setValue(ownship_.waterSpeedKnots, knots, meta)) emit ownshipChanged();
+}
+
+void NavDataStore::publishApparentWind(double speedKnots, double angleDeg,
+                                       const NavValueMeta& meta) {
+    const bool a = setValue(ownship_.apparentWindSpeedKnots, speedKnots, meta);
+    const bool b = setValue(ownship_.apparentWindAngleDeg,   angleDeg,   meta);
     if (a || b) emit ownshipChanged();
 }
 
-void NavDataStore::publishVariation(double variationDeg, const NavValueMeta& meta) {
-    if (setValue(ownship_.variationDeg, variationDeg, meta)) emit ownshipChanged();
+void NavDataStore::publishTrueWind(double speedKnots, double angleDeg,
+                                   const NavValueMeta& meta) {
+    const bool a = setValue(ownship_.trueWindSpeedKnots, speedKnots, meta);
+    const bool b = setValue(ownship_.trueWindAngleDeg,   angleDeg,   meta);
+    if (a || b) emit ownshipChanged();
+}
+
+void NavDataStore::publishTrueWindDirection(double directionDeg, double speedKnots,
+                                            const NavValueMeta& meta) {
+    const bool a = setValue(ownship_.trueWindDirectionDeg, directionDeg, meta);
+    const bool b = setValue(ownship_.trueWindSpeedKnots,   speedKnots,   meta);
+    if (a || b) emit ownshipChanged();
 }
 
 // ---- aging -----------------------------------------------------------------
@@ -117,9 +137,12 @@ bool NavDataStore::recompute() {
     const QDateTime now = QDateTime::currentDateTimeUtc();
     NavValue* all[] = {
         &ownship_.latitudeDeg,  &ownship_.longitudeDeg, &ownship_.cogDegTrue,
-        &ownship_.sogKnots,     &ownship_.headingDegTrue, &ownship_.headingDegMag,
-        &ownship_.variationDeg, &ownship_.depthMeters,  &ownship_.windSpeedKnots,
-        &ownship_.windAngleDeg,
+        &ownship_.sogKnots,     &ownship_.waterSpeedKnots,
+        &ownship_.headingDegTrue, &ownship_.headingDegMag, &ownship_.variationDeg,
+        &ownship_.depthMeters,
+        &ownship_.apparentWindAngleDeg, &ownship_.apparentWindSpeedKnots,
+        &ownship_.trueWindAngleDeg,     &ownship_.trueWindSpeedKnots,
+        &ownship_.trueWindDirectionDeg,
     };
     bool changed = false;
     for (NavValue* v : all) changed |= ageValue(*v, now);

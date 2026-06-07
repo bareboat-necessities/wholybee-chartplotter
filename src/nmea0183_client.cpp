@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <cmath>
 #include <optional>
+#include <utility>
 
 namespace {
 constexpr int kStaleMs     = 5000;   // no valid sentence for this long -> not decoding
@@ -47,6 +48,21 @@ std::optional<double> parseNum(const QString& field) {
     bool ok = false;
     const double v = field.toDouble(&ok);
     return ok ? std::optional<double>(v) : std::nullopt;
+}
+
+// Wrap an angle into [0, 360).
+double normDeg(double d) {
+    d = std::fmod(d, 360.0);
+    if (d < 0.0) d += 360.0;
+    return d;
+}
+
+// Convert a speed to knots given the NMEA unit letter (N=knots, K=km/h, M=m/s).
+double toKnots(double value, const QString& unit) {
+    const QString u = unit.toUpper();
+    if (u == QLatin1String("K")) return value / 1.852;       // km/h -> kn
+    if (u == QLatin1String("M")) return value * 1.9438445;   // m/s  -> kn
+    return value;                                            // N (or unspecified)
 }
 } // namespace
 
@@ -168,6 +184,29 @@ void Nmea0183Client::handleSentence(const QString& sentence) {
     const QString type = f[0].right(3).toUpper();
     if      (type == QLatin1String("RMC")) parseRmc(f);
     else if (type == QLatin1String("GLL")) parseGll(f);
+    else if (type == QLatin1String("GGA")) parseGga(f);
+    else if (type == QLatin1String("VTG")) parseVtg(f);
+    else if (type == QLatin1String("HDT")) parseHdt(f);
+    else if (type == QLatin1String("HDG")) parseHdg(f);
+    else if (type == QLatin1String("VHW")) parseVhw(f);
+    else if (type == QLatin1String("DBT")) parseDbt(f);
+    else if (type == QLatin1String("DPT")) parseDpt(f);
+    else if (type == QLatin1String("MWV")) parseMwv(f);
+    else if (type == QLatin1String("MWD")) parseMwd(f);
+    else if (type == QLatin1String("VWR")) parseVwr(f);
+    else if (type == QLatin1String("VWT")) parseVwt(f);
+}
+
+NavValueMeta Nmea0183Client::meta() const {
+    NavValueMeta m;
+    m.source = QStringLiteral("nmea0183");
+    m.timestampUtc = QDateTime::currentDateTimeUtc();
+    return m;
+}
+
+void Nmea0183Client::markDecoding() {
+    setDecoding(true);
+    staleTimer_->start();
 }
 
 // $--RMC,time,status,lat,N/S,lon,E/W,sog,cog,date,magvar,E/W,...
@@ -178,17 +217,19 @@ void Nmea0183Client::parseRmc(const QStringList& f) {
     const auto lon = parseCoord(f[5], f[6]);
     if (!lat || !lon) return;
 
-    NavValueMeta m;
-    m.source = QStringLiteral("nmea0183");
-    m.timestampUtc = QDateTime::currentDateTimeUtc();
+    const NavValueMeta m = meta();
     publisher_->publishOwnshipPosition(*lat, *lon, m);
 
     const auto sog = parseNum(f[7]);
     const auto cog = parseNum(f[8]);
     if (sog && cog) publisher_->publishCogSog(*cog, *sog, m);
 
-    setDecoding(true);
-    staleTimer_->start();
+    if (f.size() >= 12) {                                   // magnetic variation
+        if (auto var = parseNum(f[10]))
+            publisher_->publishVariation(
+                f[11].toUpper() == QLatin1String("W") ? -*var : *var, m);
+    }
+    markDecoding();
 }
 
 // $--GLL,lat,N/S,lon,E/W,time,status,mode
@@ -198,14 +239,149 @@ void Nmea0183Client::parseGll(const QStringList& f) {
     const auto lat = parseCoord(f[1], f[2]);
     const auto lon = parseCoord(f[3], f[4]);
     if (!lat || !lon) return;
+    publisher_->publishOwnshipPosition(*lat, *lon, meta());
+    markDecoding();
+}
 
-    NavValueMeta m;
-    m.source = QStringLiteral("nmea0183");
-    m.timestampUtc = QDateTime::currentDateTimeUtc();
-    publisher_->publishOwnshipPosition(*lat, *lon, m);
+// $--GGA,time,lat,N/S,lon,E/W,quality,numSV,HDOP,alt,M,...
+void Nmea0183Client::parseGga(const QStringList& f) {
+    if (f.size() < 6) return;
+    if (f.size() >= 7 && f[6] == QLatin1String("0")) return; // fix quality 0 = no fix
+    const auto lat = parseCoord(f[2], f[3]);
+    const auto lon = parseCoord(f[4], f[5]);
+    if (!lat || !lon) return;
+    publisher_->publishOwnshipPosition(*lat, *lon, meta());
+    markDecoding();
+}
 
-    setDecoding(true);
-    staleTimer_->start();
+// $--VTG,cogTrue,T,cogMag,M,sog,N,sogKmh,K,mode
+void Nmea0183Client::parseVtg(const QStringList& f) {
+    if (f.size() < 6) return;
+    const auto cog = parseNum(f[1]);
+    const auto sog = parseNum(f[5]);
+    if (!cog || !sog) return;
+    publisher_->publishCogSog(*cog, *sog, meta());
+    markDecoding();
+}
+
+// $--HDT,heading,T
+void Nmea0183Client::parseHdt(const QStringList& f) {
+    if (f.size() < 2) return;
+    const auto h = parseNum(f[1]);
+    if (!h) return;
+    publisher_->publishHeading(normDeg(*h), std::nullopt, meta());
+    markDecoding();
+}
+
+// $--HDG,magHeading,deviation,E/W,variation,E/W
+void Nmea0183Client::parseHdg(const QStringList& f) {
+    if (f.size() < 2) return;
+    const auto mag = parseNum(f[1]);
+    if (!mag) return;
+    const NavValueMeta m = meta();
+
+    std::optional<double> var;
+    if (f.size() >= 6) {
+        if (auto v = parseNum(f[4]))
+            var = (f[5].toUpper() == QLatin1String("W")) ? -*v : *v;
+    }
+    // True = magnetic + variation (east positive), when variation is available.
+    std::optional<double> trueHdg;
+    if (var) trueHdg = normDeg(*mag + *var);
+    publisher_->publishHeading(trueHdg, normDeg(*mag), m);
+    if (var) publisher_->publishVariation(*var, m);
+    markDecoding();
+}
+
+// $--VHW,headingTrue,T,headingMag,M,speedKn,N,speedKmh,K
+void Nmea0183Client::parseVhw(const QStringList& f) {
+    if (f.size() < 6) return;
+    const NavValueMeta m = meta();
+    const auto ht = parseNum(f[1]);
+    const auto hm = parseNum(f[3]);
+    if (ht || hm)
+        publisher_->publishHeading(ht ? std::optional<double>(normDeg(*ht)) : std::nullopt,
+                                   hm ? std::optional<double>(normDeg(*hm)) : std::nullopt, m);
+    std::optional<double> spd = parseNum(f[5]);
+    if (!spd && f.size() >= 8) { if (auto k = parseNum(f[7])) spd = *k / 1.852; }
+    if (spd) publisher_->publishWaterSpeed(*spd, m);
+    markDecoding();
+}
+
+// $--DBT,depthFeet,f,depthMetres,M,depthFathoms,F
+void Nmea0183Client::parseDbt(const QStringList& f) {
+    if (f.size() < 4) return;
+    std::optional<double> metres = parseNum(f[3]);
+    if (!metres) { if (auto ft = parseNum(f[1])) metres = *ft * 0.3048; }
+    if (!metres) return;
+    publisher_->publishDepth(*metres, meta());
+    markDecoding();
+}
+
+// $--DPT,depthMetres,offset,maxRange
+void Nmea0183Client::parseDpt(const QStringList& f) {
+    if (f.size() < 2) return;
+    const auto depth = parseNum(f[1]);
+    if (!depth) return;
+    double d = *depth;
+    if (f.size() >= 3) { if (auto off = parseNum(f[2])) d += *off; }  // to water datum
+    publisher_->publishDepth(d, meta());
+    markDecoding();
+}
+
+// $--MWV,angle,reference,speed,units,status   (reference R=apparent, T=true)
+void Nmea0183Client::parseMwv(const QStringList& f) {
+    if (f.size() < 6) return;
+    if (f[5].toUpper() != QLatin1String("A")) return;      // V = invalid
+    const auto angle = parseNum(f[1]);
+    const auto speed = parseNum(f[3]);
+    if (!angle || !speed) return;
+    const double kn = toKnots(*speed, f[4]);
+    const double a  = normDeg(*angle);
+    if (f[2].toUpper() == QLatin1String("T"))
+        publisher_->publishTrueWind(kn, a, meta());
+    else
+        publisher_->publishApparentWind(kn, a, meta());
+    markDecoding();
+}
+
+// $--MWD,dirTrue,T,dirMag,M,speedKn,N,speedMs,M
+void Nmea0183Client::parseMwd(const QStringList& f) {
+    if (f.size() < 6) return;
+    const auto dir = parseNum(f[1]);
+    std::optional<double> kn = parseNum(f[5]);
+    if (!kn && f.size() >= 8) { if (auto ms = parseNum(f[7])) kn = *ms * 1.9438445; }
+    if (!dir || !kn) return;
+    publisher_->publishTrueWindDirection(normDeg(*dir), *kn, meta());
+    markDecoding();
+}
+
+// $--VWR,angle,L/R,speedKn,N,speedMs,M,speedKmh,K   (relative/apparent wind)
+// $--VWT,angle,L/R,speedKn,N,speedMs,M,speedKmh,K   (true wind, rel. to bow)
+static std::optional<std::pair<double, double>> parseVwrLike(const QStringList& f) {
+    if (f.size() < 4) return std::nullopt;
+    const auto a = parseNum(f[1]);
+    if (!a) return std::nullopt;
+    const double angle = (f[2].toUpper() == QLatin1String("L")) ? (360.0 - *a) : *a;
+    std::optional<double> kn = parseNum(f[3]);
+    if (!kn && f.size() >= 6) { if (auto ms = parseNum(f[5])) kn = *ms * 1.9438445; }
+    if (!kn && f.size() >= 8) { if (auto kmh = parseNum(f[7])) kn = *kmh / 1.852; }
+    if (!kn) return std::nullopt;
+    return std::make_pair(std::fmod(angle + 360.0, 360.0), *kn);
+}
+
+void Nmea0183Client::parseVwr(const QStringList& f) {
+    if (auto r = parseVwrLike(f)) {
+        publisher_->publishApparentWind(r->second, r->first, meta());
+        markDecoding();
+    }
+}
+
+void Nmea0183Client::parseVwt(const QStringList& f) {
+    if (auto r = parseVwrLike(f)) {
+        publisher_->publishTrueWind(r->second, r->first, meta());
+        markDecoding();
+    }
 }
 
 void Nmea0183Client::setDecoding(bool on) {
