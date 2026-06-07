@@ -1,5 +1,6 @@
 #include "nmea0183_plugin.hpp"
 #include "nmea0183_debug_window.hpp"
+#include "ais_decoder.hpp"
 #include "touch_spin_box.hpp"
 
 #include <QWidget>
@@ -22,6 +23,12 @@ void Nmea0183Plugin::initialize(ICoreApi* core) {
 
     client_ = std::make_unique<Nmea0183Client>(core_->navPublisher());
 
+    // AIS rides the same connection: forward !AIVDM/!AIVDO sentences from the
+    // client to a decoder that publishes into the core AIS target store.
+    ais_ = std::make_unique<AisDecoder>(core_->aisPublisher(), QStringLiteral("nmea0183"));
+    QObject::connect(client_.get(), &Nmea0183Client::aisSentence, client_.get(),
+                     [this](const QString& s) { if (ais_) ais_->handleSentence(s); });
+
     // Register as a data source: Data Connections item + Data Priority entry,
     // clicking opens our settings page.
     dataSource_ = core_->registerDataSource(QStringLiteral("nmea0183"),
@@ -39,6 +46,7 @@ void Nmea0183Plugin::initialize(ICoreApi* core) {
 void Nmea0183Plugin::shutdown() {
     if (dataSource_) dataSource_->setActive(false);
     client_.reset();      // stops the socket; disconnects everything
+    ais_.reset();
     if (debug_) debug_->deleteLater();
 }
 
