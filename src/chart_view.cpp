@@ -943,6 +943,19 @@ void ChartView::paintEvent(QPaintEvent*) {
 
     // 4) Scale bar (lower-right), drawn last so it sits above everything.
     drawScaleBar(p);
+
+    // 5) Plugin overlays, in device coordinates. They use the viewport snapshot
+    // for geographic placement and don't know how the canvas is implemented.
+    if (!overlays_.empty()) {
+        ChartViewport vp;
+        vp.sceneToScreen = cam;
+        vp.ppm           = ppm_;
+        vp.size          = size();
+        vp.worldWidthM   = worldWidthM();
+        vp.centerSceneX  = scx_;
+        p.resetTransform();
+        for (IChartOverlay* o : overlays_) o->paint(p, vp);
+    }
 }
 
 void ChartView::setOwnship(const OwnshipState& s) {
@@ -952,6 +965,18 @@ void ChartView::setOwnship(const OwnshipState& s) {
     // When following, keep the boat centered as it moves. recenterOnOwnship()
     // repaints on success; otherwise repaint here for the symbol's new position.
     if (!(autoFollow_ && recenterOnOwnship())) update();
+}
+
+void ChartView::addOverlay(IChartOverlay* overlay) {
+    if (overlay && std::find(overlays_.begin(), overlays_.end(), overlay) == overlays_.end()) {
+        overlays_.push_back(overlay);
+        update();
+    }
+}
+
+void ChartView::removeOverlay(IChartOverlay* overlay) {
+    auto it = std::find(overlays_.begin(), overlays_.end(), overlay);
+    if (it != overlays_.end()) { overlays_.erase(it); update(); }
 }
 
 void ChartView::setOwnshipPredictionMinutes(double minutes) {

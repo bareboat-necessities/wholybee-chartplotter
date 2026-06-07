@@ -17,6 +17,7 @@
 #include "feature_cache.hpp"
 #include "nav_data_store.hpp"   // OwnshipState, NavFreshness
 #include "units.hpp"            // DepthUnit
+#include "plugin_api.hpp"       // IChartOverlay, ChartViewport
 
 class ChartCatalog;
 class QTimer;
@@ -107,6 +108,11 @@ public:
     void setOwnship(const OwnshipState& s);   // freshness read per-value from s
     // Length of the course-prediction line, in minutes of run-time at SOG.
     void setOwnshipPredictionMinutes(double minutes);
+
+    // Plugin chart overlays: drawn on top of the chart each frame, in registration
+    // order. The view does not own them (the plugin does).
+    void addOverlay(IChartOverlay* overlay);
+    void removeOverlay(IChartOverlay* overlay);
 
     // Restore the view (center in degrees + zoom) on the next catalog load
     // instead of fitting. One-shot: consumed on the next load.
@@ -232,6 +238,7 @@ private:
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;   // scale-bar units
     bool userInteracted_ = false;
     bool autoFollow_ = false;                 // keep view centered on ownship
+    std::vector<IChartOverlay*> overlays_;    // plugin overlays (not owned)
 
     bool    dragging_ = false;
     QPointF lastDragPos_;

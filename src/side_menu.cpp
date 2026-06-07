@@ -124,8 +124,19 @@ QWidget* SideMenu::buildMainPage() {
     connect(con, &QPushButton::toggled, settings_, &Settings::setShowDepthContours);
     col->addWidget(con);
 
+    // Plugins section: hidden until a plugin contributes its first item.
+    pluginHeader_ = makeHeader(QStringLiteral("Plugins"));
+    pluginHeader_->setVisible(false);
+    col->addWidget(pluginHeader_);
+    auto* pluginHolder = new QWidget(page);
+    pluginBox_ = new QVBoxLayout(pluginHolder);
+    pluginBox_->setContentsMargins(0, 0, 0, 0);
+    pluginBox_->setSpacing(0);
+    col->addWidget(pluginHolder);
+
     col->addStretch(1);
 
+    col->addWidget(makeHeader(QStringLiteral("System")));
     auto* settingsBtn = makeIndentedAction(QStringLiteral("Settings"));
     connect(settingsBtn, &QPushButton::clicked, this, &SideMenu::showSettingsPage);
     col->addWidget(settingsBtn);
@@ -182,6 +193,13 @@ QWidget* SideMenu::buildSettingsPage() {
         if (sim->isChecked() != on) sim->setChecked(on);   // toggled() refreshes the dot
     });
     col->addWidget(sim);
+
+    // Plugin-registered data sources land here, among the built-in sources.
+    auto* dsHolder = new QWidget(page);
+    dataSourceBox_ = new QVBoxLayout(dsHolder);
+    dataSourceBox_->setContentsMargins(0, 0, 0, 0);
+    dataSourceBox_->setSpacing(0);
+    col->addWidget(dsHolder);
 
     auto* priorityBtn = makeSettingsAction(QStringLiteral("Data Priority"));
     connect(priorityBtn, &QPushButton::clicked, this,
@@ -340,6 +358,36 @@ void SideMenu::setAutoFollowChecked(bool on) {
 
 void SideMenu::setNmeaActive(bool on) {
     if (nmeaBtn_) nmeaBtn_->setIcon(statusDotIcon(on));
+}
+
+void SideMenu::addPluginAction(const QString& title, std::function<void()> onTriggered) {
+    if (!pluginBox_) return;
+    if (pluginHeader_) pluginHeader_->setVisible(true);
+    auto* b = makeIndentedAction(title);
+    connect(b, &QPushButton::clicked, this, [fn = std::move(onTriggered)] { if (fn) fn(); });
+    pluginBox_->addWidget(b);
+}
+
+void SideMenu::addPluginToggle(const QString& title, bool checked,
+                               std::function<void(bool)> onToggled) {
+    if (!pluginBox_) return;
+    if (pluginHeader_) pluginHeader_->setVisible(true);
+    auto* b = makeCheckAction(title, checked);
+    connect(b, &QPushButton::toggled, this,
+            [fn = std::move(onToggled)](bool on) { if (fn) fn(on); });
+    pluginBox_->addWidget(b);
+}
+
+QPushButton* SideMenu::addDataSourceItem(const QString& title, std::function<void()> onClicked) {
+    if (!dataSourceBox_) return nullptr;
+    auto* b = makeSettingsAction(title);   // reserves the status-dot column
+    connect(b, &QPushButton::clicked, this, [fn = std::move(onClicked)] { if (fn) fn(); });
+    dataSourceBox_->addWidget(b);
+    return b;
+}
+
+void SideMenu::setItemDot(QPushButton* item, bool on) {
+    if (item) item->setIcon(statusDotIcon(on));
 }
 
 // ---- open/close + geometry ------------------------------------------------

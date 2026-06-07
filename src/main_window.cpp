@@ -14,6 +14,9 @@
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
 #include "nmea0183_client.hpp"
+#include "core_api.hpp"
+#include "plugin_manager.hpp"
+#include "test_plugin.hpp"
 
 #include <QStatusBar>
 #include <QLabel>
@@ -128,6 +131,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(nmea_, &Nmea0183Client::decodingChanged, sideMenu_, &SideMenu::setNmeaActive);
     sideMenu_->setNmeaActive(nmea_->isDecoding());
 
+    // Plugin layer: the core exposes services through CoreApi; the manager owns
+    // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
+    // plugin would use later. The test plugin exercises menus, overlays, and the
+    // nav data API in both directions.
+    coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, this);
+    plugins_ = std::make_unique<PluginManager>(coreApi_.get());
+    plugins_->add(std::make_unique<TestPlugin>());
+    plugins_->initializeAll();
+
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
     menuButton_->setCursor(Qt::PointingHandCursor);
@@ -155,6 +167,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         startScan(saved);
     }
 }
+
+// Defined here (not =default in the header) so CoreApi/PluginManager are complete
+// types when the unique_ptr members are destroyed. The manager shuts plugins down
+// (removing overlays from the still-alive ChartView) before they are freed.
+MainWindow::~MainWindow() = default;
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
     if (obj == view_ && e->type() == QEvent::Resize)

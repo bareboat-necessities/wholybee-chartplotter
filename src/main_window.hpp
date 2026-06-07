@@ -1,6 +1,7 @@
 #pragma once
 #include <QMainWindow>
 #include <QString>
+#include <memory>
 
 class ChartView;
 class ChartCatalog;
@@ -11,6 +12,8 @@ class Simulator;
 class Nmea0183Client;
 class Nmea0183DebugWindow;
 class NavDataBrowserWindow;
+class CoreApi;
+class PluginManager;
 class QLabel;
 class QPushButton;
 
@@ -18,6 +21,7 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+    ~MainWindow() override;   // out-of-line: unique_ptr to incomplete plugin types
 
 protected:
     bool eventFilter(QObject* obj, QEvent* e) override;
@@ -53,6 +57,8 @@ private:
     Nmea0183Client* nmea_ = nullptr;
     Nmea0183DebugWindow* nmeaDebug_ = nullptr;
     NavDataBrowserWindow* navBrowser_ = nullptr;
+    std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
+    std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins
     QPushButton*  menuButton_ = nullptr;
     QLabel*       statusLeft_ = nullptr;   // root folder + scan summary
     QLabel*       statusMid_ = nullptr;    // band / cells shown
