@@ -33,6 +33,9 @@ public:
     // pan turns it off). Does not re-emit autoFollowToggled.
     void setAutoFollowChecked(bool on);
 
+    // Show/clear a green dot next to the NMEA 0183 item while it is decoding.
+    void setNmeaActive(bool on);
+
 signals:
     void fitRequested();
     void centerOnOwnshipRequested();                  // recenter on ownship
@@ -43,6 +46,7 @@ signals:
     void editUnitsRequested();                        // open the Units dialog
     void editStaleThresholdsRequested();              // open stale-data dialog
     void editOwnshipPredictionRequested();            // open predictor-length dialog
+    void editNmeaRequested();                         // open NMEA 0183 dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;
@@ -69,6 +73,7 @@ private:
     QStackedWidget* stack_ = nullptr;
     QVBoxLayout* chartSetsBox_ = nullptr;   // container for the dynamic set buttons
     QPushButton* autoFollowBtn_ = nullptr;  // checkable Auto Follow item
+    QPushButton* nmeaBtn_ = nullptr;        // NMEA 0183 item (carries status dot)
     QPropertyAnimation* anim_ = nullptr;
     int  panelWidth_ = 320;
     bool open_ = false;

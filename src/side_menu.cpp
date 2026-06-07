@@ -12,6 +12,9 @@
 #include <QEvent>
 #include <QMouseEvent>
 #include <QResizeEvent>
+#include <QPixmap>
+#include <QPainter>
+#include <QIcon>
 
 SideMenu::SideMenu(Settings* settings, QWidget* parent)
     : QWidget(parent), settings_(settings) {
@@ -138,6 +141,12 @@ QWidget* SideMenu::buildSettingsPage() {
     col->addWidget(unitsBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Data Connections")));
+    nmeaBtn_ = makeAction(QStringLiteral("NMEA 0183"));
+    nmeaBtn_->setIconSize(QSize(14, 14));   // reserve space so text never shifts
+    connect(nmeaBtn_, &QPushButton::clicked, this,
+            [this] { emit editNmeaRequested(); });
+    col->addWidget(nmeaBtn_);
+
     auto* sim = makeToggle(QStringLiteral("Simulator"), settings_->simulatorEnabled());
     connect(sim, &QPushButton::toggled, settings_, &Settings::setSimulatorEnabled);
     // Keep the toggle in sync if the setting changes elsewhere.
@@ -296,6 +305,22 @@ void SideMenu::setAutoFollowChecked(bool on) {
     // an unchanged state, but this avoids the redundant toggle/text churn).
     if (autoFollowBtn_ && autoFollowBtn_->isChecked() != on)
         autoFollowBtn_->setChecked(on);
+}
+
+void SideMenu::setNmeaActive(bool on) {
+    if (!nmeaBtn_) return;
+    // Always set a 14px icon (transparent when off) so the label never shifts as
+    // the status dot appears or clears.
+    QPixmap pm(14, 14);
+    pm.fill(Qt::transparent);
+    if (on) {
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(40, 170, 70));   // green
+        p.drawEllipse(QPointF(7, 7), 5, 5);
+    }
+    nmeaBtn_->setIcon(QIcon(pm));
 }
 
 // ---- open/close + geometry ------------------------------------------------

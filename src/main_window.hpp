@@ -8,6 +8,7 @@ class Settings;
 class SideMenu;
 class NavDataStore;
 class Simulator;
+class Nmea0183Client;
 class QLabel;
 class QPushButton;
 
@@ -27,6 +28,7 @@ private slots:
     void editUnits();
     void editStaleThresholds();
     void editOwnshipPrediction();
+    void editNmea();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
@@ -43,6 +45,7 @@ private:
     SideMenu*     sideMenu_ = nullptr;
     NavDataStore* navStore_ = nullptr;
     Simulator*    simulator_ = nullptr;
+    Nmea0183Client* nmea_ = nullptr;
     QPushButton*  menuButton_ = nullptr;
     QLabel*       statusLeft_ = nullptr;   // root folder + scan summary
     QLabel*       statusMid_ = nullptr;    // band / cells shown

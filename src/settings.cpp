@@ -21,6 +21,10 @@ constexpr auto kInvalidS  = "nav/invalidSeconds";
 constexpr auto kPredMin   = "ships/ownshipPredictionMinutes";
 constexpr auto kDepthUnit = "units/depth";
 constexpr auto kDistUnit  = "units/distance";
+constexpr auto kNmeaProto = "nmea0183/transport";
+constexpr auto kNmeaHost  = "nmea0183/host";
+constexpr auto kNmeaPort  = "nmea0183/port";
+constexpr auto kNmeaOn    = "nmea0183/enabled";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -53,6 +57,11 @@ Settings::Settings(QObject* parent) : QObject(parent) {
                                             DepthUnit::Feet);
     distanceUnit_ = units::distanceUnitFromKey(s.value(QLatin1String(kDistUnit)).toString(),
                                                DistanceUnit::NauticalMiles);
+    nmeaTransport_ = (s.value(QLatin1String(kNmeaProto)).toString() == QLatin1String("udp"))
+                       ? NmeaTransport::Udp : NmeaTransport::Tcp;
+    nmeaHost_    = s.value(QLatin1String(kNmeaHost)).toString();
+    nmeaPort_    = quint16(s.value(QLatin1String(kNmeaPort), 10110).toUInt());
+    nmeaEnabled_ = s.value(QLatin1String(kNmeaOn), false).toBool();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -143,6 +152,22 @@ void Settings::setDistanceUnit(DistanceUnit u) {
     distanceUnit_ = u;
     QSettings().setValue(QLatin1String(kDistUnit), units::distanceUnitKey(u));
     emit distanceUnitChanged(u);
+}
+
+void Settings::setNmeaConfig(NmeaTransport transport, const QString& host,
+                             quint16 port, bool enabled) {
+    nmeaTransport_ = transport;
+    nmeaHost_      = host;
+    nmeaPort_      = port;
+    nmeaEnabled_   = enabled;
+    QSettings s;
+    s.setValue(QLatin1String(kNmeaProto),
+               transport == NmeaTransport::Udp ? QStringLiteral("udp")
+                                               : QStringLiteral("tcp"));
+    s.setValue(QLatin1String(kNmeaHost), host);
+    s.setValue(QLatin1String(kNmeaPort), port);
+    s.setValue(QLatin1String(kNmeaOn),   enabled);
+    emit nmeaConfigChanged(transport, host, port, enabled);
 }
 
 void Settings::setStaleThresholds(double staleS, double invalidS) {
