@@ -35,6 +35,9 @@ qt_add_executable(chartviewer
     src/nmea0183_debug_window.cpp
     src/nav_data_browser_window.cpp
     src/data_priority_dialog.cpp
+    src/core_api.cpp
+    src/plugin_manager.cpp
+    src/test_plugin.cpp
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp

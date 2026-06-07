@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <QString>
+#include <functional>
 
 class Settings;
 class QPushButton;
@@ -35,6 +36,16 @@ public:
 
     // Show/clear a green dot next to the NMEA 0183 item while it is decoding.
     void setNmeaActive(bool on);
+
+    // Plugin contributions to the main menu's Plugins section.
+    void addPluginAction(const QString& title, std::function<void()> onTriggered);
+    void addPluginToggle(const QString& title, bool checked,
+                         std::function<void(bool)> onToggled);
+
+    // A plugin-registered data source: an item under Data Connections. Returns
+    // the button so its status dot can be driven via setItemDot().
+    QPushButton* addDataSourceItem(const QString& title, std::function<void()> onClicked);
+    void setItemDot(QPushButton* item, bool on);   // green dot on/off
 
 signals:
     void fitRequested();
@@ -82,6 +93,9 @@ private:
     QVBoxLayout* chartSetsBox_ = nullptr;   // container for the dynamic set buttons
     QPushButton* autoFollowBtn_ = nullptr;  // checkable Auto Follow item
     QPushButton* nmeaBtn_ = nullptr;        // NMEA 0183 item (carries status dot)
+    QLabel*      pluginHeader_ = nullptr;   // "Plugins" header (hidden until used)
+    QVBoxLayout* pluginBox_ = nullptr;      // container for plugin-contributed items
+    QVBoxLayout* dataSourceBox_ = nullptr;  // plugin data-source items (Data Connections)
     QPropertyAnimation* anim_ = nullptr;
     int  panelWidth_ = 320;
     bool open_ = false;
