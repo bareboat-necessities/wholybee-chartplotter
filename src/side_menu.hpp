@@ -48,6 +48,7 @@ signals:
     void editOwnshipPredictionRequested();            // open predictor-length dialog
     void editNmeaRequested();                         // open NMEA 0183 dialog
     void nmeaDebugRequested();                         // open raw-data debug window
+    void navDataBrowserRequested();                    // open NavData Browser window
 
 protected:
     void resizeEvent(QResizeEvent* e) override;
@@ -59,7 +60,9 @@ private:
     // Settings-page action: like makeAction but reserves a leading status-dot
     // column so every item lines up with the ones that show a dot.
     QPushButton* makeSettingsAction(const QString& text);
-    QPushButton* makeToggle(const QString& text, bool checked);
+    // Main-page plain action with a blank check-mark column, so it lines up with
+    // the checkable items (active set, Auto Follow, chart-detail toggles).
+    QPushButton* makeIndentedAction(const QString& text);
     // Checkable action that shows a check mark when on (like the active set).
     QPushButton* makeCheckAction(const QString& text, bool checked);
     QWidget*     buildMainPage();

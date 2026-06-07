@@ -9,6 +9,7 @@
 #include "ownship_prediction_dialog.hpp"
 #include "nmea0183_dialog.hpp"
 #include "nmea0183_debug_window.hpp"
+#include "nav_data_browser_window.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
 #include "nmea0183_client.hpp"
@@ -115,6 +116,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
     connect(sideMenu_, &SideMenu::editNmeaRequested,                this, &MainWindow::editNmea);
     connect(sideMenu_, &SideMenu::nmeaDebugRequested,               this, &MainWindow::showNmeaDebug);
+    connect(sideMenu_, &SideMenu::navDataBrowserRequested,          this, &MainWindow::showNavDataBrowser);
     // Green status dot on the NMEA item while the link is decoding.
     connect(nmea_, &Nmea0183Client::decodingChanged, sideMenu_, &SideMenu::setNmeaActive);
     sideMenu_->setNmeaActive(nmea_->isDecoding());
@@ -230,6 +232,14 @@ void MainWindow::showNmeaDebug() {
     nmeaDebug_->show();
     nmeaDebug_->raise();
     nmeaDebug_->activateWindow();
+}
+
+void MainWindow::showNavDataBrowser() {
+    if (!navBrowser_)
+        navBrowser_ = new NavDataBrowserWindow(navStore_, this);
+    navBrowser_->show();
+    navBrowser_->raise();
+    navBrowser_->activateWindow();
 }
 
 void MainWindow::publishOwnshipToView() {
