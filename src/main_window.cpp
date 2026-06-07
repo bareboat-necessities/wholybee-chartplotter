@@ -6,6 +6,7 @@
 #include "chart_sets_dialog.hpp"
 #include "units_dialog.hpp"
 #include "stale_thresholds_dialog.hpp"
+#include "ownship_prediction_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "simulator.hpp"
 
@@ -14,7 +15,6 @@
 #include <QPushButton>
 #include <QMessageBox>
 #include <QFileDialog>
-#include <QInputDialog>
 #include <QDir>
 #include <QEvent>
 #include <QCloseEvent>
@@ -185,13 +185,9 @@ void MainWindow::editStaleThresholds() {
 }
 
 void MainWindow::editOwnshipPrediction() {
-    bool ok = false;
-    const double m = QInputDialog::getDouble(
-        this, QStringLiteral("Ownship Course Prediction"),
-        QStringLiteral("Length of the course prediction line (minutes):"),
-        settings_->ownshipPredictionMinutes(), 0.5, 120.0, 1, &ok);
-    if (!ok) return;
-    settings_->setOwnshipPredictionMinutes(m);
+    OwnshipPredictionDialog dlg(settings_->ownshipPredictionMinutes(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setOwnshipPredictionMinutes(dlg.minutes());
 }
 
 void MainWindow::publishOwnshipToView() {
