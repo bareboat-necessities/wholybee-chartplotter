@@ -1,6 +1,51 @@
 #include "ais_target_store.hpp"
 #include <QTimer>
 
+QString aisNavStatusName(int code) {
+    switch (code) {
+        case 0:  return QStringLiteral("Under way using engine");
+        case 1:  return QStringLiteral("At anchor");
+        case 2:  return QStringLiteral("Not under command");
+        case 3:  return QStringLiteral("Restricted manoeuvrability");
+        case 4:  return QStringLiteral("Constrained by draught");
+        case 5:  return QStringLiteral("Moored");
+        case 6:  return QStringLiteral("Aground");
+        case 7:  return QStringLiteral("Engaged in fishing");
+        case 8:  return QStringLiteral("Under way sailing");
+        case 14: return QStringLiteral("AIS-SART");
+        case 15: return QStringLiteral("Undefined");
+        default: return QStringLiteral("Reserved (%1)").arg(code);
+    }
+}
+
+QString aisShipTypeName(int code) {
+    // First-digit category (per ITU-R M.1371). Specific known codes get a name;
+    // the rest fall back to the category bucket so the user gets context.
+    if (code <= 0) return QStringLiteral("Not available");
+    if (code == 30) return QStringLiteral("Fishing");
+    if (code == 31) return QStringLiteral("Towing");
+    if (code == 32) return QStringLiteral("Towing (long)");
+    if (code == 33) return QStringLiteral("Dredging");
+    if (code == 34) return QStringLiteral("Diving operations");
+    if (code == 35) return QStringLiteral("Military operations");
+    if (code == 36) return QStringLiteral("Sailing");
+    if (code == 37) return QStringLiteral("Pleasure craft");
+    if (code == 50) return QStringLiteral("Pilot vessel");
+    if (code == 51) return QStringLiteral("Search and rescue");
+    if (code == 52) return QStringLiteral("Tug");
+    if (code == 53) return QStringLiteral("Port tender");
+    if (code == 54) return QStringLiteral("Anti-pollution");
+    if (code == 55) return QStringLiteral("Law enforcement");
+    if (code == 58) return QStringLiteral("Medical transport");
+    if (code >= 20 && code <= 29) return QStringLiteral("WIG (%1)").arg(code);
+    if (code >= 40 && code <= 49) return QStringLiteral("High-speed craft (%1)").arg(code);
+    if (code >= 60 && code <= 69) return QStringLiteral("Passenger (%1)").arg(code);
+    if (code >= 70 && code <= 79) return QStringLiteral("Cargo (%1)").arg(code);
+    if (code >= 80 && code <= 89) return QStringLiteral("Tanker (%1)").arg(code);
+    if (code >= 90 && code <= 99) return QStringLiteral("Other (%1)").arg(code);
+    return QStringLiteral("Type %1").arg(code);
+}
+
 namespace {
 // Copy an optional into the target only when the report actually supplies it,
 // so a report that omits a field doesn't wipe a previously known value.

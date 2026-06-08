@@ -14,6 +14,12 @@ enum class AisClass { Unknown, A, B };
 // heard. (Distinct from ownship NavFreshness — AIS uses minutes, not seconds.)
 enum class AisFreshness { Current, Stale, Lost };
 
+// Human-readable label for an AIS nav status code.
+QString aisNavStatusName(int code);
+// Human-readable label for an AIS ship & cargo type code (best-effort
+// categorisation; falls back to the numeric code).
+QString aisShipTypeName(int code);
+
 // Standard AIS navigational status codes (0..15). Class B has no status.
 enum class AisNavStatus {
     UnderWayEngine = 0, AtAnchor = 1, NotUnderCommand = 2,

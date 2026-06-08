@@ -1,5 +1,7 @@
 #pragma once
 #include <QMainWindow>
+#include <QHash>
+#include <QPointer>
 #include <QString>
 #include <memory>
 #include "data_sources.hpp"   // DataSourceRegistry (value member)
@@ -13,6 +15,7 @@ class AisTargetStore;
 class Simulator;
 class NavDataBrowserWindow;
 class AisOverlay;
+class AisTargetInfoWindow;
 class CoreApi;
 class PluginManager;
 class QLabel;
@@ -56,6 +59,10 @@ private:
     Simulator*    simulator_ = nullptr;
     NavDataBrowserWindow* navBrowser_ = nullptr;
     std::unique_ptr<AisOverlay>    aisOverlay_;  // core-owned AIS chart overlay
+    // Open AIS info windows, keyed by MMSI; QPointer auto-clears on close
+    // (windows are WA_DeleteOnClose), so clicking a target again creates a
+    // fresh window rather than raising a destroyed one.
+    QHash<quint32, QPointer<AisTargetInfoWindow>> aisInfoWindows_;
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins

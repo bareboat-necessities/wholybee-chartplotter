@@ -242,6 +242,7 @@ private:
 
     bool    dragging_ = false;
     QPointF lastDragPos_;
+    QPointF pressPos_;     // for click vs drag (release with little movement = click)
 
     OwnshipState ownship_;
     NavFreshness ownshipFreshness_ = NavFreshness::Invalid;
