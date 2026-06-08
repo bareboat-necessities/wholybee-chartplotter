@@ -63,6 +63,11 @@ public:
     DepthUnit    depthUnit()    const { return depthUnit_; }
     DistanceUnit distanceUnit() const { return distanceUnit_; }
 
+    // When true, tapping outside the side menu (or an action item) closes it
+    // automatically. When false, the menu stays open until the user presses
+    // Close, and the chart remains interactive while it is visible.
+    bool autoHideMenu() const { return autoHideMenu_; }
+
     // Data-source priority: ordered source ids, highest priority first.
     QStringList dataSourcePriority() const { return dataSourcePriority_; }
 
@@ -81,6 +86,7 @@ public slots:
     void setDepthUnit(DepthUnit u);
     void setDistanceUnit(DistanceUnit u);
     void setDataSourcePriority(const QStringList& orderedSourceIds);
+    void setAutoHideMenu(bool on);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -95,6 +101,7 @@ signals:
     void depthUnitChanged(DepthUnit u);
     void distanceUnitChanged(DistanceUnit u);
     void dataSourcePriorityChanged(const QStringList& orderedSourceIds);
+    void autoHideMenuChanged(bool on);
 
 private:
     void loadChartSets();
@@ -118,4 +125,5 @@ private:
     DepthUnit    depthUnit_    = DepthUnit::Feet;
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;
     QStringList   dataSourcePriority_;
+    bool          autoHideMenu_ = true;   // legacy default = current behaviour
 };

@@ -47,6 +47,7 @@ qt_add_executable(chartviewer
     src/ais_overlay.cpp
     src/ais_target_info_window.cpp
     src/vessel_symbol.cpp
+    src/theme.cpp
     src/simulator.cpp
     src/nmea0183_client.cpp
 )

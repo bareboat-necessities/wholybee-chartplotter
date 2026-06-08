@@ -30,6 +30,11 @@ public:
     void closeMenu();
     bool isOpen() const { return open_; }
 
+    // When false, the menu stays open until the user presses Close — tapping
+    // outside and tapping action items no longer dismisses it, and the chart
+    // underneath stays interactive (no scrim).
+    void setAutoHide(bool on);
+
     // Reflect the view's auto-follow state in the menu's checkmark (e.g. when a
     // pan turns it off). Does not re-emit autoFollowToggled.
     void setAutoFollowChecked(bool on);
@@ -84,6 +89,7 @@ private:
     void showMainPage();
     void showSettingsPage();
     void layoutPanel();
+    void applyModeGeometry();   // size + scrim visibility for current autoHide_
 
     Settings* settings_ = nullptr;
     QWidget*  scrim_ = nullptr;   // dim layer; tap to dismiss
@@ -100,6 +106,7 @@ private:
     QPropertyAnimation* anim_ = nullptr;
     int  panelWidth_ = 320;
     bool open_ = false;
+    bool autoHide_ = true;
     int  mainIndex_ = 0;
     int  settingsIndex_ = 1;
 };

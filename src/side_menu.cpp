@@ -1,5 +1,6 @@
 #include "side_menu.hpp"
 #include "settings.hpp"
+#include "theme.hpp"
 
 #include <QPushButton>
 #include <QLabel>
@@ -44,9 +45,10 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     scrim_->installEventFilter(this);
 
     // Panel: the opaque menu surface that slides in from the left edge.
+    const theme::MenuPalette& th = theme::menu();
     panel_ = new QWidget(this);
-    panel_->setStyleSheet(QStringLiteral(
-        "background:#fbfbfb; border-right:1px solid #c8c8c8;"));
+    panel_->setStyleSheet(QStringLiteral("background:%1; border-right:1px solid %2;")
+                          .arg(th.panelBg, th.panelBorder));
 
     auto* outer = new QVBoxLayout(panel_);
     outer->setContentsMargins(0, 0, 0, 0);
@@ -55,7 +57,7 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     title_ = new QLabel(QStringLiteral("Menu"), panel_);
     title_->setStyleSheet(QStringLiteral(
         "font-size:18px; font-weight:600; padding:18px 20px;"
-        "background:#1a3a5c; color:white;"));
+        "background:%1; color:%2;").arg(th.titleBg, th.titleFg));
     outer->addWidget(title_);
 
     stack_ = new QStackedWidget(panel_);
@@ -97,14 +99,14 @@ QWidget* SideMenu::buildMainPage() {
     auto* fitBtn = makeIndentedAction(QStringLiteral("Fit to Charts"));
     connect(fitBtn, &QPushButton::clicked, this, [this] {
         emit fitRequested();
-        closeMenu();
+        if (autoHide_) closeMenu();
     });
     col->addWidget(fitBtn);
 
     auto* centerBtn = makeIndentedAction(QStringLiteral("Center on Own Ship"));
     connect(centerBtn, &QPushButton::clicked, this, [this] {
         emit centerOnOwnshipRequested();
-        closeMenu();
+        if (autoHide_) closeMenu();
     });
     col->addWidget(centerBtn);
 
@@ -218,6 +220,16 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit editOwnshipPredictionRequested(); });
     col->addWidget(predBtn);
 
+    col->addWidget(makeHeader(QStringLiteral("Menu")));
+    auto* autoHideBtn = makeCheckAction(QStringLiteral("Auto Hide Menu"),
+                                        settings_->autoHideMenu());
+    connect(autoHideBtn, &QPushButton::toggled, settings_, &Settings::setAutoHideMenu);
+    // Mirror external changes (no-ops a click-driven change).
+    connect(settings_, &Settings::autoHideMenuChanged, autoHideBtn, [autoHideBtn](bool on) {
+        if (autoHideBtn->isChecked() != on) autoHideBtn->setChecked(on);
+    });
+    col->addWidget(autoHideBtn);
+
     // Plugin settings pages: hidden until a plugin contributes one.
     pluginSettingsHeader_ = makeHeader(QStringLiteral("Plugin Settings"));
     pluginSettingsHeader_->setVisible(false);
@@ -247,7 +259,7 @@ QWidget* SideMenu::wrapScroll(QWidget* content) {
     area->setFrameShape(QFrame::NoFrame);
     area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     area->setStyleSheet(QStringLiteral("QScrollArea, QScrollArea > QWidget > QWidget"
-                                       "{ background:#fbfbfb; }"));
+                                       "{ background:%1; }").arg(theme::menu().panelBg));
     // Touch: drag anywhere to scroll (kinetic). Taps still hit the buttons.
     QScroller::grabGesture(area->viewport(), QScroller::LeftMouseButtonGesture);
     return area;
@@ -267,7 +279,8 @@ void SideMenu::rebuildChartSets() {
         auto* empty = new QLabel(
             QStringLiteral("No chart sets yet.\nAdd one in Settings → Chart Sets."));
         empty->setWordWrap(true);
-        empty->setStyleSheet(QStringLiteral("color:#888; padding:14px 24px; font-size:14px;"));
+        empty->setStyleSheet(QStringLiteral("color:%1; padding:14px 24px; font-size:14px;")
+                              .arg(theme::menu().hint));
         chartSetsBox_->addWidget(empty);
         return;
     }
@@ -280,11 +293,12 @@ void SideMenu::rebuildChartSets() {
         b->setToolTip(cs.directory);
         if (isActive)
             b->setStyleSheet(b->styleSheet() +
-                QStringLiteral("QPushButton{ color:#12407a; font-weight:600; }"));
+                QStringLiteral("QPushButton{ color:%1; font-weight:600; }")
+                    .arg(theme::menu().accent));
         const QString dir = cs.directory;
         connect(b, &QPushButton::clicked, this, [this, dir] {
             emit chartSetSelected(dir);
-            closeMenu();
+            if (autoHide_) closeMenu();
         });
         chartSetsBox_->addWidget(b);
     }
@@ -303,35 +317,42 @@ void SideMenu::showSettingsPage() {
 // ---- widget factories -----------------------------------------------------
 
 QLabel* SideMenu::makeHeader(const QString& text) {
+    const theme::MenuPalette& t = theme::menu();
     auto* h = new QLabel(text);
     h->setStyleSheet(QStringLiteral(
-        "font-size:12px; font-weight:600; color:#5a5a5a;"
-        "padding:14px 20px 6px 20px; background:#eef1f4;"));
+        "font-size:12px; font-weight:600; color:%1;"
+        "padding:14px 20px 6px 20px; background:%2;").arg(t.headerFg, t.headerBg));
     return h;
 }
 
 QWidget* SideMenu::makeSeparator() {
     // A 1px rule inset from the edges, with a little breathing room above/below.
+    const theme::MenuPalette& t = theme::menu();
     auto* wrap = new QWidget;
-    wrap->setStyleSheet(QStringLiteral("background:#fbfbfb;"));
+    wrap->setStyleSheet(QStringLiteral("background:%1;").arg(t.panelBg));
     auto* lay = new QVBoxLayout(wrap);
     lay->setContentsMargins(20, 6, 20, 6);
     auto* line = new QFrame;
     line->setFrameShape(QFrame::HLine);
     line->setFrameShadow(QFrame::Plain);
-    line->setStyleSheet(QStringLiteral("color:#d4d9de;"));
+    line->setStyleSheet(QStringLiteral("color:%1;").arg(t.separator));
     lay->addWidget(line);
     return wrap;
 }
 
 QPushButton* SideMenu::makeAction(const QString& text) {
+    const theme::MenuPalette& t = theme::menu();
     auto* b = new QPushButton(text);
     b->setMinimumHeight(56);   // comfortable touch target
     b->setCursor(Qt::PointingHandCursor);
+    // Pin both background AND text colour so the menu renders the same on a
+    // dark-mode system (Qt's default palette would otherwise paint white text
+    // on this hard-coded background and make items unreadable).
     b->setStyleSheet(QStringLiteral(
         "QPushButton{ text-align:left; padding-left:24px; border:none;"
-        " font-size:16px; background:#fbfbfb; }"
-        "QPushButton:pressed{ background:#dce6f0; }"));
+        " font-size:16px; background:%1; color:%2; }"
+        "QPushButton:pressed{ background:%3; }")
+        .arg(t.actionBg, t.actionFg, t.actionPressed));
     return b;
 }
 
@@ -361,11 +382,15 @@ QPushButton* SideMenu::makeCheckAction(const QString& text, bool checked) {
     sync(checked);
     b->setChecked(checked);
     connect(b, &QPushButton::toggled, b, sync);
+    // Pin colours: see makeAction. Without the explicit normal-state color the
+    // unchecked text would be white-on-white in dark mode.
+    const theme::MenuPalette& t = theme::menu();
     b->setStyleSheet(QStringLiteral(
         "QPushButton{ text-align:left; padding-left:24px; border:none;"
-        " font-size:16px; background:#fbfbfb; }"
-        "QPushButton:checked{ color:#12407a; font-weight:600; }"
-        "QPushButton:pressed{ background:#dce6f0; }"));
+        " font-size:16px; background:%1; color:%2; }"
+        "QPushButton:checked{ color:%3; font-weight:600; }"
+        "QPushButton:pressed{ background:%4; }")
+        .arg(t.actionBg, t.actionFg, t.accent, t.actionPressed));
     return b;
 }
 
@@ -420,9 +445,7 @@ void SideMenu::openMenu() {
     if (open_) return;
     open_ = true;
     showMainPage();   // always start on the main page
-    if (parentWidget()) setGeometry(parentWidget()->rect());
-    scrim_->setGeometry(rect());
-    scrim_->lower();
+    applyModeGeometry();   // full-parent + scrim, or panel-only strip
     panel_->setGeometry(-panelWidth_, 0, panelWidth_, height());
     panel_->raise();
     setVisible(true);
@@ -445,11 +468,30 @@ void SideMenu::closeMenu() {
 void SideMenu::layoutPanel() {
     scrim_->setGeometry(rect());
     scrim_->lower();
+    scrim_->setVisible(autoHide_);   // no scrim in "stay-open" mode
     if (anim_->state() != QAbstractAnimation::Running) {
         panel_->setGeometry(open_ ? QRect(0, 0, panelWidth_, height())
                                   : QRect(-panelWidth_, 0, panelWidth_, height()));
     }
     panel_->raise();
+}
+
+// Resize ourselves to match the current mode. autoHide=true → cover the parent
+// fully so the scrim catches taps; autoHide=false → cover only the panel strip
+// so mouse events outside the panel reach the chart underneath.
+void SideMenu::applyModeGeometry() {
+    if (!parentWidget()) return;
+    if (autoHide_)
+        setGeometry(parentWidget()->rect());
+    else
+        setGeometry(0, 0, panelWidth_, parentWidget()->height());
+    layoutPanel();
+}
+
+void SideMenu::setAutoHide(bool on) {
+    if (on == autoHide_) return;
+    autoHide_ = on;
+    if (isVisible()) applyModeGeometry();   // switch geometry/scrim live
 }
 
 void SideMenu::resizeEvent(QResizeEvent*) {
@@ -458,10 +500,9 @@ void SideMenu::resizeEvent(QResizeEvent*) {
 
 bool SideMenu::eventFilter(QObject* obj, QEvent* e) {
     if (obj == parentWidget() && e->type() == QEvent::Resize) {
-        if (isVisible() && parentWidget())
-            setGeometry(parentWidget()->rect());   // triggers our resizeEvent
+        if (isVisible()) applyModeGeometry();
     } else if (obj == scrim_ && e->type() == QEvent::MouseButtonPress) {
-        closeMenu();
+        if (autoHide_) closeMenu();   // tap-outside dismiss only in auto-hide mode
         return true;
     }
     return QWidget::eventFilter(obj, e);

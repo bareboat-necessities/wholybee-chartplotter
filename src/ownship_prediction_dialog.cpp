@@ -1,5 +1,6 @@
 #include "ownship_prediction_dialog.hpp"
 #include "touch_spin_box.hpp"
+#include "theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -21,7 +22,7 @@ OwnshipPredictionDialog::OwnshipPredictionDialog(double minutes, QWidget* parent
     col->addWidget(intro);
 
     auto* caption = new QLabel(QStringLiteral("Prediction length:"));
-    caption->setStyleSheet(QStringLiteral("font-size:13px; color:#444;"));
+    caption->setStyleSheet(QStringLiteral("font-size:13px; color:%1;").arg(theme::textMuted()));
     col->addWidget(caption);
 
     minutesBox_ = new TouchSpinBox;

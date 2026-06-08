@@ -4,7 +4,6 @@
 class NavDataStore;
 class QTableWidget;
 class QTimer;
-class QColor;
 
 // Modeless inspector listing the live values currently held in the NavDataStore
 // (one row per populated field: Field / Value / Source / Age). Values refresh
@@ -19,7 +18,7 @@ private slots:
     void refresh();
 
 private:
-    void setCell(int row, int col, const QString& text, const QColor& color);
+    void setCell(int row, int col, const QString& text, bool muted);
 
     const NavDataStore* store_ = nullptr;
     QTableWidget* table_ = nullptr;

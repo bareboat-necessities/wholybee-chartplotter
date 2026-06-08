@@ -21,6 +21,7 @@
 
 class ChartCatalog;
 class QTimer;
+class QPushButton;
 
 // Result handed back from a worker thread after loading one cell.
 struct CellLoadResult {
@@ -189,6 +190,10 @@ private:
 
     void drawOwnship(QPainter& p, const QTransform& cam);
     void drawScaleBar(QPainter& p);   // lower-right scale bar, in device pixels
+    // Touch-friendly zoom: same step as the wheel, anchored at the screen
+    // centre (no cursor on touch devices).
+    void zoomBy(double factor);
+    void positionZoomButtons();       // place + / - buttons left of the scale bar
 
     // Camera state (scene metres = projected Mercator, Y flipped north-up).
     double scx_ = 0.0;
@@ -200,6 +205,8 @@ private:
     QTimer*       updateTimer_ = nullptr;
     QTimer*       aaTimer_ = nullptr;
     QTimer*       saveTimer_ = nullptr;
+    QPushButton*  zoomInBtn_ = nullptr;     // lower-right + button
+    QPushButton*  zoomOutBtn_ = nullptr;    // lower-right - button
 
     QHash<QString, BuiltCell> loaded_;
     QHash<QString, int>       bandByPath_;

@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 #include "chart_view.hpp"
 #include "chart_catalog.hpp"
+#include "theme.hpp"
 #include "settings.hpp"
 #include "side_menu.hpp"
 #include "chart_sets_dialog.hpp"
@@ -27,11 +28,18 @@
 #include <QDir>
 #include <QEvent>
 #include <QCloseEvent>
+#include <QSettings>
 #include <cmath>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("Marine Chart Viewer"));
-    resize(1100, 750);
+    resize(1100, 750);   // first-run default; overridden by restoreGeometry below
+
+    // Restore the previous size / position / maximised state (no-op on first run
+    // or when the saved screen no longer exists — Qt rejects an off-screen rect).
+    const QByteArray geom =
+        QSettings().value(QStringLiteral("window/geometry")).toByteArray();
+    if (!geom.isEmpty()) restoreGeometry(geom);
 
     settings_ = new Settings(this);
 
@@ -141,6 +149,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Touch-first navigation: a floating menu button over the chart opens the
     // side drawer. No toolbar, no right-click, large tap targets.
     sideMenu_ = new SideMenu(settings_, view_);
+    // Auto-hide behaviour: drives both tap-outside dismiss and action auto-close.
+    sideMenu_->setAutoHide(settings_->autoHideMenu());
+    connect(settings_, &Settings::autoHideMenuChanged,
+            sideMenu_, &SideMenu::setAutoHide);
     connect(sideMenu_, &SideMenu::fitRequested,             view_, &ChartView::fitToCatalog);
     connect(sideMenu_, &SideMenu::centerOnOwnshipRequested, view_, &ChartView::centerOnOwnship);
     connect(sideMenu_, &SideMenu::autoFollowToggled,        view_, &ChartView::setAutoFollow);
@@ -172,10 +184,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger
     menuButton_->setFixedSize(48, 48);
     menuButton_->setCursor(Qt::PointingHandCursor);
+    // Pin colour explicitly: the hamburger glyph otherwise inherits the system
+    // text colour (white in dark mode) which becomes invisible on a translucent
+    // light background. The overlayBtn palette swaps for the OS theme.
+    const theme::OverlayBtnPalette& ob = theme::overlayBtn();
     menuButton_->setStyleSheet(QStringLiteral(
-        "QPushButton{ font-size:22px; border:1px solid #b0b0b0; border-radius:6px;"
-        " background:rgba(255,255,255,0.92); }"
-        "QPushButton:pressed{ background:#dce6f0; }"));
+        "QPushButton{ font-size:22px; color:%1; border:1px solid %2;"
+        " border-radius:6px; background:%3; }"
+        "QPushButton:pressed{ background:%4; }")
+        .arg(ob.fg, ob.border, ob.bg, ob.pressed));
     connect(menuButton_, &QPushButton::clicked, sideMenu_, &SideMenu::openMenu);
     menuButton_->show();
     view_->installEventFilter(this);   // reposition the button when the view resizes
@@ -210,6 +227,8 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
 
 void MainWindow::closeEvent(QCloseEvent* e) {
     view_->persistViewNow();   // flush the latest location even if mid-debounce
+    // Persist size / position / maximised state for the next launch.
+    QSettings().setValue(QStringLiteral("window/geometry"), saveGeometry());
     QMainWindow::closeEvent(e);
 }
 
