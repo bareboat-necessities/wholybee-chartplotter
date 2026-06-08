@@ -22,6 +22,7 @@ constexpr auto kPredMin   = "ships/ownshipPredictionMinutes";
 constexpr auto kDepthUnit = "units/depth";
 constexpr auto kDistUnit  = "units/distance";
 constexpr auto kSrcPrio   = "data/sourcePriority";
+constexpr auto kAutoHide  = "menu/autoHide";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -57,6 +58,7 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     // Raw saved order; reconciled against the runtime DataSourceRegistry (which
     // includes plugin sources) where it is consumed.
     dataSourcePriority_ = s.value(QLatin1String(kSrcPrio)).toStringList();
+    autoHideMenu_ = s.value(QLatin1String(kAutoHide), true).toBool();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -154,6 +156,13 @@ void Settings::setDataSourcePriority(const QStringList& orderedSourceIds) {
     dataSourcePriority_ = orderedSourceIds;
     QSettings().setValue(QLatin1String(kSrcPrio), orderedSourceIds);
     emit dataSourcePriorityChanged(orderedSourceIds);
+}
+
+void Settings::setAutoHideMenu(bool on) {
+    if (on == autoHideMenu_) return;
+    autoHideMenu_ = on;
+    QSettings().setValue(QLatin1String(kAutoHide), on);
+    emit autoHideMenuChanged(on);
 }
 
 void Settings::setStaleThresholds(double staleS, double invalidS) {

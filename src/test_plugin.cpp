@@ -1,6 +1,7 @@
 #include "test_plugin.hpp"
 #include "nav_data_store.hpp"
 #include "touch_spin_box.hpp"
+#include "theme.hpp"
 
 #include <QPainter>
 #include <QFont>
@@ -64,7 +65,7 @@ DepthEntryDialog::DepthEntryDialog(const NavDataStore* store, INavDataPublisher*
     col->addWidget(current_);
 
     auto* cap = new QLabel(QStringLiteral("New depth value:"));
-    cap->setStyleSheet(QStringLiteral("font-size:13px; color:#444;"));
+    cap->setStyleSheet(QStringLiteral("font-size:13px; color:%1;").arg(theme::textMuted()));
     col->addWidget(cap);
 
     auto* row = new QHBoxLayout;
@@ -108,7 +109,7 @@ void DepthEntryDialog::refresh() {
     const NavValue& d = store_->ownship().depthMeters;
     if (!d.valid()) {
         current_->setText(QStringLiteral("Current depth: —  (no data)"));
-        current_->setStyleSheet(QStringLiteral("font-size:14px; color:#999;"));
+        current_->setStyleSheet(QStringLiteral("font-size:14px; color:%1;").arg(theme::textMuted()));
         return;
     }
     const double age = d.timestampUtc.isValid()
@@ -118,9 +119,10 @@ void DepthEntryDialog::refresh() {
         .arg(d.source.isEmpty() ? QStringLiteral("—") : d.source)
         .arg(age, 0, 'f', 1)
         .arg(d.stale() ? QStringLiteral("   (stale)") : QString()));
+    // Stale → muted, fresh → default system text colour (theme-aware).
     current_->setStyleSheet(d.stale()
-        ? QStringLiteral("font-size:14px; color:#999;")
-        : QStringLiteral("font-size:14px; color:#111;"));
+        ? QStringLiteral("font-size:14px; color:%1;").arg(theme::textMuted())
+        : QStringLiteral("font-size:14px;"));
 }
 
 void DepthEntryDialog::publish() {

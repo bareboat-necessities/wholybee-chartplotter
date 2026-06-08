@@ -1,5 +1,6 @@
 #include "stale_thresholds_dialog.hpp"
 #include "touch_spin_box.hpp"
+#include "theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -15,7 +16,7 @@ QWidget* labelledStepper(const QString& caption, TouchSpinBox* box) {
     col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(4);
     auto* cap = new QLabel(caption);
-    cap->setStyleSheet(QStringLiteral("font-size:13px; color:#444;"));
+    cap->setStyleSheet(QStringLiteral("font-size:13px; color:%1;").arg(theme::textMuted()));
     cap->setWordWrap(true);
     col->addWidget(cap);
     col->addWidget(box);

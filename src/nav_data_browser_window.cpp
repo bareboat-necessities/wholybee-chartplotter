@@ -1,11 +1,13 @@
 #include "nav_data_browser_window.hpp"
 #include "nav_data_store.hpp"
+#include "theme.hpp"
 
 #include <QVBoxLayout>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QTimer>
 #include <QColor>
+#include <QVariant>
 #include <QDateTime>
 #include <functional>
 #include <vector>
@@ -42,14 +44,17 @@ NavDataBrowserWindow::NavDataBrowserWindow(const NavDataStore* store, QWidget* p
     refresh();
 }
 
-void NavDataBrowserWindow::setCell(int row, int col, const QString& text, const QColor& color) {
+void NavDataBrowserWindow::setCell(int row, int col, const QString& text, bool muted) {
     QTableWidgetItem* it = table_->item(row, col);
     if (!it) {
         it = new QTableWidgetItem;
         table_->setItem(row, col, it);
     }
     it->setText(text);
-    it->setForeground(color);
+    // Muted (stale): pin a theme-aware grey. Fresh: clear any prior brush so
+    // the cell uses Qt's palette text colour (theme-correct light or dark).
+    if (muted) it->setForeground(QColor(theme::textMuted()));
+    else       it->setData(Qt::ForegroundRole, QVariant());
 }
 
 void NavDataBrowserWindow::refresh() {
@@ -93,11 +98,10 @@ void NavDataBrowserWindow::refresh() {
     if (table_->rowCount() != int(rows.size()))
         table_->setRowCount(int(rows.size()));
     for (int i = 0; i < int(rows.size()); ++i) {
-        const QColor color = rows[i].stale ? QColor(150, 150, 150)   // grey
-                                           : QColor(20, 20, 20);     // ~black
-        setCell(i, 0, rows[i].name,   color);
-        setCell(i, 1, rows[i].value,  color);
-        setCell(i, 2, rows[i].source, color);
-        setCell(i, 3, rows[i].age,    color);
+        const bool muted = rows[i].stale;
+        setCell(i, 0, rows[i].name,   muted);
+        setCell(i, 1, rows[i].value,  muted);
+        setCell(i, 2, rows[i].source, muted);
+        setCell(i, 3, rows[i].age,    muted);
     }
 }

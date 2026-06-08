@@ -3,6 +3,7 @@
 #include "projection.hpp"
 #include "geom_clip.hpp"
 #include "vessel_symbol.hpp"
+#include "theme.hpp"
 
 #include <QPainter>
 #include <QPaintEvent>
@@ -12,6 +13,7 @@
 #include <QFont>
 #include <QFontMetricsF>
 #include <QTimer>
+#include <QPushButton>
 #include <QPen>
 #include <QBrush>
 #include <QThread>
@@ -267,6 +269,35 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
         double lon, lat, scale;
         if (currentView(lon, lat, scale)) emit viewChanged(lon, lat, scale);
     });
+
+    // Touch zoom buttons (lower-right, just left of the scale bar). Circular,
+    // translucent so they sit nicely over the chart. Auto-repeat lets the user
+    // hold to keep zooming on a phone/tablet. Colours follow the OS theme so the
+    // glyph stays readable on both light and dark systems.
+    const theme::OverlayBtnPalette& ob = theme::overlayBtn();
+    auto makeZoomBtn = [this, &ob](const QString& glyph) {
+        auto* b = new QPushButton(glyph, this);
+        b->setFixedSize(48, 48);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setFocusPolicy(Qt::NoFocus);   // taps shouldn't steal keyboard focus
+        b->setAutoRepeat(true);
+        b->setAutoRepeatDelay(350);
+        b->setAutoRepeatInterval(110);
+        b->setStyleSheet(QStringLiteral(
+            "QPushButton{ font-size:26px; font-weight:600; color:%1;"
+            " border:1px solid %2; border-radius:24px; background:%3; }"
+            "QPushButton:pressed{ background:%4; }")
+            .arg(ob.fg, ob.border, ob.bg, ob.pressed));
+        return b;
+    };
+    constexpr double kZoomStep = 1.15;
+    zoomOutBtn_ = makeZoomBtn(QStringLiteral("−"));
+    zoomInBtn_  = makeZoomBtn(QStringLiteral("+"));
+    connect(zoomOutBtn_, &QPushButton::clicked, this, [this] { zoomBy(1.0 / kZoomStep); });
+    connect(zoomInBtn_,  &QPushButton::clicked, this, [this] { zoomBy(kZoomStep); });
+    zoomOutBtn_->show();
+    zoomInBtn_->show();
+    positionZoomButtons();
 }
 
 void ChartView::setCatalog(ChartCatalog* catalog) {
@@ -1113,6 +1144,40 @@ void ChartView::drawScaleBar(QPainter& p) {
 
 // ---- input -----------------------------------------------------------------
 
+// Touch-friendly zoom (the +/- buttons). Anchored at the screen centre — there
+// is no cursor on touch — and otherwise mirrors the wheel handler so the
+// whole-globe floor and auto-follow recentering behave consistently.
+void ChartView::zoomBy(double factor) {
+    if (ppm_ <= 0.0) return;
+    const double target = std::clamp(ppm_ * factor, minPpm(), 1e6);
+    if (target == ppm_) return;
+    userInteracted_ = true;
+    ppm_ = target;       // anchored at centre => scx_/scy_ unchanged
+    normalizeCenter();
+    if (autoFollow_) recenterOnOwnship();
+    beginInteraction();
+    updatePointLOD();
+    scheduleUpdate();
+    update();
+}
+
+// Place the +/- buttons in the lower-right corner with a fixed margin that
+// keeps them clear of the scale bar (which draws at the same baseline).
+void ChartView::positionZoomButtons() {
+    if (!zoomInBtn_ || !zoomOutBtn_) return;
+    constexpr int kBtnSize    = 48;
+    constexpr int kBtnGap     = 8;
+    constexpr int kBottomPad  = 14;
+    constexpr int kScaleBarPx = 110;   // reserved width for the scale bar
+    const int y = height() - kBottomPad - kBtnSize;
+    const int inX  = width() - kScaleBarPx - kBtnSize;            // (+) right of (-)
+    const int outX = inX - kBtnGap - kBtnSize;
+    zoomOutBtn_->move(outX, y);
+    zoomInBtn_->move(inX,  y);
+    zoomOutBtn_->raise();
+    zoomInBtn_->raise();
+}
+
 void ChartView::wheelEvent(QWheelEvent* e) {
     if (ppm_ <= 0.0) { e->ignore(); return; }
     userInteracted_ = true;
@@ -1196,6 +1261,7 @@ void ChartView::resizeEvent(QResizeEvent* e) {
     // Widening the window raises the whole-globe floor; re-enforce it so we
     // never sit below the new minimum and tile the world.
     if (ppm_ > 0.0 && ppm_ < minPpm()) ppm_ = minPpm();
+    positionZoomButtons();
     maybeBuildBasemap();
     update();
 }

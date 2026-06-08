@@ -1,4 +1,5 @@
 #include "touch_spin_box.hpp"
+#include "theme.hpp"
 
 #include <QHBoxLayout>
 #include <QDoubleSpinBox>
@@ -9,7 +10,12 @@ TouchSpinBox::TouchSpinBox(QWidget* parent) : QWidget(parent) {
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(8);
 
-    auto makeStepButton = [](const QString& glyph) {
+    // Pin all colours so the spin box and its +/- buttons read correctly on
+    // both light and dark systems (Qt's default palette would otherwise leave
+    // white text on this hard-coded white field).
+    const theme::InputPalette& t = theme::input();
+
+    auto makeStepButton = [&t](const QString& glyph) {
         auto* b = new QPushButton(glyph);
         b->setFixedSize(56, 56);            // generous finger target
         b->setAutoRepeat(true);             // hold to keep stepping
@@ -17,9 +23,10 @@ TouchSpinBox::TouchSpinBox(QWidget* parent) : QWidget(parent) {
         b->setAutoRepeatInterval(90);
         b->setCursor(Qt::PointingHandCursor);
         b->setStyleSheet(QStringLiteral(
-            "QPushButton{ font-size:26px; font-weight:600; border:1px solid #b0b0b0;"
-            " border-radius:8px; background:#f4f6f8; }"
-            "QPushButton:pressed{ background:#dce6f0; }"));
+            "QPushButton{ font-size:26px; font-weight:600; color:%1;"
+            " border:1px solid %2; border-radius:8px; background:%3; }"
+            "QPushButton:pressed{ background:%4; }")
+            .arg(t.fg, t.border, t.buttonBg, t.pressed));
         return b;
     };
     minus_ = makeStepButton(QStringLiteral("−"));
@@ -30,8 +37,9 @@ TouchSpinBox::TouchSpinBox(QWidget* parent) : QWidget(parent) {
     spin_->setAlignment(Qt::AlignCenter);
     spin_->setMinimumHeight(56);
     spin_->setStyleSheet(QStringLiteral(
-        "QDoubleSpinBox{ font-size:22px; padding:4px 8px; border:1px solid #b0b0b0;"
-        " border-radius:8px; background:white; }"));
+        "QDoubleSpinBox{ font-size:22px; padding:4px 8px; color:%1;"
+        " border:1px solid %2; border-radius:8px; background:%3; }")
+        .arg(t.fg, t.border, t.fieldBg));
 
     row->addWidget(minus_);
     row->addWidget(spin_, 1);

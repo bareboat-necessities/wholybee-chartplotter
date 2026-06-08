@@ -2,6 +2,7 @@
 #include "nmea0183_debug_window.hpp"
 #include "ais_decoder.hpp"
 #include "touch_spin_box.hpp"
+#include "theme.hpp"
 
 #include <QWidget>
 #include <QVBoxLayout>
@@ -131,7 +132,7 @@ QWidget* Nmea0183Plugin::createSettingsPage(QWidget* parent) {
     hostCol->setContentsMargins(0, 0, 0, 0);
     hostCol->setSpacing(4);
     auto* hostCap = new QLabel(QStringLiteral("Gateway IP address:"));
-    hostCap->setStyleSheet(QStringLiteral("font-size:13px; color:#444;"));
+    hostCap->setStyleSheet(QStringLiteral("font-size:13px; color:%1;").arg(theme::textMuted()));
     auto* hostEdit = new QLineEdit(host_);
     hostEdit->setPlaceholderText(QStringLiteral("e.g. 192.168.4.1"));
     hostEdit->setMinimumHeight(40);
@@ -145,7 +146,7 @@ QWidget* Nmea0183Plugin::createSettingsPage(QWidget* parent) {
 
     // Port.
     auto* portCap = new QLabel(QStringLiteral("Port:"));
-    portCap->setStyleSheet(QStringLiteral("font-size:13px; color:#444;"));
+    portCap->setStyleSheet(QStringLiteral("font-size:13px; color:%1;").arg(theme::textMuted()));
     col->addWidget(portCap);
     auto* portBox = new TouchSpinBox;
     portBox->setRange(1, 65535);
