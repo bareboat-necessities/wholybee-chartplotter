@@ -12,6 +12,7 @@
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
 #include "ais_overlay.hpp"
+#include "ais_target_info_window.hpp"
 #include "simulator.hpp"
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
@@ -102,6 +103,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // configurable predictor length, and triggers a repaint as targets change.
     aisOverlay_ = std::make_unique<AisOverlay>(aisStore_);
     aisOverlay_->setPredictionMinutes(settings_->ownshipPredictionMinutes());
+    aisOverlay_->setOnTargetClicked([this](quint32 mmsi) {
+        // Click on a target opens (or raises) an info window for that MMSI.
+        // The window deletes itself on close; QPointer drops the stale entry.
+        AisTargetInfoWindow* w = aisInfoWindows_.value(mmsi);
+        if (!w) {
+            w = new AisTargetInfoWindow(mmsi, aisStore_, this);
+            w->setAttribute(Qt::WA_DeleteOnClose);
+            aisInfoWindows_.insert(mmsi, w);
+        }
+        w->show();
+        w->raise();
+        w->activateWindow();
+    });
     view_->addOverlay(aisOverlay_.get());
     connect(settings_, &Settings::ownshipPredictionMinutesChanged,
             this, [this](double m) {

@@ -1147,6 +1147,7 @@ void ChartView::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && ppm_ > 0.0) {
         dragging_ = true;
         lastDragPos_ = e->position();
+        pressPos_   = e->position();          // for click vs drag at release
         userInteracted_ = true;
         setCursor(Qt::ClosedHandCursor);
     }
@@ -1176,6 +1177,13 @@ void ChartView::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && dragging_) {
         dragging_ = false;
         setCursor(Qt::OpenHandCursor);
+        // Release with little movement is a click: offer it to the overlays in
+        // reverse z-order; the first to consume it (e.g. AIS hit) wins.
+        if ((e->position() - pressPos_).manhattanLength() <= 4.0) {
+            for (auto it = overlays_.rbegin(); it != overlays_.rend(); ++it) {
+                if ((*it)->hitTest(e->position())) break;
+            }
+        }
     }
     QWidget::mouseReleaseEvent(e);
 }
