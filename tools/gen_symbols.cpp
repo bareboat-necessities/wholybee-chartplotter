@@ -226,10 +226,50 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // ---- CS() procedure fallbacks -------------------------------------------
+    //
+    // Many important S-57 object classes use conditional symbology procedures
+    // (CS(...)) rather than a direct SY() call in their lookup instruction.
+    // The XML parser above only captures direct SY() calls, so those classes
+    // would otherwise produce no atlas entry and render as the fallback dot.
+    //
+    // For a non-ECDIS viewer a static default symbol is appropriate.  Each
+    // entry here is inserted ONLY when the XML parse did not already produce a
+    // direct SY() mapping for that class (so a future chartsymbols.xml that
+    // adds a direct mapping automatically takes precedence).
+    //
+    // Fallback choices follow S-52 / INT 1 conventions:
+    //   LIGHTS  → LIGHTS11  generic light (point/sector lights with no colour info)
+    //   UWTROC  → UWTROC03  underwater rock that covers and uncovers
+    //   WRECKS  → WRECKS01  wreck, non-dangerous
+    //   OBSTRN  → DANGER51  isolated danger (most conservative / visible choice)
+    //   TOPMAR  → TOPMAR02  cone, point up (most common topmark shape)
+    //   DAYMAR  → TOPMAR16  square daymark
+    //   NEWOBJ  → QUESMRK1  question mark (unknown / new object)
+    static const struct { const char* obj; const char* sym; } kFallbacks[] = {
+        { "LIGHTS", "LIGHTS11" },
+        { "UWTROC", "UWTROC03" },
+        { "WRECKS", "WRECKS01" },
+        { "OBSTRN", "DANGER51" },
+        { "TOPMAR", "TOPMAR02" },
+        { "DAYMAR", "TOPMAR16" },
+        { "NEWOBJ", "QUESMRK1" },
+    };
+    int fallbacksAdded = 0;
+    for (const auto& fb : kFallbacks) {
+        const QByteArray obj(fb.obj);
+        if (!objToSym.contains(obj)) {
+            objToSym[obj] = QByteArray(fb.sym);
+            ++fallbacksAdded;
+        }
+    }
+
     std::fprintf(stdout,
-                 "gen_symbols: %d symbols, %d object-class lookups parsed\n",
+                 "gen_symbols: %d symbols, %d object-class lookups parsed"
+                 " + %d CS() fallbacks\n",
                  static_cast<int>(syms.size()),
-                 static_cast<int>(objToSym.size()));
+                 static_cast<int>(objToSym.size()) - fallbacksAdded,
+                 fallbacksAdded);
 
     // ---- write binary --------------------------------------------------------
 
