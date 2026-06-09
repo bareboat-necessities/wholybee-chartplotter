@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -51,6 +52,10 @@ struct Feature {
     double depth = 0.0;
     bool hasDepth = false;
     BBox bbox;
+    // S-57 object-class name for Point features (e.g. "LIGHTS", "UWTROC").
+    // Populated during cell loading; empty for all other geometry kinds.
+    // Used at cell-build time to resolve a symbol index from the SymAtlas.
+    std::string objClass;
 };
 
 namespace chart {

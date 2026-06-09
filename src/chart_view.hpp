@@ -18,6 +18,7 @@
 #include "nav_data_store.hpp"   // OwnshipState, NavFreshness
 #include "units.hpp"            // DepthUnit
 #include "plugin_api.hpp"       // IChartOverlay, ChartViewport
+#include "sym_atlas.hpp"        // SymAtlas
 
 class ChartCatalog;
 class QTimer;
@@ -60,14 +61,22 @@ struct Sounding {
     bool    hasDepth = false;
 };
 
+// A resolved point symbol: scene position + index into the SymAtlas table.
+// symIdx == SymAtlas::kNoSymbol means no atlas entry was found; the renderer
+// falls back to the magenta dot used before symbol support was added.
+struct BuiltSymbol {
+    QPointF  pos;
+    uint16_t symIdx = SymAtlas::kNoSymbol;
+};
+
 struct BuiltCell {
     QString path;
     int  band = 0;
     BBox clipBox;                                          // region (real frame)
     double drawOffsetX = 0.0;                              // scene-X wrap offset
-    std::vector<BuiltPath> paths;                          // sorted by z
-    std::vector<Sounding> soundings;                       // scene pos + depth
-    std::vector<QPointF> symbols;                          // scene pos
+    std::vector<BuiltPath>   paths;                        // sorted by z
+    std::vector<Sounding>    soundings;                    // scene pos + depth
+    std::vector<BuiltSymbol> symbols;                      // scene pos + sym idx
 };
 
 // Chart canvas with a camera-based renderer.
@@ -231,6 +240,11 @@ private:
     BBox    basemapClipBox_;          // region basemap_ was built for (k=0 frame)
     double  basemapBuiltPpm_ = 0.0;   // zoom basemap_ was simplified for
     bool    basemapBuilding_ = false;
+
+    // Symbol atlas (prebaked from chartsymbols.xml + rastersymbols-day.png).
+    // Loaded once at construction; immutable after that, safe to query from
+    // worker threads.  When not loaded, point features fall back to a dot.
+    SymAtlas symAtlas_;
 
     bool   havePendingView_ = false;
     double pendingLon_ = 0.0, pendingLat_ = 0.0, pendingScale_ = 0.0;

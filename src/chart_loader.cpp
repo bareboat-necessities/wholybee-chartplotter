@@ -159,6 +159,10 @@ bool loadCellFeatures(const std::string& path,
                 Feature f;
                 f.kind = classify(layerName, gt);
                 f.zorder = zorderFor(f.kind);
+                // Preserve the object-class name for Point features so the
+                // cell-build step can resolve a symbol from the atlas.
+                if (f.kind == FeatureKind::Point)
+                    f.objClass = layerName;
                 extractGeometry(geom, f);
                 if (!f.rings.empty()) {
                     if (f.kind == FeatureKind::DepthArea) {

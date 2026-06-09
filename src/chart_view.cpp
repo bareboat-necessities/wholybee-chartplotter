@@ -3,6 +3,7 @@
 #include "projection.hpp"
 #include "geom_clip.hpp"
 #include "vessel_symbol.hpp"
+#include "sym_atlas.hpp"
 #include "theme.hpp"
 
 #include <QPainter>
@@ -124,8 +125,13 @@ BasemapSource resolveBasemap(const QString& override) {
 // Clip + simplify one cell to `clipBox` (projected, real frame) with vertex-merge
 // tolerance `tol`, building its vector primitives sorted by z. Pure and
 // Qt-value-only: runs on a worker. Used for both ENC cells and the basemap.
+//
+// atlas: optional pointer to the loaded SymAtlas used to resolve symbol indices
+// for Point features.  nullptr is allowed (basemap cells have no point
+// features; ENC cells fall back to the dot glyph when atlas is not loaded).
 BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
-                    int band, const BBox& clipBox, double tol) {
+                    int band, const BBox& clipBox, double tol,
+                    const SymAtlas* atlas = nullptr) {
     BuiltCell bc;
     bc.path    = path;
     bc.band    = band;
@@ -221,7 +227,12 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
             case FeatureKind::Point: {
                 if (f.rings.empty() || f.rings[0].empty()) break;
                 if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
-                bc.symbols.emplace_back(f.rings[0][0].x, -f.rings[0][0].y);
+                BuiltSymbol bs;
+                bs.pos    = QPointF(f.rings[0][0].x, -f.rings[0][0].y);
+                bs.symIdx = atlas
+                    ? atlas->symbolForObj(QByteArray::fromStdString(f.objClass))
+                    : SymAtlas::kNoSymbol;
+                bc.symbols.push_back(bs);
                 break;
             }
         }
@@ -298,6 +309,21 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     zoomOutBtn_->show();
     zoomInBtn_->show();
     positionZoomButtons();
+
+    // Load the symbol atlas from the standard data locations.
+    // Search order mirrors the GDAL-data and basemap resolver patterns:
+    //   1. next to the executable (installed / release builds)
+    //   2. CHARTPLOTTER_SOURCE_DIR/data/ (in-tree development builds)
+    auto tryLoadAtlas = [this](const QString& dir) {
+        return symAtlas_.load(dir + QStringLiteral("/symbols.bin"),
+                              dir + QStringLiteral("/rastersymbols-day.png"));
+    };
+    if (!tryLoadAtlas(QCoreApplication::applicationDirPath())) {
+#ifdef CHARTPLOTTER_SOURCE_DIR
+        tryLoadAtlas(QStringLiteral(CHARTPLOTTER_SOURCE_DIR) +
+                     QStringLiteral("/data"));
+#endif
+    }
 }
 
 void ChartView::setCatalog(ChartCatalog* catalog) {
@@ -630,6 +656,10 @@ void ChartView::dispatchBuild(const QString& path, FeatureCache::FeaturesPtr fea
     const quint64 gen = generation_;
     const QString p = path;
 
+    // Pass a const pointer to the atlas: it is fully loaded before any worker
+    // thread runs and is never modified afterwards, so no locking is needed.
+    const SymAtlas* atlas = symAtlas_.isLoaded() ? &symAtlas_ : nullptr;
+
     auto* watcher = new QFutureWatcher<BuiltCell>(this);
     connect(watcher, &QFutureWatcher<BuiltCell>::finished, this,
             [this, watcher, gen, drawOffsetX]() {
@@ -637,8 +667,8 @@ void ChartView::dispatchBuild(const QString& path, FeatureCache::FeaturesPtr fea
         watcher->deleteLater();
         onCellBuilt(std::move(bc), gen, drawOffsetX);
     });
-    watcher->setFuture(QtConcurrent::run(&pool_, [p, feats, band, clipBox]() {
-        return buildCell(p, *feats, band, clipBox, simplifyToleranceM(band));
+    watcher->setFuture(QtConcurrent::run(&pool_, [p, feats, band, clipBox, atlas]() {
+        return buildCell(p, *feats, band, clipBox, simplifyToleranceM(band), atlas);
     }));
 }
 
@@ -957,14 +987,26 @@ void ChartView::paintEvent(QPaintEvent*) {
             }
         }
         if (showSymbols_) {
+            // Pre-configure the fallback dot style; atlas blits don't use
+            // pen/brush so setting them here doesn't interfere.
             p.setPen(Qt::NoPen);
             p.setBrush(QColor(179, 26, 128));
+
+            const bool atlasOk = symAtlas_.isLoaded();
             for (const BuiltCell* c : order) {
                 const double off = c->drawOffsetX;
-                for (const QPointF& q : c->symbols) {
-                    const QPointF d = cam.map(QPointF(q.x() + off, q.y()));
+                for (const BuiltSymbol& sym : c->symbols) {
+                    const QPointF d = cam.map(
+                        QPointF(sym.pos.x() + off, sym.pos.y()));
                     if (!screen.contains(d)) continue;
-                    p.drawEllipse(d, 3.0, 3.0);
+
+                    if (atlasOk && sym.symIdx != SymAtlas::kNoSymbol) {
+                        // Single GPU blit: source rect already in atlas coords.
+                        symAtlas_.draw(p, sym.symIdx, d);
+                    } else {
+                        // Fallback: magenta dot (pen/brush set above).
+                        p.drawEllipse(d, 3.0, 3.0);
+                    }
                 }
             }
         }

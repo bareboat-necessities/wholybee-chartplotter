@@ -21,6 +21,49 @@ else()
     set(GDAL_LINK PkgConfig::GDAL)
 endif()
 
+# ---- Symbol atlas build-time tool ------------------------------------------
+#
+# gen_symbols parses data/chartsymbols.xml and emits symbols.bin: a flat binary
+# lookup table mapping S-57 object-class names → symbol indices and symbol
+# names → atlas-PNG rectangles + pivot offsets.
+#
+# The tool is a plain console executable (not a Qt GUI app).  It only needs
+# Qt6::Core (QXmlStreamReader lives there, not in Qt6::Xml).
+#
+# NOTE: In a cross-compilation scenario the host (build-machine) tool must be
+#       built separately.  For the common native-Windows build this is a
+#       non-issue.
+
+add_executable(gen_symbols tools/gen_symbols.cpp)
+set_target_properties(gen_symbols PROPERTIES WIN32_EXECUTABLE FALSE)
+target_link_libraries(gen_symbols PRIVATE Qt6::Core)
+
+# Run gen_symbols at build time to produce symbols.bin in the binary directory.
+# The command re-runs whenever the tool exe or the XML source changes.
+#
+# gen_symbols links Qt6::Core dynamically, so Qt6Core.dll must be locatable when
+# the tool runs during the build.  On Windows the Qt DLLs live in the Qt bin/
+# directory, which is not normally on the build environment's PATH — without
+# this the tool aborts with STATUS_DLL_NOT_FOUND (0xC0000135).  Prepend the Qt
+# bin directory (the folder containing the Qt6::Core import library's runtime)
+# to PATH for just this invocation.  `cmake -E env --modify` (CMake >= 3.25)
+# handles the list separator correctly and leaves the rest of PATH intact.
+add_custom_command(
+    OUTPUT  "${CMAKE_CURRENT_BINARY_DIR}/symbols.bin"
+    COMMAND ${CMAKE_COMMAND} -E env
+            --modify "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+            "$<TARGET_FILE:gen_symbols>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/chartsymbols.xml"
+            "${CMAKE_CURRENT_BINARY_DIR}/symbols.bin"
+    DEPENDS gen_symbols
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/chartsymbols.xml"
+    COMMENT "Generating symbol lookup table (symbols.bin) from chartsymbols.xml"
+    VERBATIM
+)
+add_custom_target(symbols_bin ALL
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/symbols.bin"
+)
+
 qt_add_executable(chartviewer
     src/main.cpp
     src/main_window.cpp
@@ -47,12 +90,14 @@ qt_add_executable(chartviewer
     src/ais_overlay.cpp
     src/ais_target_info_window.cpp
     src/vessel_symbol.cpp
+    src/sym_atlas.cpp
     src/theme.cpp
     src/simulator.cpp
     src/nmea0183_client.cpp
 )
 
 target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Network ${GDAL_LINK})
+add_dependencies(chartviewer symbols_bin)
 
 # Dev convenience: lets the basemap resolver fall back to the in-tree gshhg-shp
 # folder during development. On an installed build this path won't exist, so it
@@ -123,3 +168,45 @@ else()
         "S-57 charts will render without colours on machines without GDAL installed.\n"
         "Set GDAL_DATA_DIR=<path containing s57objectclasses.csv> and re-run CMake.")
 endif()
+
+# ---- Symbol atlas data files ------------------------------------------------
+#
+# Copy the prebaked symbols.bin and the atlas PNG(s) next to the executable
+# so ChartView can find them at runtime via applicationDirPath().
+#
+# Place the source files in data/ under the project root:
+#   data/chartsymbols.xml       (input to gen_symbols — build time only)
+#   data/rastersymbols-day.png  (OpenCPN day-mode sprite sheet)
+#   data/rastersymbols-dusk.png (optional — dusk variant)
+#   data/rastersymbols-dark.png (optional — night variant)
+
+# symbols.bin is generated in the binary directory by the custom command above.
+add_custom_command(TARGET chartviewer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_BINARY_DIR}/symbols.bin"
+        "$<TARGET_FILE_DIR:chartviewer>/symbols.bin"
+    COMMENT "Installing symbols.bin next to executable"
+    VERBATIM
+)
+
+# Atlas PNGs: copy each one that is present in data/.  Missing variants are
+# silently skipped so a partial data/ directory doesn't break the build.
+foreach(_atlas_png
+        rastersymbols-day.png
+        rastersymbols-dusk.png
+        rastersymbols-dark.png)
+    set(_src "${CMAKE_CURRENT_SOURCE_DIR}/data/${_atlas_png}")
+    if(EXISTS "${_src}")
+        add_custom_command(TARGET chartviewer POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_src}"
+                "$<TARGET_FILE_DIR:chartviewer>/${_atlas_png}"
+            COMMENT "Installing ${_atlas_png} next to executable"
+            VERBATIM
+        )
+    else()
+        message(STATUS
+            "Symbol atlas PNG not found (optional): ${_src}\n"
+            "  Copy rastersymbols-*.png files into data/ to enable atlas symbols.")
+    endif()
+endforeach()
