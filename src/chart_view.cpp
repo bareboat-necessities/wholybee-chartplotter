@@ -58,6 +58,28 @@ QPainterPath buildPathFromRings(const std::vector<std::vector<Pt>>& rings, bool 
     return path;
 }
 
+// Area-weighted centroid of a polygon ring (projected coords). Falls back to
+// the vertex average for a degenerate (near-zero-area) ring. Used to place an
+// area feature's centred symbol (e.g. an anchorage's anchor glyph).
+Pt ringCentroid(const std::vector<Pt>& ring) {
+    const std::size_t n = ring.size();
+    if (n == 0) return {0.0, 0.0};
+    double a = 0.0, cx = 0.0, cy = 0.0;
+    for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
+        const double cross = ring[j].x * ring[i].y - ring[i].x * ring[j].y;
+        a  += cross;
+        cx += (ring[j].x + ring[i].x) * cross;
+        cy += (ring[j].y + ring[i].y) * cross;
+    }
+    if (std::abs(a) < 1e-9) {
+        double sx = 0.0, sy = 0.0;
+        for (const Pt& p : ring) { sx += p.x; sy += p.y; }
+        return { sx / static_cast<double>(n), sy / static_cast<double>(n) };
+    }
+    a *= 0.5;
+    return { cx / (6.0 * a), cy / (6.0 * a) };
+}
+
 using geom::clipRingToRect;
 using geom::clipPolylineToRect;
 using geom::pointInRect;
@@ -213,6 +235,23 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
                 else                                         { bp.penColor = QColor(102, 102, 128);     bp.penWidth = 0.8; }
                 bp.isDepthContour = (f.kind == FeatureKind::DepthContour);
                 bc.paths.push_back(std::move(bp));
+
+                // Generic areas (e.g. ACHARE anchorages) may carry a centred
+                // symbol. Resolve it from the full geometry's centroid so it
+                // stays put as the viewport pans; paint-time culling handles
+                // off-screen cases. Computed from the unclipped outer ring.
+                if (f.kind == FeatureKind::OtherArea && atlas &&
+                    !f.objClass.empty() && !f.rings.empty() && !f.rings[0].empty()) {
+                    const uint16_t idx = atlas->symbolForFeature(
+                        QByteArray::fromStdString(f.objClass), SymGeom::Area, f.attrs);
+                    if (idx != SymAtlas::kNoSymbol) {
+                        const Pt c = ringCentroid(f.rings[0]);
+                        BuiltSymbol bs;
+                        bs.pos    = QPointF(c.x, -c.y);
+                        bs.symIdx = idx;
+                        bc.symbols.push_back(bs);
+                    }
+                }
                 break;
             }
             case FeatureKind::Sounding: {
@@ -230,7 +269,8 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
                 BuiltSymbol bs;
                 bs.pos    = QPointF(f.rings[0][0].x, -f.rings[0][0].y);
                 bs.symIdx = atlas
-                    ? atlas->symbolForObj(QByteArray::fromStdString(f.objClass))
+                    ? atlas->symbolForFeature(QByteArray::fromStdString(f.objClass),
+                                              SymGeom::Point, f.attrs)
                     : SymAtlas::kNoSymbol;
                 bc.symbols.push_back(bs);
                 break;
@@ -324,6 +364,13 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
                      QStringLiteral("/data"));
 #endif
     }
+
+    // Tell the chart loader which S-57 attributes the symbology engine tests,
+    // so it reads exactly those into each feature for best-match selection.
+    // Done here (before any cell load) because the atlas is now resident and
+    // its attribute set is immutable for the rest of the run.
+    if (symAtlas_.isLoaded())
+        chart::setSymbologyAttrs(symAtlas_.relevantAttrs());
 }
 
 void ChartView::setCatalog(ChartCatalog* catalog) {

@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 // A projected point, in Mercator metres.
@@ -52,10 +53,15 @@ struct Feature {
     double depth = 0.0;
     bool hasDepth = false;
     BBox bbox;
-    // S-57 object-class name for Point features (e.g. "LIGHTS", "UWTROC").
-    // Populated during cell loading; empty for all other geometry kinds.
-    // Used at cell-build time to resolve a symbol index from the SymAtlas.
+    // S-57 object-class name (e.g. "BOYLAT", "ACHARE"). Populated for Point and
+    // OtherArea features (the symbol-bearing kinds); empty otherwise. Used at
+    // cell-build time to resolve a symbol via the S-52 lookup engine.
     std::string objClass;
+    // Symbology-relevant S-57 attributes: (6-char acronym, value string), e.g.
+    // {"BOYSHP","4"},{"COLOUR","4"}. Only the attributes the lookup tables
+    // actually test are read (see chart::setSymbologyAttrs). Drives best-match
+    // symbol selection. Empty for non-symbol features.
+    std::vector<std::pair<std::string, std::string>> attrs;
 };
 
 namespace chart {
@@ -69,6 +75,14 @@ namespace chart {
 // exe by the CMake build). Without it GDAL can still read geometry but cannot
 // resolve S-57 object-class names, so charts render without colour or fill.
 void init(const std::string& gdalDataDir = {});
+
+// Tell the loader which S-57 attribute acronyms the symbology engine tests, so
+// loadCellFeatures reads exactly those into Feature::attrs (and no others).
+// Call once after the symbol atlas is loaded and before any cell load. The set
+// is process-global and read-only during loads, so it needs no locking.
+// Passing an empty list disables attribute reading (symbols fall back to the
+// class default / dot).
+void setSymbologyAttrs(const std::vector<std::string>& acronyms);
 
 // Read all geometry of one ENC cell into `out` (projected), with the cell's
 // bbox. Thread-safe: opens and closes its own GDAL handle. Heavy — call from a

@@ -3,12 +3,53 @@
 
 #include <gdal.h>
 #include <ogr_api.h>
+#include <ogr_core.h>
 #include <cpl_conv.h>
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 namespace {
+
+// Symbology-relevant attribute acronyms (set once via chart::setSymbologyAttrs
+// before any worker load). Read-only during loads, so no synchronization is
+// needed. Populated from the symbol atlas's lookup-condition attribute set.
+std::vector<std::string> g_symAttrs;
+
+// Read an OGR field as a normalized S-57 value string: a plain integer ("4"),
+// or a comma-joined list for multi-valued attributes like COLOUR ("1,4"), with
+// no spaces. Matches the value encoding baked into symbols.bin by gen_symbols.
+std::string normalizedFieldValue(OGRFeatureH feat, int idx) {
+    const OGRFieldType t = OGR_Fld_GetType(OGR_F_GetFieldDefnRef(feat, idx));
+    switch (t) {
+        case OFTInteger:
+            return std::to_string(OGR_F_GetFieldAsInteger(feat, idx));
+        case OFTInteger64:
+            return std::to_string(OGR_F_GetFieldAsInteger64(feat, idx));
+        case OFTReal:
+            return std::to_string(static_cast<long long>(OGR_F_GetFieldAsDouble(feat, idx)));
+        case OFTIntegerList: {
+            int n = 0;
+            const int* v = OGR_F_GetFieldAsIntegerList(feat, idx, &n);
+            std::string s;
+            for (int i = 0; i < n; ++i) {
+                if (i) s += ',';
+                s += std::to_string(v[i]);
+            }
+            return s;
+        }
+        default: {
+            // OFTString and anything else: the S-57 driver already returns a
+            // bare value or comma list; just strip spaces to normalize.
+            const char* s = OGR_F_GetFieldAsString(feat, idx);
+            std::string out;
+            for (const char* p = s; p && *p; ++p)
+                if (*p != ' ') out += *p;
+            return out;
+        }
+    }
+}
 
 int zorderFor(FeatureKind k) {
     switch (k) {
@@ -136,6 +177,10 @@ void init(const std::string& gdalDataDir) {
     GDALAllRegister();
 }
 
+void setSymbologyAttrs(const std::vector<std::string>& acronyms) {
+    g_symAttrs = acronyms;
+}
+
 bool loadCellFeatures(const std::string& path,
                       std::vector<Feature>& out, BBox& bbox, std::string& err) {
     GDALDatasetH ds = GDALOpenEx(path.c_str(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
@@ -150,6 +195,18 @@ bool loadCellFeatures(const std::string& path,
         std::string layerName = rawName ? rawName : "";
         if (skipLayer(layerName)) continue;
 
+        // Resolve, once per layer, the field index of each symbology-relevant
+        // attribute that this layer's schema actually carries. Per-feature
+        // reads then index directly instead of searching by name each time.
+        std::vector<std::pair<std::string, int>> attrFields;
+        if (!g_symAttrs.empty()) {
+            OGRFeatureDefnH defn = OGR_L_GetLayerDefn(layer);
+            for (const std::string& a : g_symAttrs) {
+                int fi = OGR_FD_GetFieldIndex(defn, a.c_str());
+                if (fi >= 0) attrFields.emplace_back(a, fi);
+            }
+        }
+
         OGR_L_ResetReading(layer);
         OGRFeatureH feat;
         while ((feat = OGR_L_GetNextFeature(layer)) != nullptr) {
@@ -159,10 +216,19 @@ bool loadCellFeatures(const std::string& path,
                 Feature f;
                 f.kind = classify(layerName, gt);
                 f.zorder = zorderFor(f.kind);
-                // Preserve the object-class name for Point features so the
-                // cell-build step can resolve a symbol from the atlas.
-                if (f.kind == FeatureKind::Point)
+                // Symbol-bearing kinds (points and generic areas like ACHARE)
+                // carry their object class + attributes so the build step can
+                // resolve a symbol via the S-52 lookup engine.
+                const bool symbolBearing = (f.kind == FeatureKind::Point ||
+                                            f.kind == FeatureKind::OtherArea);
+                if (symbolBearing) {
                     f.objClass = layerName;
+                    for (const auto& af : attrFields) {
+                        if (OGR_F_IsFieldSetAndNotNull(feat, af.second))
+                            f.attrs.emplace_back(af.first,
+                                                 normalizedFieldValue(feat, af.second));
+                    }
+                }
                 extractGeometry(geom, f);
                 if (!f.rings.empty()) {
                     if (f.kind == FeatureKind::DepthArea) {
