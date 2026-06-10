@@ -46,6 +46,7 @@ struct BuiltPath {
     bool   hasPen = false;
     QColor penColor;
     qreal  penWidth = 1.0;
+    Qt::PenStyle penStyle = Qt::SolidLine;   // SolidLine / DashLine / DotLine
     bool   isDepthContour = false;
 };
 
@@ -61,12 +62,15 @@ struct Sounding {
     bool    hasDepth = false;
 };
 
-// A resolved point symbol: scene position + index into the SymAtlas table.
+// A resolved symbol: scene position + atlas index + optional rotation.
 // symIdx == SymAtlas::kNoSymbol means no atlas entry was found; the renderer
 // falls back to the magenta dot used before symbol support was added.
+// rotationDeg is the S-57 ORIENT angle (degrees CW from true north); zero for
+// upright symbols.  Resolved at cell-build time so paint is just a blit.
 struct BuiltSymbol {
     QPointF  pos;
     uint16_t symIdx = SymAtlas::kNoSymbol;
+    float    rotationDeg = 0.0f;
 };
 
 struct BuiltCell {

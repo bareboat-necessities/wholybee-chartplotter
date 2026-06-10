@@ -2,19 +2,23 @@
 #include "sym_atlas.hpp"
 
 #include <QFile>
+#include <QTransform>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 // ---- binary format (must match tools/gen_symbols.cpp) -----------------------
 
 #pragma pack(push, 1)
 struct BinHeader {
-    char     magic[4];      // "SYM\x02"
+    char     magic[4];      // "SYM\x05"
     uint32_t symCount;
     uint32_t lupCount;
     uint32_t condCount;
     uint32_t attrCount;
+    uint32_t lineCount;
+    uint32_t fillCount;
 };
 struct BinSymRecord {
     char    name[24];
@@ -22,8 +26,8 @@ struct BinSymRecord {
 };
 struct BinLupRecord {
     char     objClass[8];
-    uint8_t  geomType, dispCat, nConds, _pad;
-    uint16_t condStart, symIdx;
+    uint8_t  geomType, dispCat, nConds, rotMode;
+    uint16_t condStart, symIdx, lineStyleIdx, fillStyleIdx;
 };
 struct BinCondRecord {
     char attr[8];
@@ -31,6 +35,12 @@ struct BinCondRecord {
 };
 struct BinAttrRecord {
     char acronym[8];
+};
+struct BinLineStyleRecord {
+    uint8_t pattern, width, r, g, b, _pad[3];
+};
+struct BinFillStyleRecord {
+    uint8_t r, g, b, a;
 };
 #pragma pack(pop)
 
@@ -62,15 +72,18 @@ bool SymAtlas::load(const QString& binPath, const QString& pngPath)
         return false;
     const auto* hdr = reinterpret_cast<const BinHeader*>(raw.constData());
     if (hdr->magic[0] != 'S' || hdr->magic[1] != 'Y' ||
-        hdr->magic[2] != 'M' || hdr->magic[3] != '\x02')
+        hdr->magic[2] != 'M' || hdr->magic[3] != '\x05')
         return false;
 
     const std::size_t symBytes  = std::size_t(hdr->symCount)  * sizeof(BinSymRecord);
     const std::size_t lupBytes  = std::size_t(hdr->lupCount)  * sizeof(BinLupRecord);
     const std::size_t condBytes = std::size_t(hdr->condCount) * sizeof(BinCondRecord);
     const std::size_t attrBytes = std::size_t(hdr->attrCount) * sizeof(BinAttrRecord);
+    const std::size_t lineBytes = std::size_t(hdr->lineCount) * sizeof(BinLineStyleRecord);
+    const std::size_t fillBytes = std::size_t(hdr->fillCount) * sizeof(BinFillStyleRecord);
     if (static_cast<std::size_t>(raw.size()) <
-            sizeof(BinHeader) + symBytes + lupBytes + condBytes + attrBytes)
+            sizeof(BinHeader) + symBytes + lupBytes + condBytes + attrBytes +
+            lineBytes + fillBytes)
         return false;
 
     const char* base = raw.constData() + sizeof(BinHeader);
@@ -78,6 +91,10 @@ bool SymAtlas::load(const QString& binPath, const QString& pngPath)
     const auto* lupRecs  = reinterpret_cast<const BinLupRecord*>(base + symBytes);
     const auto* condRecs = reinterpret_cast<const BinCondRecord*>(base + symBytes + lupBytes);
     const auto* attrRecs = reinterpret_cast<const BinAttrRecord*>(base + symBytes + lupBytes + condBytes);
+    const auto* lineRecs = reinterpret_cast<const BinLineStyleRecord*>(
+        base + symBytes + lupBytes + condBytes + attrBytes);
+    const auto* fillRecs = reinterpret_cast<const BinFillStyleRecord*>(
+        base + symBytes + lupBytes + condBytes + attrBytes + lineBytes);
 
     // Symbols.
     rects_.resize(hdr->symCount);
@@ -103,7 +120,8 @@ bool SymAtlas::load(const QString& binPath, const QString& pngPath)
     lups_.resize(hdr->lupCount);
     for (uint32_t i = 0; i < hdr->lupCount; ++i) {
         const BinLupRecord& l = lupRecs[i];
-        lups_[i] = Lup{ l.geomType, l.dispCat, l.nConds, l.condStart, l.symIdx };
+        lups_[i] = Lup{ l.geomType, l.dispCat, l.nConds, l.rotMode,
+                        l.condStart, l.symIdx, l.lineStyleIdx, l.fillStyleIdx };
         const QByteArray k = key(QByteArray(l.objClass),
                                  static_cast<SymGeom>(l.geomType));
         auto it = lupIndex_.find(k);
@@ -117,6 +135,20 @@ bool SymAtlas::load(const QString& binPath, const QString& pngPath)
         attrs_.emplace_back(attrRecs[i].acronym,
                             strnlen(attrRecs[i].acronym, sizeof(attrRecs[i].acronym)));
 
+    // Dedup'd line styles (LS pattern + width + RGB) referenced by lookups.
+    lineStyles_.resize(hdr->lineCount);
+    for (uint32_t i = 0; i < hdr->lineCount; ++i) {
+        const BinLineStyleRecord& l = lineRecs[i];
+        lineStyles_[i] = SymLineStyle{ l.pattern, l.width, l.r, l.g, l.b };
+    }
+
+    // Dedup'd fill styles (AC area-color washes, RGBA) referenced by lookups.
+    fillStyles_.resize(hdr->fillCount);
+    for (uint32_t i = 0; i < hdr->fillCount; ++i) {
+        const BinFillStyleRecord& f = fillRecs[i];
+        fillStyles_[i] = SymFillStyle{ f.r, f.g, f.b, f.a };
+    }
+
     atlas_ = std::move(pm);
     return true;
 }
@@ -128,12 +160,13 @@ uint16_t SymAtlas::findSymbol(const QByteArray& name) const
     return nameIndex_.value(name, kNoSymbol);
 }
 
-uint16_t SymAtlas::symbolForFeature(const QByteArray& objClass, SymGeom geom,
-                                    const AttrList& attrs) const
+SymHit SymAtlas::symbolForFeature(const QByteArray& objClass, SymGeom geom,
+                                  const AttrList& attrs) const
 {
+    SymHit miss;
     const auto it = lupIndex_.constFind(key(objClass, geom));
     if (it == lupIndex_.constEnd())
-        return kNoSymbol;
+        return miss;
 
     const uint32_t first = it.value().first;
     const uint32_t count = it.value().second;
@@ -145,42 +178,78 @@ uint16_t SymAtlas::symbolForFeature(const QByteArray& objClass, SymGeom geom,
         return nullptr;
     };
 
-    int      bestScore  = -1;
-    uint16_t bestSym    = kNoSymbol;
-    uint16_t defaultSym = kNoSymbol;
-    bool     haveDefault = false;
+    int        bestScore = -1;
+    const Lup* bestLup   = nullptr;
+    const Lup* defaultLup = nullptr;   // no-condition fallback for this class
 
     for (uint32_t i = first; i < first + count; ++i) {
         const Lup& l = lups_[i];
         if (l.nConds == 0) {
-            // Class default (no conditions). Lowest priority; remember it.
-            if (!haveDefault) { defaultSym = l.symIdx; haveDefault = true; }
+            if (!defaultLup) defaultLup = &l;
             continue;
         }
-        // A lookup matches only if every condition is satisfied.
         bool matched = true;
         for (uint16_t c = 0; c < l.nConds; ++c) {
             const Cond& cond = conds_[l.condStart + c];
             const std::string* fv = featVal(cond.attr);
-            if (!fv || *fv != cond.value) { matched = false; break; }
+            // "*" is the presence sentinel: any value matches, but the
+            // attribute must be present on the feature.
+            if (!fv) { matched = false; break; }
+            if (cond.value != "*" && *fv != cond.value) {
+                matched = false; break;
+            }
         }
         if (matched && static_cast<int>(l.nConds) > bestScore) {
             bestScore = l.nConds;
-            bestSym   = l.symIdx;
+            bestLup   = &l;
         }
     }
+    const Lup* chosen = bestLup ? bestLup : defaultLup;
+    if (!chosen) return miss;
 
-    if (bestSym != kNoSymbol) return bestSym;
-    return haveDefault ? defaultSym : kNoSymbol;
+    SymHit hit;
+    hit.symIdx = chosen->symIdx;
+    if (chosen->rotMode == 1) {
+        // S-57 ORIENT, degrees CW from true north. atof() returns 0 for a
+        // missing/unparseable value, which is the harmless default (upright).
+        if (const std::string* o = featVal("ORIENT"))
+            hit.rotationDeg = static_cast<float>(std::atof(o->c_str()));
+    }
+    if (chosen->lineStyleIdx < lineStyles_.size()) {
+        hit.line    = lineStyles_[chosen->lineStyleIdx];
+        hit.hasLine = true;
+    }
+    if (chosen->fillStyleIdx < fillStyles_.size()) {
+        hit.fill    = fillStyles_[chosen->fillStyleIdx];
+        hit.hasFill = true;
+    }
+    return hit;
 }
 
 // ---- drawing ----------------------------------------------------------------
 
-void SymAtlas::draw(QPainter& p, uint16_t symIdx, QPointF d) const
+void SymAtlas::draw(QPainter& p, uint16_t symIdx, QPointF d,
+                    float rotationDeg) const
 {
     if (symIdx >= static_cast<uint16_t>(rects_.size()))
         return;
     const QRect&  src = rects_[symIdx];
     const QPoint& piv = pivots_[symIdx];
-    p.drawPixmap(QPointF(d.x() - piv.x(), d.y() - piv.y()), atlas_, src);
+
+    if (rotationDeg == 0.0f) {
+        p.drawPixmap(QPointF(d.x() - piv.x(), d.y() - piv.y()), atlas_, src);
+        return;
+    }
+    // Rotate the symbol around its pivot. Our scene has Y flipped north-up and
+    // QPainter rotation is CW from screen +x, so a CW-from-north S-57 ORIENT
+    // maps directly to QPainter::rotate(orient): an orient of 90° points the
+    // glyph's "up" toward screen-east, matching the compass convention.
+    const QTransform saved = p.transform();
+    QTransform t = saved;
+    t.translate(d.x(), d.y());
+    t.rotate(rotationDeg);
+    t.translate(-piv.x(), -piv.y());
+    p.setTransform(t);
+    p.drawPixmap(QPointF(0, 0), atlas_, src);
+    p.setTransform(saved);
 }

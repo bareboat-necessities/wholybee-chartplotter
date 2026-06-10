@@ -19,7 +19,16 @@ std::vector<std::string> g_symAttrs;
 
 // Read an OGR field as a normalized S-57 value string: a plain integer ("4"),
 // or a comma-joined list for multi-valued attributes like COLOUR ("1,4"), with
-// no spaces. Matches the value encoding baked into symbols.bin by gen_symbols.
+// no spaces.  Matches the value encoding baked into symbols.bin by
+// gen_symbols.
+//
+// Multi-valued S-57 attributes (COLOUR, COLPAT, NATSUR, etc.) can be reported
+// by GDAL's S-57 driver as OFTStringList or OFTIntegerList depending on the
+// driver build and version.  StringList is the modern default — without the
+// case here, OGR_F_GetFieldAsString would return a list-formatted string like
+// "(1:4)" instead of the bare value "4", breaking every COLOUR-conditioned
+// lookup (lights silently became magenta, lateral buoys became uncoloured
+// defaults).
 std::string normalizedFieldValue(OGRFeatureH feat, int idx) {
     const OGRFieldType t = OGR_Fld_GetType(OGR_F_GetFieldDefnRef(feat, idx));
     switch (t) {
@@ -39,9 +48,31 @@ std::string normalizedFieldValue(OGRFeatureH feat, int idx) {
             }
             return s;
         }
+        case OFTRealList: {
+            int n = 0;
+            const double* v = OGR_F_GetFieldAsDoubleList(feat, idx, &n);
+            std::string s;
+            for (int i = 0; i < n; ++i) {
+                if (i) s += ',';
+                s += std::to_string(static_cast<long long>(v[i]));
+            }
+            return s;
+        }
+        case OFTStringList: {
+            char** v = OGR_F_GetFieldAsStringList(feat, idx);
+            std::string s;
+            if (v) {
+                for (int i = 0; v[i]; ++i) {
+                    if (i) s += ',';
+                    for (const char* p = v[i]; *p; ++p)
+                        if (*p != ' ') s += *p;
+                }
+            }
+            return s;
+        }
         default: {
-            // OFTString and anything else: the S-57 driver already returns a
-            // bare value or comma list; just strip spaces to normalize.
+            // OFTString and anything else: the S-57 driver returns a bare
+            // value (or comma list embedded in a string); strip spaces.
             const char* s = OGR_F_GetFieldAsString(feat, idx);
             std::string out;
             for (const char* p = s; p && *p; ++p)
@@ -216,11 +247,15 @@ bool loadCellFeatures(const std::string& path,
                 Feature f;
                 f.kind = classify(layerName, gt);
                 f.zorder = zorderFor(f.kind);
-                // Symbol-bearing kinds (points and generic areas like ACHARE)
-                // carry their object class + attributes so the build step can
-                // resolve a symbol via the S-52 lookup engine.
+                // Symbol-bearing and styled-line kinds carry their object
+                // class + attributes so the build step can resolve them via
+                // the S-52 lookup engine: points/areas resolve to a symbol,
+                // generic lines (TSSBND, restricted-area boundaries, etc.)
+                // resolve to an LS() pen style, and areas can resolve to both
+                // (centred symbol plus boundary style).
                 const bool symbolBearing = (f.kind == FeatureKind::Point ||
-                                            f.kind == FeatureKind::OtherArea);
+                                            f.kind == FeatureKind::OtherArea ||
+                                            f.kind == FeatureKind::OtherLine);
                 if (symbolBearing) {
                     f.objClass = layerName;
                     for (const auto& af : attrFields) {

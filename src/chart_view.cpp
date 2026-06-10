@@ -210,47 +210,82 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
             case FeatureKind::DepthContour:
             case FeatureKind::Coastline:
             case FeatureKind::OtherLine: {
+                // Resolve the S-52 lookup once for OtherArea / OtherLine
+                // features.  For OtherArea: any AC() fills the polygon, LS()
+                // styles the boundary, and any SY() drops at the centroid.
+                // For OtherLine: LS() styles the line itself.
+                SymHit hit;
+                const bool resolvable = atlas && !f.objClass.empty() &&
+                    (f.kind == FeatureKind::OtherArea ||
+                     f.kind == FeatureKind::OtherLine);
+                if (resolvable) {
+                    const SymGeom g = (f.kind == FeatureKind::OtherArea)
+                        ? SymGeom::Area : SymGeom::Line;
+                    hit = atlas->symbolForFeature(
+                        QByteArray::fromStdString(f.objClass), g, f.attrs);
+                }
+
+                // When the area carries an AC() fill we need closed polygons
+                // (Sutherland-Hodgman ring clip + closeSubpath); otherwise the
+                // existing polyline clip is correct for outline-only paths.
+                const bool fillArea = (f.kind == FeatureKind::OtherArea) && hit.hasFill;
+
                 const std::vector<std::vector<Pt>>* rings = &f.rings;
                 if (doClip) {
                     clipBuf.clear();
-                    for (const auto& ring : f.rings) {
-                        std::vector<std::vector<Pt>> runs = clipPolylineToRect(ring, clipBox);
-                        for (auto& run : runs) clipBuf.push_back(std::move(run));
+                    if (fillArea) {
+                        for (const auto& ring : f.rings) {
+                            std::vector<Pt> c = clipRingToRect(ring, clipBox);
+                            if (c.size() >= 3) clipBuf.push_back(std::move(c));
+                        }
+                    } else {
+                        for (const auto& ring : f.rings) {
+                            std::vector<std::vector<Pt>> runs = clipPolylineToRect(ring, clipBox);
+                            for (auto& run : runs) clipBuf.push_back(std::move(run));
+                        }
                     }
                     if (clipBuf.empty()) break;
                     rings = &clipBuf;
                 }
-                const std::vector<std::vector<Pt>>& use = reduce(*rings, 2);
+                const std::vector<std::vector<Pt>>& use = reduce(*rings, fillArea ? 3 : 2);
                 if (use.empty()) break;
 
                 BuiltPath bp;
-                bp.path   = buildPathFromRings(use, false);
+                bp.path   = buildPathFromRings(use, fillArea);
                 bp.bounds = bp.path.boundingRect();
                 bp.z      = zb + f.zorder;
-                bp.filled = false;
+                bp.filled = fillArea;
+                if (fillArea)
+                    bp.brush = QColor(hit.fill.r, hit.fill.g, hit.fill.b, hit.fill.a);
                 bp.hasPen = true;
-                if (f.kind == FeatureKind::Coastline)        { bp.penColor = QColor(64, 51, 31);        bp.penWidth = 1.4; }
-                else if (f.kind == FeatureKind::DepthContour){ bp.penColor = QColor(115, 153, 199);     bp.penWidth = 0.8; }
-                else if (f.kind == FeatureKind::OtherArea)   { bp.penColor = QColor(102, 102, 115, 150); bp.penWidth = 0.7; }
-                else                                         { bp.penColor = QColor(102, 102, 128);     bp.penWidth = 0.8; }
+                if (hit.hasLine) {
+                    bp.penColor = QColor(hit.line.r, hit.line.g, hit.line.b);
+                    bp.penWidth = static_cast<qreal>(hit.line.width);
+                    bp.penStyle = (hit.line.pattern == SymLineStyle::Dash) ? Qt::DashLine
+                                : (hit.line.pattern == SymLineStyle::Dot)  ? Qt::DotLine
+                                : Qt::SolidLine;
+                }
+                else if (fillArea)                                { bp.hasPen = false; }   // fill-only area
+                else if (f.kind == FeatureKind::Coastline)        { bp.penColor = QColor(64, 51, 31);        bp.penWidth = 1.4; }
+                else if (f.kind == FeatureKind::DepthContour)     { bp.penColor = QColor(115, 153, 199);     bp.penWidth = 0.8; }
+                else if (f.kind == FeatureKind::OtherArea)        { bp.penColor = QColor(102, 102, 115, 150); bp.penWidth = 0.7; }
+                else                                              { bp.penColor = QColor(102, 102, 128);     bp.penWidth = 0.8; }
                 bp.isDepthContour = (f.kind == FeatureKind::DepthContour);
                 bc.paths.push_back(std::move(bp));
 
-                // Generic areas (e.g. ACHARE anchorages) may carry a centred
-                // symbol. Resolve it from the full geometry's centroid so it
+                // Area centred symbol (e.g. ACHARE anchor glyph, TSSLPT
+                // direction arrow). Placed at the polygon centroid so it
                 // stays put as the viewport pans; paint-time culling handles
                 // off-screen cases. Computed from the unclipped outer ring.
-                if (f.kind == FeatureKind::OtherArea && atlas &&
-                    !f.objClass.empty() && !f.rings.empty() && !f.rings[0].empty()) {
-                    const uint16_t idx = atlas->symbolForFeature(
-                        QByteArray::fromStdString(f.objClass), SymGeom::Area, f.attrs);
-                    if (idx != SymAtlas::kNoSymbol) {
-                        const Pt c = ringCentroid(f.rings[0]);
-                        BuiltSymbol bs;
-                        bs.pos    = QPointF(c.x, -c.y);
-                        bs.symIdx = idx;
-                        bc.symbols.push_back(bs);
-                    }
+                if (f.kind == FeatureKind::OtherArea &&
+                    hit.symIdx != SymAtlas::kNoSymbol &&
+                    !f.rings.empty() && !f.rings[0].empty()) {
+                    const Pt c = ringCentroid(f.rings[0]);
+                    BuiltSymbol bs;
+                    bs.pos         = QPointF(c.x, -c.y);
+                    bs.symIdx      = hit.symIdx;
+                    bs.rotationDeg = hit.rotationDeg;
+                    bc.symbols.push_back(bs);
                 }
                 break;
             }
@@ -267,11 +302,14 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
                 if (f.rings.empty() || f.rings[0].empty()) break;
                 if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
                 BuiltSymbol bs;
-                bs.pos    = QPointF(f.rings[0][0].x, -f.rings[0][0].y);
-                bs.symIdx = atlas
-                    ? atlas->symbolForFeature(QByteArray::fromStdString(f.objClass),
-                                              SymGeom::Point, f.attrs)
-                    : SymAtlas::kNoSymbol;
+                bs.pos = QPointF(f.rings[0][0].x, -f.rings[0][0].y);
+                if (atlas) {
+                    const SymHit hit = atlas->symbolForFeature(
+                        QByteArray::fromStdString(f.objClass),
+                        SymGeom::Point, f.attrs);
+                    bs.symIdx      = hit.symIdx;
+                    bs.rotationDeg = hit.rotationDeg;
+                }
                 bc.symbols.push_back(bs);
                 break;
             }
@@ -995,7 +1033,12 @@ void ChartView::paintEvent(QPaintEvent*) {
             if (bp.isDepthContour && !showDepthContours_) continue;
             if (!bp.bounds.intersects(visFrame)) continue;
             p.setBrush(bp.filled ? QBrush(bp.brush) : QBrush(Qt::NoBrush));
-            if (bp.hasPen) { pen.setColor(bp.penColor); pen.setWidthF(bp.penWidth); p.setPen(pen); }
+            if (bp.hasPen) {
+                pen.setColor(bp.penColor);
+                pen.setWidthF(bp.penWidth);
+                pen.setStyle(bp.penStyle);
+                p.setPen(pen);
+            }
             else           { p.setPen(Qt::NoPen); }
             p.drawPath(bp.path);
         }
@@ -1049,7 +1092,7 @@ void ChartView::paintEvent(QPaintEvent*) {
 
                     if (atlasOk && sym.symIdx != SymAtlas::kNoSymbol) {
                         // Single GPU blit: source rect already in atlas coords.
-                        symAtlas_.draw(p, sym.symIdx, d);
+                        symAtlas_.draw(p, sym.symIdx, d, sym.rotationDeg);
                     } else {
                         // Fallback: magenta dot (pen/brush set above).
                         p.drawEllipse(d, 3.0, 3.0);
