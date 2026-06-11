@@ -343,6 +343,12 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     updateTimer_->setSingleShot(true);
     updateTimer_->setInterval(120);
     connect(updateTimer_, &QTimer::timeout, this, [this] {
+        // While a pan/zoom gesture is in flight, recomputing the visible cell set
+        // and dispatching rebuilds is heavy enough to hitch the GUI thread — most
+        // visibly as a stall when a slow drag lets this 120 ms debounce fire
+        // between moves. Defer it until the gesture settles (aaTimer_); the view
+        // already holds geometry 1.5× beyond the viewport to pan through.
+        if (interacting_) return;
         updateVisibleCells();
         maybeBuildBasemap();
     });
@@ -350,7 +356,14 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     aaTimer_ = new QTimer(this);
     aaTimer_->setSingleShot(true);
     aaTimer_->setInterval(180);
-    connect(aaTimer_, &QTimer::timeout, this, [this] { interacting_ = false; update(); });
+    connect(aaTimer_, &QTimer::timeout, this, [this] {
+        interacting_ = false;
+        // Catch up on the cell management deferred during the gesture, then repaint
+        // (which also restores antialiasing and the soundings/symbols overlay).
+        updateVisibleCells();
+        maybeBuildBasemap();
+        update();
+    });
 
     saveTimer_ = new QTimer(this);
     saveTimer_->setSingleShot(true);
@@ -1088,8 +1101,15 @@ void ChartView::paintEvent(QPaintEvent*) {
     for (const BuiltCell* c : order) drawPaths(*c);
 
     // 2) Soundings / symbols at constant on-screen size, in device space.
+    //
+    // These are the dominant per-frame cost at high detail: every sounding is a
+    // drawText (CPU glyph rasterization) and every symbol a pixmap blit, and a
+    // positive detail level pulls in thousands of them. Skip them while a pan or
+    // zoom gesture is in flight so the moving frame draws only vector geometry;
+    // they snap back when the gesture settles (aaTimer_ clears interacting_ and
+    // repaints, the same mechanism that restores antialiasing).
     p.resetTransform();
-    if (pointLodVisible_) {
+    if (pointLodVisible_ && !interacting_) {
         const QRectF screen = rect().adjusted(-24, -24, 24, 24);
         if (showSoundings_) {
             QFont f = p.font(); f.setPointSizeF(8.0); p.setFont(f);
