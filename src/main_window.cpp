@@ -11,6 +11,7 @@
 #include "nav_data_browser_window.hpp"
 #include "data_priority_dialog.hpp"
 #include "chart_detail_dialog.hpp"
+#include "chart_symbol_size_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
 #include "ais_overlay.hpp"
@@ -59,6 +60,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->setChartDetailLevel(settings_->chartDetailLevel());
     connect(settings_, &Settings::chartDetailLevelChanged,
             view_, &ChartView::setChartDetailLevel);
+    view_->setSymbolScale(settings_->symbolScale());
+    connect(settings_, &Settings::symbolScaleChanged,
+            view_, &ChartView::setSymbolScale);
 
     // Depth unit drives how soundings are labelled; distance unit drives the
     // scale bar.
@@ -170,6 +174,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::navDataBrowserRequested,          this, &MainWindow::showNavDataBrowser);
     connect(sideMenu_, &SideMenu::editDataPriorityRequested,        this, &MainWindow::editDataPriority);
     connect(sideMenu_, &SideMenu::editChartDetailLevelRequested,    this, &MainWindow::editChartDetailLevel);
+    connect(sideMenu_, &SideMenu::editSymbolSizeRequested,          this, &MainWindow::editSymbolSize);
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
@@ -310,6 +315,12 @@ void MainWindow::editChartDetailLevel() {
     ChartDetailDialog dlg(settings_->chartDetailLevel(), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setChartDetailLevel(dlg.detailLevel());
+}
+
+void MainWindow::editSymbolSize() {
+    ChartSymbolSizeDialog dlg(settings_->symbolScale(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setSymbolScale(dlg.symbolScale());
 }
 
 void MainWindow::publishOwnshipToView() {

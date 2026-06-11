@@ -66,6 +66,7 @@ signals:
     void navDataBrowserRequested();                    // open NavData Browser window
     void editDataPriorityRequested();                  // open Data Priority dialog
     void editChartDetailLevelRequested();              // open Chart Detail Level dialog
+    void editSymbolSizeRequested();                    // open Symbol Size dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

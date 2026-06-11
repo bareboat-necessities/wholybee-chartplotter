@@ -166,6 +166,11 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit manageChartSetsRequested(); });
     col->addWidget(chartSetsBtn);
 
+    auto* symSizeBtn = makeSettingsAction(QStringLiteral("Symbol Size…"));
+    connect(symSizeBtn, &QPushButton::clicked, this,
+            [this] { emit editSymbolSizeRequested(); });
+    col->addWidget(symSizeBtn);
+
     auto* basemapBtn = makeSettingsAction(QStringLiteral("Basemap Folder…"));
     connect(basemapBtn, &QPushButton::clicked, this,
             [this] { emit basemapFolderRequested(); });

@@ -229,7 +229,7 @@ SymHit SymAtlas::symbolForFeature(const QByteArray& objClass, SymGeom geom,
 // ---- drawing ----------------------------------------------------------------
 
 void SymAtlas::draw(QPainter& p, uint16_t symIdx, QPointF d,
-                    float rotationDeg) const
+                    float rotationDeg, float scale) const
 {
     if (symIdx >= static_cast<uint16_t>(rects_.size()))
         return;
@@ -237,17 +237,23 @@ void SymAtlas::draw(QPainter& p, uint16_t symIdx, QPointF d,
     const QPoint& piv = pivots_[symIdx];
 
     if (rotationDeg == 0.0f) {
-        p.drawPixmap(QPointF(d.x() - piv.x(), d.y() - piv.y()), atlas_, src);
+        if (scale == 1.0f) {
+            p.drawPixmap(QPointF(d.x() - piv.x(), d.y() - piv.y()), atlas_, src);
+        } else {
+            QRectF dst(d.x() - piv.x() * scale,
+                       d.y() - piv.y() * scale,
+                       src.width()  * scale,
+                       src.height() * scale);
+            p.drawPixmap(dst, atlas_, QRectF(src));
+        }
         return;
     }
-    // Rotate the symbol around its pivot. Our scene has Y flipped north-up and
-    // QPainter rotation is CW from screen +x, so a CW-from-north S-57 ORIENT
-    // maps directly to QPainter::rotate(orient): an orient of 90° points the
-    // glyph's "up" toward screen-east, matching the compass convention.
+    // Rotate (and optionally scale) the symbol around its pivot.
     const QTransform saved = p.transform();
     QTransform t = saved;
     t.translate(d.x(), d.y());
     t.rotate(rotationDeg);
+    if (scale != 1.0f) t.scale(scale, scale);
     t.translate(-piv.x(), -piv.y());
     p.setTransform(t);
     p.drawPixmap(QPointF(0, 0), atlas_, src);
