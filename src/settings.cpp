@@ -23,6 +23,7 @@ constexpr auto kDepthUnit = "units/depth";
 constexpr auto kDistUnit  = "units/distance";
 constexpr auto kSrcPrio   = "data/sourcePriority";
 constexpr auto kAutoHide  = "menu/autoHide";
+constexpr auto kDetailLvl = "display/chartDetailLevel";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -59,6 +60,9 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     // includes plugin sources) where it is consumed.
     dataSourcePriority_ = s.value(QLatin1String(kSrcPrio)).toStringList();
     autoHideMenu_ = s.value(QLatin1String(kAutoHide), true).toBool();
+    chartDetailLevel_ = s.value(QLatin1String(kDetailLvl), 0.0).toDouble();
+    if (chartDetailLevel_ < -2.0) chartDetailLevel_ = -2.0;
+    if (chartDetailLevel_ >  2.0) chartDetailLevel_ =  2.0;
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -163,6 +167,15 @@ void Settings::setAutoHideMenu(bool on) {
     autoHideMenu_ = on;
     QSettings().setValue(QLatin1String(kAutoHide), on);
     emit autoHideMenuChanged(on);
+}
+
+void Settings::setChartDetailLevel(double level) {
+    if (level < -2.0) level = -2.0;
+    if (level >  2.0) level =  2.0;
+    if (level == chartDetailLevel_) return;
+    chartDetailLevel_ = level;
+    QSettings().setValue(QLatin1String(kDetailLvl), level);
+    emit chartDetailLevelChanged(level);
 }
 
 void Settings::setStaleThresholds(double staleS, double invalidS) {

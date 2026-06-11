@@ -10,6 +10,7 @@
 #include "ownship_prediction_dialog.hpp"
 #include "nav_data_browser_window.hpp"
 #include "data_priority_dialog.hpp"
+#include "chart_detail_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
 #include "ais_overlay.hpp"
@@ -55,6 +56,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
+    view_->setChartDetailLevel(settings_->chartDetailLevel());
+    connect(settings_, &Settings::chartDetailLevelChanged,
+            view_, &ChartView::setChartDetailLevel);
 
     // Depth unit drives how soundings are labelled; distance unit drives the
     // scale bar.
@@ -165,6 +169,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
     connect(sideMenu_, &SideMenu::navDataBrowserRequested,          this, &MainWindow::showNavDataBrowser);
     connect(sideMenu_, &SideMenu::editDataPriorityRequested,        this, &MainWindow::editDataPriority);
+    connect(sideMenu_, &SideMenu::editChartDetailLevelRequested,    this, &MainWindow::editChartDetailLevel);
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
@@ -299,6 +304,12 @@ void MainWindow::editDataPriority() {
     DataPriorityDialog dlg(registry_.ordered(settings_->dataSourcePriority()), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setDataSourcePriority(dlg.orderedIds());
+}
+
+void MainWindow::editChartDetailLevel() {
+    ChartDetailDialog dlg(settings_->chartDetailLevel(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setChartDetailLevel(dlg.detailLevel());
 }
 
 void MainWindow::publishOwnshipToView() {

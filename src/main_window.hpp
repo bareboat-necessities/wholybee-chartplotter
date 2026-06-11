@@ -40,6 +40,7 @@ private slots:
     void editOwnshipPrediction();
     void showNavDataBrowser();
     void editDataPriority();
+    void editChartDetailLevel();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
