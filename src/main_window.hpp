@@ -16,6 +16,7 @@ class Simulator;
 class NavDataBrowserWindow;
 class AisOverlay;
 class AisTargetInfoWindow;
+class AisQuickInfoWindow;
 class CoreApi;
 class PluginManager;
 class QLabel;
@@ -67,6 +68,12 @@ private:
     // (windows are WA_DeleteOnClose), so clicking a target again creates a
     // fresh window rather than raising a destroyed one.
     QHash<quint32, QPointer<AisTargetInfoWindow>> aisInfoWindows_;
+    // Quick-look popup: the first click on a target shows this; a second click
+    // on the same target opens the full window. Only one exists at a time; any
+    // chart interaction dismisses it. QPointer clears when it self-deletes.
+    QPointer<AisQuickInfoWindow> aisQuickInfo_;
+    quint32 aisQuickInfoMmsi_ = 0;
+    void showAisTarget(quint32 mmsi);   // drives the two-click open behaviour
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins

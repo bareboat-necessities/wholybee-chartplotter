@@ -18,6 +18,7 @@
 #include "ais_target_store.hpp"
 #include "ais_overlay.hpp"
 #include "ais_target_info_window.hpp"
+#include "ais_quick_info_window.hpp"
 #include "simulator.hpp"
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
@@ -33,6 +34,7 @@
 #include <QEvent>
 #include <QCloseEvent>
 #include <QSettings>
+#include <QCursor>
 #include <cmath>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -125,20 +127,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     aisOverlay_ = std::make_unique<AisOverlay>(aisStore_);
     aisOverlay_->setPredictionMinutes(settings_->ownshipPredictionMinutes());
     aisOverlay_->setVesselScale(settings_->vesselScale());
-    aisOverlay_->setOnTargetClicked([this](quint32 mmsi) {
-        // Click on a target opens (or raises) an info window for that MMSI.
-        // The window deletes itself on close; QPointer drops the stale entry.
-        AisTargetInfoWindow* w = aisInfoWindows_.value(mmsi);
-        if (!w) {
-            w = new AisTargetInfoWindow(mmsi, aisStore_, this);
-            w->setAttribute(Qt::WA_DeleteOnClose);
-            aisInfoWindows_.insert(mmsi, w);
-        }
-        w->show();
-        w->raise();
-        w->activateWindow();
-    });
+    aisStore_->setStaleSeconds(settings_->aisStaleSeconds());
+    aisStore_->setLostSeconds(settings_->aisLostSeconds());
+    aisOverlay_->setOnTargetClicked([this](quint32 mmsi) { showAisTarget(mmsi); });
     view_->addOverlay(aisOverlay_.get());
+    // Any chart interaction (empty click, pan, zoom) dismisses the quick-look
+    // popup; the full info window is unaffected.
+    connect(view_, &ChartView::chartInteracted, this, [this] {
+        if (aisQuickInfo_) aisQuickInfo_->close();
+        aisQuickInfoMmsi_ = 0;
+    });
     connect(settings_, &Settings::ownshipPredictionMinutesChanged,
             this, [this](double m) {
         if (aisOverlay_) aisOverlay_->setPredictionMinutes(m);
@@ -147,6 +145,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::vesselScaleChanged,
             this, [this](double s) {
         if (aisOverlay_) aisOverlay_->setVesselScale(s);
+    });
+    connect(settings_, &Settings::aisStaleThresholdsChanged,
+            this, [this](double staleS, double lostS) {
+        if (aisStore_) {
+            aisStore_->setStaleSeconds(staleS);
+            aisStore_->setLostSeconds(lostS);
+        }
     });
     connect(aisStore_, &AisTargetStore::targetUpdated, this, [this](quint32) {
         if (view_) view_->update();
@@ -297,9 +302,13 @@ void MainWindow::editUnits() {
 }
 
 void MainWindow::editStaleThresholds() {
-    StaleThresholdsDialog dlg(settings_->staleSeconds(), settings_->invalidSeconds(), this);
-    if (dlg.exec() == QDialog::Accepted)
+    StaleThresholdsDialog dlg(settings_->staleSeconds(), settings_->invalidSeconds(),
+                              settings_->aisStaleSeconds(), settings_->aisLostSeconds(),
+                              this);
+    if (dlg.exec() == QDialog::Accepted) {
         settings_->setStaleThresholds(dlg.staleSeconds(), dlg.invalidSeconds());
+        settings_->setAisStaleThresholds(dlg.aisStaleSeconds(), dlg.aisLostSeconds());
+    }
 }
 
 void MainWindow::editOwnshipPrediction() {
@@ -345,6 +354,34 @@ void MainWindow::editOwnshipMmsi() {
     OwnshipMmsiDialog dlg(settings_->ownshipMmsi(), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setOwnshipMmsi(dlg.mmsi());
+}
+
+void MainWindow::showAisTarget(quint32 mmsi) {
+    // Second click on the same target (its quick-look is still up) opens the
+    // full info window.
+    if (aisQuickInfo_ && aisQuickInfoMmsi_ == mmsi) {
+        aisQuickInfo_->close();
+        aisQuickInfoMmsi_ = 0;
+        AisTargetInfoWindow* w = aisInfoWindows_.value(mmsi);
+        if (!w) {
+            w = new AisTargetInfoWindow(mmsi, aisStore_, this);
+            w->setAttribute(Qt::WA_DeleteOnClose);
+            aisInfoWindows_.insert(mmsi, w);
+        }
+        w->show();
+        w->raise();
+        w->activateWindow();
+        return;
+    }
+
+    // First click (or a click on a different target): show the quick-look popup
+    // near the cursor, replacing any popup already up for another target.
+    if (aisQuickInfo_) aisQuickInfo_->close();
+    auto* q = new AisQuickInfoWindow(mmsi, aisStore_, this);
+    aisQuickInfo_     = q;
+    aisQuickInfoMmsi_ = mmsi;
+    q->move(QCursor::pos() + QPoint(14, 14));
+    q->show();
 }
 
 void MainWindow::publishOwnshipToView() {

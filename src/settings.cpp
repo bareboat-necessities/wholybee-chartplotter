@@ -16,8 +16,10 @@ constexpr auto kBasemap   = "basemap/directory";
 constexpr auto kSimOn     = "sim/enabled";
 constexpr auto kSimLat    = "sim/lat";
 constexpr auto kSimLon    = "sim/lon";
-constexpr auto kStaleS    = "nav/staleSeconds";
-constexpr auto kInvalidS  = "nav/invalidSeconds";
+constexpr auto kStaleS      = "nav/staleSeconds";
+constexpr auto kInvalidS    = "nav/invalidSeconds";
+constexpr auto kAisStaleS   = "nav/aisStaleSeconds";
+constexpr auto kAisLostS    = "nav/aisLostSeconds";
 constexpr auto kPredMin   = "ships/ownshipPredictionMinutes";
 constexpr auto kDepthUnit = "units/depth";
 constexpr auto kDistUnit  = "units/distance";
@@ -54,6 +56,8 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     }
     staleSeconds_   = s.value(QLatin1String(kStaleS),   5.0).toDouble();
     invalidSeconds_ = s.value(QLatin1String(kInvalidS), 30.0).toDouble();
+    aisStaleSeconds_ = s.value(QLatin1String(kAisStaleS), 360.0).toDouble();
+    aisLostSeconds_  = s.value(QLatin1String(kAisLostS),  720.0).toDouble();
     ownshipPredMin_ = s.value(QLatin1String(kPredMin),  6.0).toDouble();
     depthUnit_    = units::depthUnitFromKey(s.value(QLatin1String(kDepthUnit)).toString(),
                                             DepthUnit::Feet);
@@ -221,6 +225,16 @@ void Settings::setStaleThresholds(double staleS, double invalidS) {
     s.setValue(QLatin1String(kStaleS),   staleS);
     s.setValue(QLatin1String(kInvalidS), invalidS);
     emit staleThresholdsChanged(staleS, invalidS);
+}
+
+void Settings::setAisStaleThresholds(double staleS, double lostS) {
+    if (staleS == aisStaleSeconds_ && lostS == aisLostSeconds_) return;
+    aisStaleSeconds_ = staleS;
+    aisLostSeconds_  = lostS;
+    QSettings s;
+    s.setValue(QLatin1String(kAisStaleS), staleS);
+    s.setValue(QLatin1String(kAisLostS),  lostS);
+    emit aisStaleThresholdsChanged(staleS, lostS);
 }
 
 void Settings::setBasemapDirectory(const QString& dir) {

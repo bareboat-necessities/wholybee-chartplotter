@@ -5,16 +5,23 @@
 
 class QPainter;
 
-// Shared vessel glyph, so ownship and AIS targets render identically (only the
-// colours differ). Drawn in device pixels at constant on-screen size: a triangle
-// pointing along heading (a circle when heading is unknown), an optional
-// course-prediction line ahead, dimmed with a cancellation slash when stale.
+// Shared vessel glyph renderer. Drawn in device pixels at constant on-screen
+// size: a shape pointing along heading (a circle when heading is unknown),
+// an optional course-prediction line ahead, dimmed with a cancellation slash
+// when stale.
 namespace vessel {
 
 struct SymbolStyle {
-    QColor fill;        // bright fill (current data)
-    QColor staleFill;   // dimmed fill (stale data)
-    QColor edge;        // triangle/circle outline
+    // FilledTriangle — Class A / ownship: solid filled triangle.
+    // Chevron        — Class B: open arrowhead (two forward sides only, no
+    //                  base, no fill). Matches the IALA/IHO Class B convention.
+    enum class Shape { FilledTriangle, Chevron };
+
+    Shape  shape    = Shape::FilledTriangle;
+    QColor fill;        // bright fill (FilledTriangle only)
+    QColor staleFill;   // dimmed fill (FilledTriangle only)
+    QColor edge;        // outline / chevron stroke colour (current)
+    QColor staleEdge;   // outline / chevron stroke colour (stale)
     QColor predLine;    // course-prediction line
 };
 

@@ -150,6 +150,11 @@ signals:
     // Auto-follow turned on/off (e.g. off when the user pans). Lets the menu
     // keep its checkmark in sync.
     void autoFollowChanged(bool on);
+    // The user interacted with the chart itself — an empty-space click, a pan,
+    // or a zoom. Transient popups (e.g. the AIS quick-info window) listen for
+    // this to dismiss themselves. Not emitted when a click hits a chart overlay
+    // (e.g. an AIS target), so target clicks keep their own handling.
+    void chartInteracted();
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -283,6 +288,7 @@ private:
     std::vector<IChartOverlay*> overlays_;    // plugin overlays (not owned)
 
     bool    dragging_ = false;
+    bool    panDismissEmitted_ = false;   // chartInteracted() fired once per drag
     QPointF lastDragPos_;
     QPointF pressPos_;     // for click vs drag (release with little movement = click)
 

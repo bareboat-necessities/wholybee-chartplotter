@@ -12,28 +12,39 @@ void AisOverlay::paint(QPainter& p, const ChartViewport& vp) {
     lastViewport_ = vp;
     haveViewport_ = true;
 
-    // Green AIS glyph — same shape/predictor/slash as ownship, just a different
-    // colour so the user can tell ownship from AIS at a glance.
-    static const vessel::SymbolStyle kAis{
+    // Class A: green filled triangle (same shape as ownship, different colour).
+    static const vessel::SymbolStyle kAisA{
+        vessel::SymbolStyle::Shape::FilledTriangle,
         QColor(30, 170, 60),                  // current fill
         QColor(120, 170, 130, 200),           // stale fill (dimmed)
-        QColor(0, 60, 10),                    // outline
-        QColor(20, 20, 20, 220)               // predictor line (same as ownship)
+        QColor(0, 60, 10),                    // outline (current)
+        QColor(0, 60, 10),                    // outline (stale)
+        QColor(20, 20, 20, 220)               // predictor line
+    };
+    // Class B: green filled arrowhead — IALA/IHO Class B convention.
+    static const vessel::SymbolStyle kAisB{
+        vessel::SymbolStyle::Shape::Chevron,
+        QColor(30, 170, 60),                  // current fill
+        QColor(120, 170, 130, 200),           // stale fill (dimmed)
+        QColor(0, 60, 10),                    // outline (current)
+        QColor(0, 60, 10),                    // outline (stale)
+        QColor(20, 20, 20, 220)               // predictor line
     };
 
     for (const AisTarget& t : store_->targets()) {
         if (!t.hasPosition()) continue;
         const QPointF pos = vp.geoToScreen(*t.latitudeDeg, *t.longitudeDeg);
 
-        // Heading for the triangle: prefer reported heading, fall back to COG.
+        // Heading: prefer reported heading, fall back to COG.
         std::optional<double> headingDeg;
         if (t.headingDegTrue) headingDeg = *t.headingDegTrue;
         else if (t.cogDegTrue) headingDeg = *t.cogDegTrue;
 
+        const vessel::SymbolStyle& style = (t.cls == AisClass::B) ? kAisB : kAisA;
         vessel::drawSymbol(p, pos, headingDeg,
                            t.sogKnots.value_or(0.0),
                            predMinutes_, vp.pixelsPerMetre(),
-                           t.freshness == AisFreshness::Stale, kAis,
+                           t.freshness == AisFreshness::Stale, style,
                            vesselScale_);
     }
 }
