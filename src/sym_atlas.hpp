@@ -89,9 +89,10 @@ public:
 
     // Draw symbol symIdx at screen point d, honouring the pivot offset.
     // rotationDeg rotates the symbol around its pivot (degrees CW from north,
-    // matching the S-57 ORIENT convention).
+    // matching the S-57 ORIENT convention). scale multiplies the on-screen size
+    // uniformly around the pivot; 1.0 is the baked nominal size.
     void draw(QPainter& p, uint16_t symIdx, QPointF d,
-              float rotationDeg = 0.0f) const;
+              float rotationDeg = 0.0f, float scale = 1.0f) const;
 
 private:
     // One lookup: attribute conditions (a slice of conds_) + resulting symbol,

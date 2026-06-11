@@ -79,6 +79,7 @@ qt_add_executable(chartviewer
     src/nav_data_browser_window.cpp
     src/data_priority_dialog.cpp
     src/chart_detail_dialog.cpp
+    src/chart_symbol_size_dialog.cpp
     src/core_api.cpp
     src/plugin_manager.cpp
     src/test_plugin.cpp

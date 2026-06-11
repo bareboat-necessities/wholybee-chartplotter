@@ -996,6 +996,14 @@ void ChartView::setChartDetailLevel(double level) {
     update();           // re-thin soundings now, before the debounced rebuild
 }
 
+void ChartView::setSymbolScale(double scale) {
+    if (scale < 0.5) scale = 0.5;
+    if (scale > 3.0) scale = 3.0;
+    if (scale == symbolScale_) return;
+    symbolScale_ = scale;
+    update();
+}
+
 void ChartView::setDepthUnit(DepthUnit u) {
     if (u == depthUnit_) return;
     depthUnit_ = u; update();   // soundings are relabelled on repaint
@@ -1182,11 +1190,12 @@ void ChartView::paintEvent(QPaintEvent*) {
                     if (!screen.contains(d)) continue;
 
                     if (atlasOk && sym.symIdx != SymAtlas::kNoSymbol) {
-                        // Single GPU blit: source rect already in atlas coords.
-                        symAtlas_.draw(p, sym.symIdx, d, sym.rotationDeg);
+                        symAtlas_.draw(p, sym.symIdx, d, sym.rotationDeg,
+                                       static_cast<float>(symbolScale_));
                     } else {
                         // Fallback: magenta dot (pen/brush set above).
-                        p.drawEllipse(d, 3.0, 3.0);
+                        const double r = 3.0 * symbolScale_;
+                        p.drawEllipse(d, r, r);
                     }
                 }
             }

@@ -112,8 +112,10 @@ public:
     void setShowDepthContours(bool on);
     // Detail-level bias, in fractional bands. 0 = nominal mapping from visible
     // width to band; positive pulls in higher-detail cells (more detail on
-    // screen); negative backs off. Range -1.0..+1.0.
+    // screen); negative backs off. Range -2.0..+2.0.
     void setChartDetailLevel(double level);
+    // Symbol scale factor. 1.0 = nominal (baked) size; range 0.5 .. 3.0.
+    void setSymbolScale(double scale);
     void setDepthUnit(DepthUnit u);   // relabels soundings (repaint, no rebuild)
     void setDistanceUnit(DistanceUnit u);   // scale-bar units (repaint)
 
@@ -269,7 +271,8 @@ private:
     bool showSoundings_ = true;
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
-    double chartDetailLevel_ = 0.0;   // -1.0..+1.0, biases target band
+    double chartDetailLevel_ = 0.0;   // -2.0..+2.0, biases target band
+    double symbolScale_      = 1.0;   // 0.5..3.0, uniform symbol scale
     DepthUnit depthUnit_ = DepthUnit::Feet;   // how soundings are labelled
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;   // scale-bar units
     bool userInteracted_ = false;

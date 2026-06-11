@@ -24,6 +24,7 @@ constexpr auto kDistUnit  = "units/distance";
 constexpr auto kSrcPrio   = "data/sourcePriority";
 constexpr auto kAutoHide  = "menu/autoHide";
 constexpr auto kDetailLvl = "display/chartDetailLevel";
+constexpr auto kSymScale  = "display/symbolScale";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -63,6 +64,9 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     chartDetailLevel_ = s.value(QLatin1String(kDetailLvl), 0.0).toDouble();
     if (chartDetailLevel_ < -2.0) chartDetailLevel_ = -2.0;
     if (chartDetailLevel_ >  2.0) chartDetailLevel_ =  2.0;
+    symbolScale_ = s.value(QLatin1String(kSymScale), 1.0).toDouble();
+    if (symbolScale_ < 0.5) symbolScale_ = 0.5;
+    if (symbolScale_ > 3.0) symbolScale_ = 3.0;
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -176,6 +180,15 @@ void Settings::setChartDetailLevel(double level) {
     chartDetailLevel_ = level;
     QSettings().setValue(QLatin1String(kDetailLvl), level);
     emit chartDetailLevelChanged(level);
+}
+
+void Settings::setSymbolScale(double scale) {
+    if (scale < 0.5) scale = 0.5;
+    if (scale > 3.0) scale = 3.0;
+    if (scale == symbolScale_) return;
+    symbolScale_ = scale;
+    QSettings().setValue(QLatin1String(kSymScale), scale);
+    emit symbolScaleChanged(scale);
 }
 
 void Settings::setStaleThresholds(double staleS, double invalidS) {

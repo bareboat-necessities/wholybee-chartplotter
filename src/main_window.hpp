@@ -41,6 +41,7 @@ private slots:
     void showNavDataBrowser();
     void editDataPriority();
     void editChartDetailLevel();
+    void editSymbolSize();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
