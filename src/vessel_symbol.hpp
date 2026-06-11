@@ -20,10 +20,11 @@ struct SymbolStyle {
 
 // `pos` is the device-pixel position. `headingDeg` absent => draw a circle and
 // no rotation. The prediction line reaches where the vessel will be in
-// `predMinutes` at `sogKnots`, using `pixelsPerMetre` to scale.
+// `predMinutes` at `sogKnots`, using `pixelsPerMetre` to scale. `scale`
+// multiplies all on-screen pixel sizes uniformly (1.0 = nominal).
 void drawSymbol(QPainter& p, const QPointF& pos,
                 std::optional<double> headingDeg,
                 double sogKnots, double predMinutes, double pixelsPerMetre,
-                bool stale, const SymbolStyle& style);
+                bool stale, const SymbolStyle& style, double scale = 1.0);
 
 } // namespace vessel

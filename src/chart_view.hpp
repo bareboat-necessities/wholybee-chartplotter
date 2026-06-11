@@ -116,6 +116,8 @@ public:
     void setChartDetailLevel(double level);
     // Symbol scale factor. 1.0 = nominal (baked) size; range 0.5 .. 3.0.
     void setSymbolScale(double scale);
+    // Vessel glyph scale factor (ownship + AIS). 1.0 = nominal; range 0.5..3.0.
+    void setVesselScale(double scale);
     void setDepthUnit(DepthUnit u);   // relabels soundings (repaint, no rebuild)
     void setDistanceUnit(DistanceUnit u);   // scale-bar units (repaint)
 
@@ -273,6 +275,7 @@ private:
     bool showDepthContours_ = true;
     double chartDetailLevel_ = 0.0;   // -2.0..+2.0, biases target band
     double symbolScale_      = 1.0;   // 0.5..3.0, uniform symbol scale
+    double vesselScale_      = 1.0;   // 0.5..3.0, ownship + AIS glyph scale
     DepthUnit depthUnit_ = DepthUnit::Feet;   // how soundings are labelled
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;   // scale-bar units
     bool userInteracted_ = false;

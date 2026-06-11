@@ -80,6 +80,8 @@ qt_add_executable(chartviewer
     src/data_priority_dialog.cpp
     src/chart_detail_dialog.cpp
     src/chart_symbol_size_dialog.cpp
+    src/ship_size_dialog.cpp
+    src/ownship_mmsi_dialog.cpp
     src/core_api.cpp
     src/plugin_manager.cpp
     src/test_plugin.cpp

@@ -67,6 +67,8 @@ signals:
     void editDataPriorityRequested();                  // open Data Priority dialog
     void editChartDetailLevelRequested();              // open Chart Detail Level dialog
     void editSymbolSizeRequested();                    // open Symbol Size dialog
+    void editVesselSizeRequested();                    // open Ship Size dialog
+    void editOwnshipMmsiRequested();                   // open Own Ship MMSI dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

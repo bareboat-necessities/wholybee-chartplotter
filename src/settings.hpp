@@ -77,6 +77,14 @@ public:
     // steps of 0.25 from the dialog (50 % .. 300 %).
     double symbolScale() const { return symbolScale_; }
 
+    // Vessel glyph scale factor (ownship + AIS). 1.0 = nominal; range 0.5..3.0
+    // in steps of 0.25 from the dialog.
+    double vesselScale() const { return vesselScale_; }
+
+    // MMSI of the user's own vessel. Empty string means not configured.
+    // Validated to be exactly 9 digits before being stored.
+    QString ownshipMmsi() const { return ownshipMmsi_; }
+
     // Data-source priority: ordered source ids, highest priority first.
     QStringList dataSourcePriority() const { return dataSourcePriority_; }
 
@@ -98,6 +106,8 @@ public slots:
     void setAutoHideMenu(bool on);
     void setChartDetailLevel(double level);
     void setSymbolScale(double scale);
+    void setVesselScale(double scale);
+    void setOwnshipMmsi(const QString& mmsi);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -115,6 +125,8 @@ signals:
     void autoHideMenuChanged(bool on);
     void chartDetailLevelChanged(double level);
     void symbolScaleChanged(double scale);
+    void vesselScaleChanged(double scale);
+    void ownshipMmsiChanged(const QString& mmsi);
 
 private:
     void loadChartSets();
@@ -141,4 +153,6 @@ private:
     bool          autoHideMenu_ = true;   // legacy default = current behaviour
     double        chartDetailLevel_ = 0.0;   // -2.0 .. +2.0, 0 = nominal
     double        symbolScale_      = 1.0;   // 0.5 .. 3.0, 1.0 = nominal
+    double        vesselScale_      = 1.0;   // 0.5 .. 3.0, 1.0 = nominal
+    QString       ownshipMmsi_;              // 9-digit string or empty
 };

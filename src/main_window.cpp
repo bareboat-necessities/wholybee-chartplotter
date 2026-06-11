@@ -12,6 +12,8 @@
 #include "data_priority_dialog.hpp"
 #include "chart_detail_dialog.hpp"
 #include "chart_symbol_size_dialog.hpp"
+#include "ship_size_dialog.hpp"
+#include "ownship_mmsi_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
 #include "ais_overlay.hpp"
@@ -63,6 +65,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->setSymbolScale(settings_->symbolScale());
     connect(settings_, &Settings::symbolScaleChanged,
             view_, &ChartView::setSymbolScale);
+    view_->setVesselScale(settings_->vesselScale());
+    connect(settings_, &Settings::vesselScaleChanged,
+            view_, &ChartView::setVesselScale);
 
     // Depth unit drives how soundings are labelled; distance unit drives the
     // scale bar.
@@ -119,6 +124,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // configurable predictor length, and triggers a repaint as targets change.
     aisOverlay_ = std::make_unique<AisOverlay>(aisStore_);
     aisOverlay_->setPredictionMinutes(settings_->ownshipPredictionMinutes());
+    aisOverlay_->setVesselScale(settings_->vesselScale());
     aisOverlay_->setOnTargetClicked([this](quint32 mmsi) {
         // Click on a target opens (or raises) an info window for that MMSI.
         // The window deletes itself on close; QPointer drops the stale entry.
@@ -137,6 +143,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             this, [this](double m) {
         if (aisOverlay_) aisOverlay_->setPredictionMinutes(m);
         if (view_) view_->update();
+    });
+    connect(settings_, &Settings::vesselScaleChanged,
+            this, [this](double s) {
+        if (aisOverlay_) aisOverlay_->setVesselScale(s);
     });
     connect(aisStore_, &AisTargetStore::targetUpdated, this, [this](quint32) {
         if (view_) view_->update();
@@ -175,6 +185,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editDataPriorityRequested,        this, &MainWindow::editDataPriority);
     connect(sideMenu_, &SideMenu::editChartDetailLevelRequested,    this, &MainWindow::editChartDetailLevel);
     connect(sideMenu_, &SideMenu::editSymbolSizeRequested,          this, &MainWindow::editSymbolSize);
+    connect(sideMenu_, &SideMenu::editVesselSizeRequested,          this, &MainWindow::editVesselSize);
+    connect(sideMenu_, &SideMenu::editOwnshipMmsiRequested,         this, &MainWindow::editOwnshipMmsi);
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
@@ -321,6 +333,18 @@ void MainWindow::editSymbolSize() {
     ChartSymbolSizeDialog dlg(settings_->symbolScale(), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setSymbolScale(dlg.symbolScale());
+}
+
+void MainWindow::editVesselSize() {
+    ShipSizeDialog dlg(settings_->vesselScale(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setVesselScale(dlg.vesselScale());
+}
+
+void MainWindow::editOwnshipMmsi() {
+    OwnshipMmsiDialog dlg(settings_->ownshipMmsi(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setOwnshipMmsi(dlg.mmsi());
 }
 
 void MainWindow::publishOwnshipToView() {

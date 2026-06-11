@@ -42,6 +42,8 @@ private slots:
     void editDataPriority();
     void editChartDetailLevel();
     void editSymbolSize();
+    void editVesselSize();
+    void editOwnshipMmsi();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
