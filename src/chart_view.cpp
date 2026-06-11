@@ -1257,6 +1257,12 @@ void ChartView::setOwnshipPredictionMinutes(double minutes) {
     update();
 }
 
+void ChartView::setHeadingSource(HeadingSource s) {
+    if (s == headingSource_) return;
+    headingSource_ = s;
+    update();
+}
+
 void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
     if (!ownship_.latitudeDeg.valid() || !ownship_.longitudeDeg.valid()) return;
 
@@ -1267,10 +1273,16 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
     const double off = wrapOffsetFor(sx);
     const QPointF d = cam.map(QPointF(sx + off, sy));
 
-    // Heading for the triangle: prefer true heading, fall back to COG.
+    // Heading for the triangle: use the configured source, falling back to the
+    // other when the preferred one has no data so the glyph still has a direction.
     std::optional<double> headingDeg;
-    if (ownship_.headingDegTrue.valid())  headingDeg = ownship_.headingDegTrue.value;
-    else if (ownship_.cogDegTrue.valid()) headingDeg = ownship_.cogDegTrue.value;
+    if (headingSource_ == HeadingSource::Cog) {
+        if (ownship_.cogDegTrue.valid())          headingDeg = ownship_.cogDegTrue.value;
+        else if (ownship_.headingDegTrue.valid()) headingDeg = ownship_.headingDegTrue.value;
+    } else {
+        if (ownship_.headingDegTrue.valid())  headingDeg = ownship_.headingDegTrue.value;
+        else if (ownship_.cogDegTrue.valid()) headingDeg = ownship_.cogDegTrue.value;
+    }
 
     // Red ownship glyph: filled triangle.
     static const vessel::SymbolStyle kOwnship{

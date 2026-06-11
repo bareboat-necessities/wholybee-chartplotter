@@ -12,6 +12,7 @@ class Settings;
 class SideMenu;
 class NavDataStore;
 class AisTargetStore;
+class CpaCalculator;
 class Simulator;
 class NavDataBrowserWindow;
 class AisOverlay;
@@ -45,6 +46,8 @@ private slots:
     void editSymbolSize();
     void editVesselSize();
     void editOwnshipMmsi();
+    void editHeadingSource();
+    void editDangerousShips();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
@@ -61,6 +64,7 @@ private:
     SideMenu*     sideMenu_ = nullptr;
     NavDataStore* navStore_ = nullptr;
     AisTargetStore* aisStore_ = nullptr;
+    CpaCalculator* cpaCalc_ = nullptr;   // keeps target CPA/TCPA up to date
     Simulator*    simulator_ = nullptr;
     NavDataBrowserWindow* navBrowser_ = nullptr;
     std::unique_ptr<AisOverlay>    aisOverlay_;  // core-owned AIS chart overlay

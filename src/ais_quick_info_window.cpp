@@ -27,10 +27,16 @@ AisQuickInfoWindow::AisQuickInfoWindow(quint32 mmsi, const AisTargetStore* store
 
     cogLabel_ = new QLabel(this);
     sogLabel_ = new QLabel(this);
-    for (QLabel* l : {cogLabel_, sogLabel_})
+    distLabel_ = new QLabel(this);
+    cpaLabel_ = new QLabel(this);
+    tcpaLabel_ = new QLabel(this);
+    for (QLabel* l : {cogLabel_, sogLabel_, distLabel_, cpaLabel_, tcpaLabel_})
         l->setStyleSheet(QStringLiteral("font-size:13px;"));
     col->addWidget(cogLabel_);
     col->addWidget(sogLabel_);
+    col->addWidget(distLabel_);
+    col->addWidget(cpaLabel_);
+    col->addWidget(tcpaLabel_);
 
     if (store_) {
         connect(store_, &AisTargetStore::targetUpdated, this, [this](quint32 m) {
@@ -60,6 +66,25 @@ void AisQuickInfoWindow::refresh() {
         (t && t->sogKnots)
             ? QString::number(*t->sogKnots, 'f', 1) + QStringLiteral(" kn")
             : QStringLiteral("—")));
+
+    // Distance to ownship is known whenever both positions are.
+    const bool haveDist = t && t->rangeMeters;
+    distLabel_->setVisible(haveDist);
+    if (haveDist)
+        distLabel_->setText(QStringLiteral("Distance: %1 nm").arg(
+            QString::number(*t->rangeMeters / 1852.0, 'f', 2)));
+
+    // CPA/TCPA only exist once the collision component has a fix on both vessels;
+    // show them only when available so the popup stays a quick glance otherwise.
+    const bool haveCpa = t && t->cpaMeters && t->tcpaSeconds;
+    cpaLabel_->setVisible(haveCpa);
+    tcpaLabel_->setVisible(haveCpa);
+    if (haveCpa) {
+        cpaLabel_->setText(QStringLiteral("CPA: %1 nm").arg(
+            QString::number(*t->cpaMeters / 1852.0, 'f', 2)));
+        tcpaLabel_->setText(QStringLiteral("TCPA: %1").arg(
+            aisFormatTcpa(*t->tcpaSeconds)));
+    }
 
     adjustSize();
 }

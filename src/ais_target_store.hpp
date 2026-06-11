@@ -20,6 +20,11 @@ QString aisNavStatusName(int code);
 // categorisation; falls back to the numeric code).
 QString aisShipTypeName(int code);
 
+// Format a TCPA (seconds) as "00h 00m 00s", dropping the hours or minutes field
+// whenever that field's value is zero (seconds are always shown). A negative
+// value — the contact is opening, i.e. CPA already passed — is prefixed with '-'.
+QString aisFormatTcpa(double seconds);
+
 // Standard AIS navigational status codes (0..15). Class B has no status.
 enum class AisNavStatus {
     UnderWayEngine = 0, AtAnchor = 1, NotUnderCommand = 2,
@@ -61,6 +66,7 @@ struct AisTarget {
     AisNavStatus navStatus = AisNavStatus::Undefined;
 
     // Computed by a collision component (not from AIS messages).
+    std::optional<double> rangeMeters;     // current distance to ownship
     std::optional<double> cpaMeters;       // closest point of approach
     std::optional<double> tcpaSeconds;     // time to CPA (< 0 = opening)
 
@@ -126,7 +132,10 @@ public:
     void publishAisPosition(const AisPositionReport& report, const QString& source) override;
     void publishAisStatic(const AisStaticData& data, const QString& source) override;
 
-    // CPA/TCPA computed elsewhere (ownship vs target) and attached to a target.
+    // Range/CPA/TCPA computed elsewhere (ownship vs target) and attached to a
+    // target. Distance is separate because it is known whenever both positions
+    // are (even when a target reports no course/speed and CPA can't be solved).
+    void setRangeMeters(quint32 mmsi, std::optional<double> rangeMeters);
     void setCpaTcpa(quint32 mmsi, std::optional<double> cpaMeters,
                     std::optional<double> tcpaSeconds);
 

@@ -240,6 +240,16 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit editOwnshipMmsiRequested(); });
     col->addWidget(mmsiBtn);
 
+    auto* headingSrcBtn = makeSettingsAction(QStringLiteral("Heading Source…"));
+    connect(headingSrcBtn, &QPushButton::clicked, this,
+            [this] { emit editHeadingSourceRequested(); });
+    col->addWidget(headingSrcBtn);
+
+    auto* dangerBtn = makeSettingsAction(QStringLiteral("Dangerous Ships…"));
+    connect(dangerBtn, &QPushButton::clicked, this,
+            [this] { emit editDangerousShipsRequested(); });
+    col->addWidget(dangerBtn);
+
     col->addWidget(makeHeader(QStringLiteral("Menu")));
     auto* autoHideBtn = makeCheckAction(QStringLiteral("Auto Hide Menu"),
                                         settings_->autoHideMenu());

@@ -29,4 +29,7 @@ private:
     QLabel* titleLabel_ = nullptr;
     QLabel* cogLabel_ = nullptr;
     QLabel* sogLabel_ = nullptr;
+    QLabel* distLabel_ = nullptr;  // distance to ownship; shown when available
+    QLabel* cpaLabel_ = nullptr;   // shown only when CPA/TCPA are available
+    QLabel* tcpaLabel_ = nullptr;
 };

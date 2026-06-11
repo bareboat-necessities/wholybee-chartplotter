@@ -46,6 +46,20 @@ QString aisShipTypeName(int code) {
     return QStringLiteral("Type %1").arg(code);
 }
 
+QString aisFormatTcpa(double seconds) {
+    const bool  neg   = seconds < 0;
+    const qint64 total = qRound64(neg ? -seconds : seconds);
+    const qint64 h = total / 3600;
+    const qint64 m = (total % 3600) / 60;
+    const qint64 s = total % 60;
+
+    QString out;
+    if (h > 0) out += QStringLiteral("%1h ").arg(h, 2, 10, QChar('0'));
+    if (m > 0) out += QStringLiteral("%1m ").arg(m, 2, 10, QChar('0'));
+    out += QStringLiteral("%1s").arg(s, 2, 10, QChar('0'));
+    return neg ? QChar('-') + out : out;
+}
+
 namespace {
 // Copy an optional into the target only when the report actually supplies it,
 // so a report that omits a field doesn't wipe a previously known value.
@@ -102,6 +116,13 @@ void AisTargetStore::publishAisStatic(const AisStaticData& d, const QString& sou
     applyIf(t.draughtMeters, d.draughtMeters);
     if (d.dimensions.known()) t.dimensions = d.dimensions;
     emit targetUpdated(d.mmsi);
+}
+
+void AisTargetStore::setRangeMeters(quint32 mmsi, std::optional<double> rangeMeters) {
+    auto it = targets_.find(mmsi);
+    if (it == targets_.end()) return;
+    it->rangeMeters = rangeMeters;
+    emit targetUpdated(mmsi);
 }
 
 void AisTargetStore::setCpaTcpa(quint32 mmsi, std::optional<double> cpaMeters,

@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QVector>
 #include "units.hpp"
+#include "heading_source.hpp"
 
 // A named chart directory the user can switch between from the menu.
 struct ChartSet {
@@ -91,6 +92,19 @@ public:
     // Validated to be exactly 9 digits before being stored.
     QString ownshipMmsi() const { return ownshipMmsi_; }
 
+    // Which direction the ownship glyph points: true heading or COG.
+    HeadingSource headingSource() const { return headingSource_; }
+
+    // "Dangerous ship" rules. The values are persisted now; the logic that
+    // consumes them (flagging targets) is added later. Each rule has an enable
+    // flag and a threshold.
+    bool   dangerIgnoreFarEnabled() const { return dangerIgnoreFarEnabled_; }
+    double dangerIgnoreFarNm()      const { return dangerIgnoreFarNm_; }
+    bool   dangerCpaEnabled()  const { return dangerCpaEnabled_; }
+    double dangerCpaNm()       const { return dangerCpaNm_; }
+    bool   dangerTcpaEnabled() const { return dangerTcpaEnabled_; }
+    double dangerTcpaMin()     const { return dangerTcpaMin_; }
+
     // Data-source priority: ordered source ids, highest priority first.
     QStringList dataSourcePriority() const { return dataSourcePriority_; }
 
@@ -115,6 +129,10 @@ public slots:
     void setSymbolScale(double scale);
     void setVesselScale(double scale);
     void setOwnshipMmsi(const QString& mmsi);
+    void setHeadingSource(HeadingSource s);
+    void setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
+                           bool cpaEnabled, double cpaNm,
+                           bool tcpaEnabled, double tcpaMin);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -135,6 +153,8 @@ signals:
     void symbolScaleChanged(double scale);
     void vesselScaleChanged(double scale);
     void ownshipMmsiChanged(const QString& mmsi);
+    void headingSourceChanged(HeadingSource s);
+    void dangerousShipsChanged();   // any dangerous-ship rule changed
 
 private:
     void loadChartSets();
@@ -165,4 +185,13 @@ private:
     double        symbolScale_      = 1.0;   // 0.5 .. 3.0, 1.0 = nominal
     double        vesselScale_      = 1.0;   // 0.5 .. 3.0, 1.0 = nominal
     QString       ownshipMmsi_;              // 9-digit string or empty
+    HeadingSource headingSource_ = HeadingSource::Heading;
+    // Dangerous-ship rules (consumed later); enabled by default with the
+    // requested threshold defaults.
+    bool   dangerIgnoreFarEnabled_ = true;
+    double dangerIgnoreFarNm_      = 20.0;
+    bool   dangerCpaEnabled_  = true;
+    double dangerCpaNm_       = 2.0;
+    bool   dangerTcpaEnabled_ = true;
+    double dangerTcpaMin_     = 30.0;
 };
