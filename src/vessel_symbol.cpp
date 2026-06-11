@@ -26,23 +26,50 @@ void drawSymbol(QPainter& p, const QPointF& pos,
         if (len >= 1.0) {
             QPen line(s.predLine); line.setWidthF(1.5);
             p.setPen(line);
+            p.setBrush(Qt::NoBrush);
             p.drawLine(QPointF(0, 0), QPointF(0, -len));
+            // Small hollow circle at the head: diameter = half the glyph width
+            // (glyph spans -8..+8, so width 16 -> radius 4).
+            p.drawEllipse(QPointF(0, -len), 4.0, 4.0);
         }
     }
 
-    // Triangle pointing along heading (or a circle when heading is unknown).
-    QPolygonF tri;
-    tri << QPointF(0, -14) << QPointF(8, 8) << QPointF(-8, 8);
-    QPen edge(s.edge); edge.setWidthF(1.2);
-    p.setBrush(stale ? s.staleFill : s.fill);
-    p.setPen(edge);
-    if (headingDeg) p.drawPolygon(tri);
-    else            p.drawEllipse(QPointF(0, 0), 7.0, 7.0);
+    const QColor strokeColor = stale ? s.staleEdge : s.edge;
+
+    if (s.shape == SymbolStyle::Shape::Chevron) {
+        // Class B: filled arrowhead (a dart with a concave back notch).
+        // Unknown heading falls back to a circle.
+        QPen edge(strokeColor); edge.setWidthF(1.2);
+        edge.setJoinStyle(Qt::RoundJoin);
+        p.setBrush(stale ? s.staleFill : s.fill);
+        p.setPen(edge);
+        if (headingDeg) {
+            // Tip at the bow; the two back wings match the Class A triangle's
+            // footprint; a notch between them gives the arrowhead its dart shape.
+            QPolygonF arrow;
+            arrow << QPointF(0, -14)   // bow tip
+                  << QPointF(8, 8)     // starboard wing
+                  << QPointF(0, 2)     // back notch (concave)
+                  << QPointF(-8, 8);   // port wing
+            p.drawPolygon(arrow);
+        } else {
+            p.drawEllipse(QPointF(0, 0), 7.0, 7.0);
+        }
+    } else {
+        // Class A / ownship: solid filled triangle (or circle when heading unknown).
+        QPolygonF tri;
+        tri << QPointF(0, -14) << QPointF(8, 8) << QPointF(-8, 8);
+        QPen edge(strokeColor); edge.setWidthF(1.2);
+        p.setBrush(stale ? s.staleFill : s.fill);
+        p.setPen(edge);
+        if (headingDeg) p.drawPolygon(tri);
+        else            p.drawEllipse(QPointF(0, 0), 7.0, 7.0);
+    }
 
     if (stale) {
         // Cancellation slash at right angles to the centerline (marine
         // convention for an unreliable / DR fix).
-        QPen slash(QColor(0, 0, 0)); slash.setWidthF(1.6);
+        QPen slash(strokeColor); slash.setWidthF(1.6);
         p.setPen(slash);
         p.drawLine(QPointF(-8.0, 0.0), QPointF(8.0, 0.0));
     }

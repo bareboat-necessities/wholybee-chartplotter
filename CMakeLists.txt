@@ -93,6 +93,7 @@ qt_add_executable(chartviewer
     src/ais_decoder.cpp
     src/ais_overlay.cpp
     src/ais_target_info_window.cpp
+    src/ais_quick_info_window.cpp
     src/vessel_symbol.cpp
     src/sym_atlas.cpp
     src/theme.cpp

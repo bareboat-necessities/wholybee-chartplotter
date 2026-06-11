@@ -54,6 +54,12 @@ public:
     double staleSeconds()   const { return staleSeconds_; }
     double invalidSeconds() const { return invalidSeconds_; }
 
+    // AIS target stale-data thresholds (seconds). Targets are greyed at
+    // aisStaleSeconds and removed at aisLostSeconds. Defaults 360 s / 720 s
+    // (6 min / 12 min), matching standard AIS reporting intervals.
+    double aisStaleSeconds() const { return aisStaleSeconds_; }
+    double aisLostSeconds()  const { return aisLostSeconds_; }
+
     // Length of the ownship course-prediction line, in minutes of run-time at
     // the current SOG. Drawn from the bow along the boat's heading.
     double ownshipPredictionMinutes() const { return ownshipPredMin_; }
@@ -99,6 +105,7 @@ public slots:
     void setSimulatorEnabled(bool on);
     void setSimulatorPosition(double lat, double lon);
     void setStaleThresholds(double staleS, double invalidS);
+    void setAisStaleThresholds(double staleS, double lostS);
     void setOwnshipPredictionMinutes(double minutes);
     void setDepthUnit(DepthUnit u);
     void setDistanceUnit(DistanceUnit u);
@@ -118,6 +125,7 @@ signals:
     void basemapDirectoryChanged(const QString& dir);
     void simulatorEnabledChanged(bool on);
     void staleThresholdsChanged(double staleS, double invalidS);
+    void aisStaleThresholdsChanged(double staleS, double lostS);
     void ownshipPredictionMinutesChanged(double minutes);
     void depthUnitChanged(DepthUnit u);
     void distanceUnitChanged(DistanceUnit u);
@@ -144,8 +152,10 @@ private:
     bool   simEnabled_ = false;
     double simLat_ = 37.9;     // just SW of Point Reyes, in open water
     double simLon_ = -123.0;
-    double staleSeconds_   = 5.0;
-    double invalidSeconds_ = 30.0;
+    double staleSeconds_      = 5.0;
+    double invalidSeconds_    = 30.0;
+    double aisStaleSeconds_   = 360.0;   // 6 min
+    double aisLostSeconds_    = 720.0;   // 12 min
     double ownshipPredMin_ = 6.0;   // minutes of run-time ahead
     DepthUnit    depthUnit_    = DepthUnit::Feet;
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;

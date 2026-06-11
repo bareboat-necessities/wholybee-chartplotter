@@ -10,7 +10,7 @@
 
 namespace {
 constexpr int kSliderMin = 2;
-constexpr int kSliderMax = 12;
+constexpr int kSliderMax = 8;   // 8 * 25% = 200%
 
 int    scaleToStep(double scale) { return static_cast<int>(std::lround(scale / 0.25)); }
 double stepToScale(int step)     { return step * 0.25; }

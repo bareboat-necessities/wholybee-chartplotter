@@ -1272,10 +1272,15 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
     if (ownship_.headingDegTrue.valid())  headingDeg = ownship_.headingDegTrue.value;
     else if (ownship_.cogDegTrue.valid()) headingDeg = ownship_.cogDegTrue.value;
 
-    // Red ownship glyph (shared with AIS so they look alike).
+    // Red ownship glyph: filled triangle.
     static const vessel::SymbolStyle kOwnship{
-        QColor(220, 30, 30), QColor(200, 110, 110, 200),
-        QColor(40, 0, 0),    QColor(20, 20, 20, 220) };
+        vessel::SymbolStyle::Shape::FilledTriangle,
+        QColor(220, 30, 30),        // fill
+        QColor(200, 110, 110, 200), // stale fill
+        QColor(40, 0, 0),           // edge
+        QColor(40, 0, 0),           // stale edge
+        QColor(20, 20, 20, 220)     // pred line
+    };
     vessel::drawSymbol(p, d, headingDeg, ownship_.sogKnots.valueOr(0.0),
                        ownshipPredMin_, ppm_,
                        ownshipFreshness_ == NavFreshness::Stale, kOwnship,
@@ -1397,6 +1402,7 @@ void ChartView::zoomBy(double factor) {
     normalizeCenter();
     if (autoFollow_) recenterOnOwnship();
     beginInteraction();
+    emit chartInteracted();   // zoom dismisses transient popups
     updatePointLOD();
     scheduleUpdate();
     update();
@@ -1443,6 +1449,7 @@ void ChartView::wheelEvent(QWheelEvent* e) {
     if (autoFollow_) recenterOnOwnship();
 
     beginInteraction();
+    emit chartInteracted();   // zoom dismisses transient popups
     updatePointLOD();
     scheduleUpdate();
     update();
@@ -1452,6 +1459,7 @@ void ChartView::wheelEvent(QWheelEvent* e) {
 void ChartView::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && ppm_ > 0.0) {
         dragging_ = true;
+        panDismissEmitted_ = false;           // re-arm pan dismissal for this gesture
         lastDragPos_ = e->position();
         pressPos_   = e->position();          // for click vs drag at release
         userInteracted_ = true;
@@ -1467,6 +1475,13 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
         if (dragging_) {
             const QPointF d = e->position() - lastDragPos_;
             lastDragPos_ = e->position();
+            // Once the gesture is a real pan (past the click threshold), tell
+            // listeners — but only once per drag, and not for tiny click jitter.
+            if (!panDismissEmitted_ &&
+                (e->position() - pressPos_).manhattanLength() > 4.0) {
+                panDismissEmitted_ = true;
+                emit chartInteracted();
+            }
             if (autoFollow_) setAutoFollow(false);   // a pan breaks the lock
             scx_ -= d.x() / ppm_;
             scy_ -= d.y() / ppm_;
@@ -1484,11 +1499,15 @@ void ChartView::mouseReleaseEvent(QMouseEvent* e) {
         dragging_ = false;
         setCursor(Qt::OpenHandCursor);
         // Release with little movement is a click: offer it to the overlays in
-        // reverse z-order; the first to consume it (e.g. AIS hit) wins.
+        // reverse z-order; the first to consume it (e.g. AIS hit) wins. A click
+        // that no overlay consumes is an empty-space click — dismiss transient
+        // popups (target clicks are handled by the overlay, not this signal).
         if ((e->position() - pressPos_).manhattanLength() <= 4.0) {
+            bool consumed = false;
             for (auto it = overlays_.rbegin(); it != overlays_.rend(); ++it) {
-                if ((*it)->hitTest(e->position())) break;
+                if ((*it)->hitTest(e->position())) { consumed = true; break; }
             }
+            if (!consumed) emit chartInteracted();
         }
     }
     QWidget::mouseReleaseEvent(e);
