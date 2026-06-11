@@ -225,10 +225,20 @@ QWidget* SideMenu::buildSettingsPage() {
     col->addWidget(navBrowserBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Ships")));
-    auto* predBtn = makeSettingsAction(QStringLiteral("Ownship Course Prediction…"));
+    auto* predBtn = makeSettingsAction(QStringLiteral("Course Prediction Line…"));
     connect(predBtn, &QPushButton::clicked, this,
             [this] { emit editOwnshipPredictionRequested(); });
     col->addWidget(predBtn);
+
+    auto* shipSizeBtn = makeSettingsAction(QStringLiteral("Ship Size…"));
+    connect(shipSizeBtn, &QPushButton::clicked, this,
+            [this] { emit editVesselSizeRequested(); });
+    col->addWidget(shipSizeBtn);
+
+    auto* mmsiBtn = makeSettingsAction(QStringLiteral("Own Ship MMSI…"));
+    connect(mmsiBtn, &QPushButton::clicked, this,
+            [this] { emit editOwnshipMmsiRequested(); });
+    col->addWidget(mmsiBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Menu")));
     auto* autoHideBtn = makeCheckAction(QStringLiteral("Auto Hide Menu"),

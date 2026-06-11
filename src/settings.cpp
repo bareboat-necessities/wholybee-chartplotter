@@ -24,7 +24,9 @@ constexpr auto kDistUnit  = "units/distance";
 constexpr auto kSrcPrio   = "data/sourcePriority";
 constexpr auto kAutoHide  = "menu/autoHide";
 constexpr auto kDetailLvl = "display/chartDetailLevel";
-constexpr auto kSymScale  = "display/symbolScale";
+constexpr auto kSymScale    = "display/symbolScale";
+constexpr auto kVesselScale = "display/vesselScale";
+constexpr auto kOwnMmsi     = "nav/ownshipMmsi";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -67,6 +69,10 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     symbolScale_ = s.value(QLatin1String(kSymScale), 1.0).toDouble();
     if (symbolScale_ < 0.5) symbolScale_ = 0.5;
     if (symbolScale_ > 3.0) symbolScale_ = 3.0;
+    vesselScale_ = s.value(QLatin1String(kVesselScale), 1.0).toDouble();
+    if (vesselScale_ < 0.5) vesselScale_ = 0.5;
+    if (vesselScale_ > 3.0) vesselScale_ = 3.0;
+    ownshipMmsi_ = s.value(QLatin1String(kOwnMmsi)).toString();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -171,6 +177,22 @@ void Settings::setAutoHideMenu(bool on) {
     autoHideMenu_ = on;
     QSettings().setValue(QLatin1String(kAutoHide), on);
     emit autoHideMenuChanged(on);
+}
+
+void Settings::setVesselScale(double scale) {
+    if (scale < 0.5) scale = 0.5;
+    if (scale > 3.0) scale = 3.0;
+    if (scale == vesselScale_) return;
+    vesselScale_ = scale;
+    QSettings().setValue(QLatin1String(kVesselScale), scale);
+    emit vesselScaleChanged(scale);
+}
+
+void Settings::setOwnshipMmsi(const QString& mmsi) {
+    if (mmsi == ownshipMmsi_) return;
+    ownshipMmsi_ = mmsi;
+    QSettings().setValue(QLatin1String(kOwnMmsi), mmsi);
+    emit ownshipMmsiChanged(mmsi);
 }
 
 void Settings::setChartDetailLevel(double level) {

@@ -1004,6 +1004,14 @@ void ChartView::setSymbolScale(double scale) {
     update();
 }
 
+void ChartView::setVesselScale(double scale) {
+    if (scale < 0.5) scale = 0.5;
+    if (scale > 3.0) scale = 3.0;
+    if (scale == vesselScale_) return;
+    vesselScale_ = scale;
+    update();
+}
+
 void ChartView::setDepthUnit(DepthUnit u) {
     if (u == depthUnit_) return;
     depthUnit_ = u; update();   // soundings are relabelled on repaint
@@ -1270,7 +1278,8 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
         QColor(40, 0, 0),    QColor(20, 20, 20, 220) };
     vessel::drawSymbol(p, d, headingDeg, ownship_.sogKnots.valueOr(0.0),
                        ownshipPredMin_, ppm_,
-                       ownshipFreshness_ == NavFreshness::Stale, kOwnship);
+                       ownshipFreshness_ == NavFreshness::Stale, kOwnship,
+                       vesselScale_);
 }
 
 // A vertical scale bar in the lower-right corner. Five segments alternating

@@ -16,6 +16,8 @@ public:
 
     // Course-prediction length in minutes (kept in step with ownship's).
     void setPredictionMinutes(double minutes) { predMinutes_ = minutes; }
+    // Uniform scale applied to the vessel glyph (1.0 = nominal).
+    void setVesselScale(double scale) { vesselScale_ = scale; }
 
     // Invoked when the user clicks on a target's glyph (MMSI of that target).
     void setOnTargetClicked(std::function<void(quint32)> cb) { onClick_ = std::move(cb); }
@@ -27,7 +29,8 @@ public:
 
 private:
     const AisTargetStore* store_ = nullptr;
-    double predMinutes_ = 6.0;
+    double predMinutes_  = 6.0;
+    double vesselScale_  = 1.0;
     // Camera snapshot from the most recent paint(); used by hitTest to project
     // target positions without re-deriving the view geometry.
     ChartViewport lastViewport_;

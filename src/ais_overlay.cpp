@@ -33,15 +33,16 @@ void AisOverlay::paint(QPainter& p, const ChartViewport& vp) {
         vessel::drawSymbol(p, pos, headingDeg,
                            t.sogKnots.value_or(0.0),
                            predMinutes_, vp.pixelsPerMetre(),
-                           t.freshness == AisFreshness::Stale, kAis);
+                           t.freshness == AisFreshness::Stale, kAis,
+                           vesselScale_);
     }
 }
 
 bool AisOverlay::hitTest(const QPointF& screenPt) {
     if (!store_ || !haveViewport_ || !onClick_) return false;
     // Pick the target whose glyph centre is closest to the click, within the
-    // glyph's roughly 14 px radius (matches the triangle's extent).
-    constexpr double kPickRadiusPx = 14.0;
+    // glyph's roughly 14 px radius (scales with vessel size).
+    const double kPickRadiusPx = 14.0 * vesselScale_;
     double bestSq = kPickRadiusPx * kPickRadiusPx;
     quint32 bestMmsi = 0;
     for (const AisTarget& t : store_->targets()) {
