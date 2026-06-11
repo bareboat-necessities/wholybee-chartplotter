@@ -152,6 +152,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             this, [this](double s) {
         if (aisOverlay_) aisOverlay_->setVesselScale(s);
     });
+    // Dangerous-ship rules: push the current values into the overlay and keep
+    // them in sync; a change repaints so flags update immediately.
+    auto applyDangerRules = [this] {
+        if (!aisOverlay_) return;
+        DangerRules r;
+        r.ignoreFarEnabled = settings_->dangerIgnoreFarEnabled();
+        r.ignoreFarNm      = settings_->dangerIgnoreFarNm();
+        r.cpaEnabled  = settings_->dangerCpaEnabled();
+        r.cpaNm       = settings_->dangerCpaNm();
+        r.tcpaEnabled = settings_->dangerTcpaEnabled();
+        r.tcpaMin     = settings_->dangerTcpaMin();
+        aisOverlay_->setDangerRules(r);
+        if (view_) view_->update();
+    };
+    applyDangerRules();
+    connect(settings_, &Settings::dangerousShipsChanged, this, applyDangerRules);
     connect(settings_, &Settings::aisStaleThresholdsChanged,
             this, [this](double staleS, double lostS) {
         if (aisStore_) {

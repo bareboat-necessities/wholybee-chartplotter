@@ -11,6 +11,11 @@ class QPainter;
 // when stale.
 namespace vessel {
 
+// Fore-aft length of the glyph in nominal pixels (bow tip at y=-14 to the stern
+// base at y=+8). Exposed so callers that frame the glyph (e.g. a highlight ring)
+// stay in step with the drawn geometry. Multiply by the symbol scale in use.
+constexpr double kGlyphLengthPx = 22.0;
+
 struct SymbolStyle {
     // FilledTriangle — Class A / ownship: solid filled triangle.
     // Chevron        — Class B: open arrowhead (two forward sides only, no

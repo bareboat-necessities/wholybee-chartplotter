@@ -17,9 +17,9 @@ QFrame* makeDivider() {
     return line;
 }
 
-// A rule row: an enable checkbox with a touch stepper indented beneath it. The
-// stepper is greyed out while the checkbox is unchecked. Returns the assembled
-// widget; the caller keeps the checkbox/box pointers for read-back.
+// A rule row: an enable checkbox with a touch stepper indented beneath it.
+// Enable wiring is done by the caller so rows can gate one another. Returns the
+// assembled widget; the caller keeps the checkbox/box pointers for read-back.
 QWidget* ruleRow(QCheckBox* check, TouchSpinBox* box) {
     auto* w = new QWidget;
     auto* col = new QVBoxLayout(w);
@@ -33,9 +33,6 @@ QWidget* ruleRow(QCheckBox* check, TouchSpinBox* box) {
     indent->setContentsMargins(24, 0, 0, 0);
     indent->addWidget(box);
     col->addLayout(indent);
-
-    box->setEnabled(check->isChecked());
-    QObject::connect(check, &QCheckBox::toggled, box, &TouchSpinBox::setEnabled);
     return w;
 }
 } // namespace
@@ -89,6 +86,23 @@ DangerousShipsDialog::DangerousShipsDialog(bool ignoreFarEnabled, double ignoreF
     tcpaBox_->setSuffix(QStringLiteral(" min"));
     tcpaBox_->setValue(tcpaMin);
     col->addWidget(ruleRow(tcpaCheck_, tcpaBox_));
+
+    // Enable wiring. The ignore-far stepper simply follows its checkbox. The CPA
+    // checkbox is the base "dangerous" condition, so when it is off the whole
+    // TCPA row is irrelevant and greyed out; the TCPA stepper needs both its own
+    // checkbox and the CPA checkbox on.
+    ignoreFarBox_->setEnabled(ignoreFarCheck_->isChecked());
+    connect(ignoreFarCheck_, &QCheckBox::toggled, ignoreFarBox_, &TouchSpinBox::setEnabled);
+
+    auto syncDangerIf = [this] {
+        const bool cpaOn = cpaCheck_->isChecked();
+        cpaBox_->setEnabled(cpaOn);
+        tcpaCheck_->setEnabled(cpaOn);
+        tcpaBox_->setEnabled(cpaOn && tcpaCheck_->isChecked());
+    };
+    connect(cpaCheck_,  &QCheckBox::toggled, this, [syncDangerIf](bool) { syncDangerIf(); });
+    connect(tcpaCheck_, &QCheckBox::toggled, this, [syncDangerIf](bool) { syncDangerIf(); });
+    syncDangerIf();
 
     col->addStretch(1);
 
