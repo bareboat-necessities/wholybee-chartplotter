@@ -116,6 +116,11 @@ QWidget* SideMenu::buildMainPage() {
     col->addWidget(autoFollowBtn_);
 
     col->addWidget(makeHeader(QStringLiteral("Chart Detail")));
+    auto* detailLvlBtn = makeIndentedAction(QStringLiteral("Detail Level"));
+    connect(detailLvlBtn, &QPushButton::clicked, this, [this] {
+        emit editChartDetailLevelRequested();
+    });
+    col->addWidget(detailLvlBtn);
     auto* snd = makeCheckAction(QStringLiteral("Soundings"), settings_->showSoundings());
     connect(snd, &QPushButton::toggled, settings_, &Settings::setShowSoundings);
     col->addWidget(snd);

@@ -65,6 +65,7 @@ signals:
     void editOwnshipPredictionRequested();            // open predictor-length dialog
     void navDataBrowserRequested();                    // open NavData Browser window
     void editDataPriorityRequested();                  // open Data Priority dialog
+    void editChartDetailLevelRequested();              // open Chart Detail Level dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

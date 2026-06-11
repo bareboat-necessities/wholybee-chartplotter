@@ -110,6 +110,10 @@ public:
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
+    // Detail-level bias, in fractional bands. 0 = nominal mapping from visible
+    // width to band; positive pulls in higher-detail cells (more detail on
+    // screen); negative backs off. Range -1.0..+1.0.
+    void setChartDetailLevel(double level);
     void setDepthUnit(DepthUnit u);   // relabels soundings (repaint, no rebuild)
     void setDistanceUnit(DistanceUnit u);   // scale-bar units (repaint)
 
@@ -201,6 +205,12 @@ private:
     // Format a sounding label from raw metres using the current depth unit.
     QString formatSounding(double depthM) const;
 
+    // Minimum on-screen spacing (device px) between drawn soundings, given the
+    // label line height. Grows with the detail level so the denser soundings
+    // pulled in at higher detail don't pile up; returns 0 (no thinning) at or
+    // below nominal detail, keeping level 0 identical to before.
+    double soundingMinSpacing(double lineHeightPx) const;
+
     void drawOwnship(QPainter& p, const QTransform& cam);
     void drawScaleBar(QPainter& p);   // lower-right scale bar, in device pixels
     // Touch-friendly zoom: same step as the wheel, anchored at the screen
@@ -259,6 +269,7 @@ private:
     bool showSoundings_ = true;
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
+    double chartDetailLevel_ = 0.0;   // -1.0..+1.0, biases target band
     DepthUnit depthUnit_ = DepthUnit::Feet;   // how soundings are labelled
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;   // scale-bar units
     bool userInteracted_ = false;

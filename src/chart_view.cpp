@@ -27,6 +27,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -612,7 +613,11 @@ bool ChartView::computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& targ
     view.miny = -(scy_ + halfH); view.maxy = -(scy_ - halfH);
 
     const double visWidthM = width() / ppm_;
-    target = bandForVisibleWidth(visWidthM);
+    // Detail-level bias: bands span roughly a factor of ~4 in visible width, so
+    // a +1 step multiplies the effective width by 1/4 (one band more detail);
+    // -1 multiplies by 4 (one band less). Half-steps interpolate smoothly.
+    const double effWidthM = visWidthM * std::pow(4.0, -chartDetailLevel_);
+    target = bandForVisibleWidth(effWidthM);
     wanted = expandBox(view, 0.5);
     keep   = expandBox(view, 1.5);
     return true;
@@ -778,7 +783,10 @@ void ChartView::removeCell(const QString& path) {
 void ChartView::updatePointLOD() {
     if (ppm_ <= 0.0) return;
     const double visWidthM = width() / ppm_;
-    const bool show = visWidthM < 20000.0;   // ~20 km across
+    // Apply the same bias as cell selection: positive detail levels raise the
+    // threshold so symbols stay visible at wider zoom levels.
+    const double effWidthM = visWidthM * std::pow(4.0, -chartDetailLevel_);
+    const bool show = effWidthM < 20000.0;
     if (show == pointLodVisible_) return;
     pointLodVisible_ = show;
     update();
@@ -965,6 +973,16 @@ void ChartView::setShowDepthContours(bool on) {
     showDepthContours_ = on; update();
 }
 
+void ChartView::setChartDetailLevel(double level) {
+    if (level < -2.0) level = -2.0;
+    if (level >  2.0) level =  2.0;
+    if (level == chartDetailLevel_) return;
+    chartDetailLevel_ = level;
+    updatePointLOD();   // symbol visibility threshold depends on detail level
+    scheduleUpdate();   // cell band selection also depends on detail level
+    update();           // re-thin soundings now, before the debounced rebuild
+}
+
 void ChartView::setDepthUnit(DepthUnit u) {
     if (u == depthUnit_) return;
     depthUnit_ = u; update();   // soundings are relabelled on repaint
@@ -982,6 +1000,18 @@ QString ChartView::formatSounding(double depthM) const {
                        ? depthM
                        : depthM * units::kMetersToFeet;
     return QString::number(v, 'f', v < 10.0 ? 1 : 0);
+}
+
+double ChartView::soundingMinSpacing(double lineHeightPx) const {
+    // No thinning at or below nominal detail: level 0 must look unchanged, and
+    // negative levels already show sparser (lower-band) soundings.
+    if (chartDetailLevel_ <= 0.0) return 0.0;
+    // Spacing in label-height units, scaled by detail. Density falls as the
+    // inverse square of spacing, so these constants roughly target the intent
+    // that +1 keeps ~25% and +2 keeps ~10% of the un-thinned soundings
+    // (assuming level-0 soundings sit ~one line-height apart on screen).
+    // Tunable: raise the slope to thin more aggressively.
+    return lineHeightPx * (0.85 + 1.15 * chartDetailLevel_);
 }
 
 void ChartView::setInitialView(double lon, double lat, double scale) {
@@ -1064,15 +1094,56 @@ void ChartView::paintEvent(QPaintEvent*) {
         if (showSoundings_) {
             QFont f = p.font(); f.setPointSizeF(8.0); p.setFont(f);
             p.setPen(QColor(26, 51, 115));
-            const double asc = QFontMetricsF(f).ascent();
+            const QFontMetricsF fm(f);
+            const double asc = fm.ascent();
+
+            // Detail-driven decluttering: keep a greedy minimum gap between drawn
+            // soundings so the denser ones pulled in at higher detail don't pile
+            // on top of each other. Works in screen pixels, so it's zoom-aware —
+            // soundings reappear as you zoom in and they spread apart. A spatial
+            // hash (cell = gap) keeps the "is anything already near here?" test
+            // O(1) per sounding. minGap == 0 keeps every sounding (level <= 0).
+            const double minGap = soundingMinSpacing(fm.height());
+            const double minSq  = minGap * minGap;
+            const double cell   = (minGap > 0.0) ? minGap : 1.0;
+            std::unordered_map<qint64, std::vector<QPointF>> kept;
+            auto cellKey = [cell](const QPointF& d) -> std::pair<int,int> {
+                return { static_cast<int>(std::floor(d.x() / cell)),
+                         static_cast<int>(std::floor(d.y() / cell)) };
+            };
+            auto farEnough = [&](const QPointF& d) -> bool {
+                if (minGap <= 0.0) return true;
+                const auto [gx, gy] = cellKey(d);
+                for (int ix = gx - 1; ix <= gx + 1; ++ix)
+                    for (int iy = gy - 1; iy <= gy + 1; ++iy) {
+                        const qint64 key = (static_cast<qint64>(ix) << 32)
+                                         ^ static_cast<quint32>(iy);
+                        const auto it = kept.find(key);
+                        if (it == kept.end()) continue;
+                        for (const QPointF& q : it->second) {
+                            const double dx = q.x() - d.x(), dy = q.y() - d.y();
+                            if (dx * dx + dy * dy < minSq) return false;
+                        }
+                    }
+                return true;
+            };
+            auto remember = [&](const QPointF& d) {
+                const auto [gx, gy] = cellKey(d);
+                const qint64 key = (static_cast<qint64>(gx) << 32)
+                                 ^ static_cast<quint32>(gy);
+                kept[key].push_back(d);
+            };
+
             for (const BuiltCell* c : order) {
                 const double off = c->drawOffsetX;
                 for (const Sounding& s : c->soundings) {
                     const QPointF d = cam.map(QPointF(s.pos.x() + off, s.pos.y()));
                     if (!screen.contains(d)) continue;
+                    if (!farEnough(d)) continue;
                     const QString text = s.hasDepth ? formatSounding(s.depthM)
                                                     : QStringLiteral(".");
                     p.drawText(QPointF(d.x() + 1.0, d.y() + asc), text);
+                    remember(d);
                 }
             }
         }

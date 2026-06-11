@@ -78,6 +78,7 @@ qt_add_executable(chartviewer
     src/nmea0183_plugin.cpp
     src/nav_data_browser_window.cpp
     src/data_priority_dialog.cpp
+    src/chart_detail_dialog.cpp
     src/core_api.cpp
     src/plugin_manager.cpp
     src/test_plugin.cpp
@@ -109,6 +110,41 @@ set_target_properties(chartviewer PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
 )
+
+# ---- Qt DLL deployment (Windows only) --------------------------------------
+#
+# After each build, run windeployqt to copy the Qt DLLs, platform plugins,
+# and QML/styles needed to run the exe in-place.  windeployqt lives next to
+# the Qt6::Core DLL, so we derive its path from the Core import location
+# rather than hard-coding the Qt install prefix.
+#
+# --no-compiler-runtime  skip the MSVC redistributable (already present on dev
+#                        machines; add an installer step for distribution).
+# --no-translations      skip translation catalogues (saves ~30 MB in the
+#                        output folder; re-enable if you add i18n support).
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core IMPORTED_LOCATION_RELEASE)
+    if(NOT _qt_core_loc)
+        get_target_property(_qt_core_loc Qt6::Core IMPORTED_LOCATION)
+    endif()
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    find_program(WINDEPLOYQT windeployqt HINTS "${_qt_bin_dir}" NO_DEFAULT_PATH)
+
+    if(WINDEPLOYQT)
+        message(STATUS "windeployqt found: ${WINDEPLOYQT}")
+        add_custom_command(TARGET chartviewer POST_BUILD
+            COMMAND "${WINDEPLOYQT}"
+                $<IF:$<CONFIG:Debug>,--debug,--release>
+                --no-compiler-runtime
+                --no-translations
+                "$<TARGET_FILE:chartviewer>"
+            COMMENT "Running windeployqt to bundle Qt DLLs"
+            VERBATIM
+        )
+    else()
+        message(WARNING "windeployqt not found — Qt DLLs will not be copied automatically.")
+    endif()
+endif()
 
 # ---- Bundle GDAL data files -------------------------------------------------
 # S-57 charts need s57objectclasses.csv (and a few companion CSVs) to map the

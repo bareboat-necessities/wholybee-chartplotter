@@ -68,6 +68,11 @@ public:
     // Close, and the chart remains interactive while it is visible.
     bool autoHideMenu() const { return autoHideMenu_; }
 
+    // Chart detail bias, in fractional bands. 0 = nominal; positive values
+    // pull in higher-detail (larger-scale) cells; negative values back off to
+    // lower-detail. Range -2.0 .. +2.0, in steps of 1.0 from the dialog.
+    double chartDetailLevel() const { return chartDetailLevel_; }
+
     // Data-source priority: ordered source ids, highest priority first.
     QStringList dataSourcePriority() const { return dataSourcePriority_; }
 
@@ -87,6 +92,7 @@ public slots:
     void setDistanceUnit(DistanceUnit u);
     void setDataSourcePriority(const QStringList& orderedSourceIds);
     void setAutoHideMenu(bool on);
+    void setChartDetailLevel(double level);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -102,6 +108,7 @@ signals:
     void distanceUnitChanged(DistanceUnit u);
     void dataSourcePriorityChanged(const QStringList& orderedSourceIds);
     void autoHideMenuChanged(bool on);
+    void chartDetailLevelChanged(double level);
 
 private:
     void loadChartSets();
@@ -126,4 +133,5 @@ private:
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;
     QStringList   dataSourcePriority_;
     bool          autoHideMenu_ = true;   // legacy default = current behaviour
+    double        chartDetailLevel_ = 0.0;   // -1.0 .. +1.0, 0 = nominal
 };
