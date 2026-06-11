@@ -14,8 +14,11 @@
 #include "chart_symbol_size_dialog.hpp"
 #include "ship_size_dialog.hpp"
 #include "ownship_mmsi_dialog.hpp"
+#include "heading_source_dialog.hpp"
+#include "dangerous_ships_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
+#include "cpa_calculator.hpp"
 #include "ais_overlay.hpp"
 #include "ais_target_info_window.hpp"
 #include "ais_quick_info_window.hpp"
@@ -70,6 +73,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->setVesselScale(settings_->vesselScale());
     connect(settings_, &Settings::vesselScaleChanged,
             view_, &ChartView::setVesselScale);
+    view_->setHeadingSource(settings_->headingSource());
+    connect(settings_, &Settings::headingSourceChanged,
+            view_, &ChartView::setHeadingSource);
 
     // Depth unit drives how soundings are labelled; distance unit drives the
     // scale bar.
@@ -160,6 +166,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (view_) view_->update();
     });
 
+    // Collision component: computes each target's CPA/TCPA against the ownship
+    // and writes them back into the store (which the overlay and info windows
+    // read). Skips the boat's own MMSI so its AIS echo never alarms on itself.
+    cpaCalc_ = new CpaCalculator(navStore_, aisStore_, this);
+    cpaCalc_->setOwnshipMmsi(settings_->ownshipMmsi().toUInt());
+    connect(settings_, &Settings::ownshipMmsiChanged, this, [this](const QString& m) {
+        if (cpaCalc_) cpaCalc_->setOwnshipMmsi(m.toUInt());
+    });
+
     simulator_ = new Simulator(navStore_, this);
     simulator_->setPosition(settings_->simulatorLat(), settings_->simulatorLon());
     // Persist the simulator's position as it moves so it resumes where it left off.
@@ -192,6 +207,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editSymbolSizeRequested,          this, &MainWindow::editSymbolSize);
     connect(sideMenu_, &SideMenu::editVesselSizeRequested,          this, &MainWindow::editVesselSize);
     connect(sideMenu_, &SideMenu::editOwnshipMmsiRequested,         this, &MainWindow::editOwnshipMmsi);
+    connect(sideMenu_, &SideMenu::editHeadingSourceRequested,       this, &MainWindow::editHeadingSource);
+    connect(sideMenu_, &SideMenu::editDangerousShipsRequested,      this, &MainWindow::editDangerousShips);
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
@@ -354,6 +371,23 @@ void MainWindow::editOwnshipMmsi() {
     OwnshipMmsiDialog dlg(settings_->ownshipMmsi(), this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setOwnshipMmsi(dlg.mmsi());
+}
+
+void MainWindow::editHeadingSource() {
+    HeadingSourceDialog dlg(settings_->headingSource(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setHeadingSource(dlg.source());
+}
+
+void MainWindow::editDangerousShips() {
+    DangerousShipsDialog dlg(settings_->dangerIgnoreFarEnabled(), settings_->dangerIgnoreFarNm(),
+                             settings_->dangerCpaEnabled(), settings_->dangerCpaNm(),
+                             settings_->dangerTcpaEnabled(), settings_->dangerTcpaMin(),
+                             this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setDangerousShips(dlg.ignoreFarEnabled(), dlg.ignoreFarNm(),
+                                     dlg.cpaEnabled(), dlg.cpaNm(),
+                                     dlg.tcpaEnabled(), dlg.tcpaMin());
 }
 
 void MainWindow::showAisTarget(quint32 mmsi) {

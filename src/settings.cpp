@@ -29,6 +29,13 @@ constexpr auto kDetailLvl = "display/chartDetailLevel";
 constexpr auto kSymScale    = "display/symbolScale";
 constexpr auto kVesselScale = "display/vesselScale";
 constexpr auto kOwnMmsi     = "nav/ownshipMmsi";
+constexpr auto kHeadingSrc  = "ships/headingSource";
+constexpr auto kDangIgnoreFarOn = "ships/dangerIgnoreFarEnabled";
+constexpr auto kDangIgnoreFarNm = "ships/dangerIgnoreFarNm";
+constexpr auto kDangCpaOn   = "ships/dangerCpaEnabled";
+constexpr auto kDangCpaNm   = "ships/dangerCpaNm";
+constexpr auto kDangTcpaOn  = "ships/dangerTcpaEnabled";
+constexpr auto kDangTcpaMin = "ships/dangerTcpaMin";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -77,6 +84,14 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     if (vesselScale_ < 0.5) vesselScale_ = 0.5;
     if (vesselScale_ > 3.0) vesselScale_ = 3.0;
     ownshipMmsi_ = s.value(QLatin1String(kOwnMmsi)).toString();
+    headingSource_ = headingsrc::fromKey(s.value(QLatin1String(kHeadingSrc)).toString(),
+                                         HeadingSource::Heading);
+    dangerIgnoreFarEnabled_ = s.value(QLatin1String(kDangIgnoreFarOn), true).toBool();
+    dangerIgnoreFarNm_      = s.value(QLatin1String(kDangIgnoreFarNm), 20.0).toDouble();
+    dangerCpaEnabled_  = s.value(QLatin1String(kDangCpaOn), true).toBool();
+    dangerCpaNm_       = s.value(QLatin1String(kDangCpaNm), 2.0).toDouble();
+    dangerTcpaEnabled_ = s.value(QLatin1String(kDangTcpaOn), true).toBool();
+    dangerTcpaMin_     = s.value(QLatin1String(kDangTcpaMin), 30.0).toDouble();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -197,6 +212,36 @@ void Settings::setOwnshipMmsi(const QString& mmsi) {
     ownshipMmsi_ = mmsi;
     QSettings().setValue(QLatin1String(kOwnMmsi), mmsi);
     emit ownshipMmsiChanged(mmsi);
+}
+
+void Settings::setHeadingSource(HeadingSource src) {
+    if (src == headingSource_) return;
+    headingSource_ = src;
+    QSettings().setValue(QLatin1String(kHeadingSrc), headingsrc::key(src));
+    emit headingSourceChanged(src);
+}
+
+void Settings::setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
+                                 bool cpaEnabled, double cpaNm,
+                                 bool tcpaEnabled, double tcpaMin) {
+    if (ignoreFarEnabled == dangerIgnoreFarEnabled_ && ignoreFarNm == dangerIgnoreFarNm_
+        && cpaEnabled == dangerCpaEnabled_ && cpaNm == dangerCpaNm_
+        && tcpaEnabled == dangerTcpaEnabled_ && tcpaMin == dangerTcpaMin_)
+        return;
+    dangerIgnoreFarEnabled_ = ignoreFarEnabled;
+    dangerIgnoreFarNm_      = ignoreFarNm;
+    dangerCpaEnabled_  = cpaEnabled;
+    dangerCpaNm_       = cpaNm;
+    dangerTcpaEnabled_ = tcpaEnabled;
+    dangerTcpaMin_     = tcpaMin;
+    QSettings s;
+    s.setValue(QLatin1String(kDangIgnoreFarOn), ignoreFarEnabled);
+    s.setValue(QLatin1String(kDangIgnoreFarNm), ignoreFarNm);
+    s.setValue(QLatin1String(kDangCpaOn),   cpaEnabled);
+    s.setValue(QLatin1String(kDangCpaNm),   cpaNm);
+    s.setValue(QLatin1String(kDangTcpaOn),  tcpaEnabled);
+    s.setValue(QLatin1String(kDangTcpaMin), tcpaMin);
+    emit dangerousShipsChanged();
 }
 
 void Settings::setChartDetailLevel(double level) {

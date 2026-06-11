@@ -31,7 +31,7 @@ reports. Optional fields are absent until a report supplies them.
 | voyage (Class A) | `destination`, `draughtMeters` |
 | size | `dimensions` (to bow/stern/port/starboard; `lengthMeters()`, `beamMeters()`) |
 | dynamic | `latitudeDeg`, `longitudeDeg`, `cogDegTrue`, `sogKnots`, `headingDegTrue`, `rotDegPerMin`, `navStatus` |
-| computed | `cpaMeters`, `tcpaSeconds` (set by a collision component, not from AIS) |
+| computed | `rangeMeters`, `cpaMeters`, `tcpaSeconds` (set by a collision component, not from AIS) |
 | provenance | `source`, `lastUpdateUtc`, `ageSeconds`, `freshness` |
 
 `AisDimensions` stores the four reference-point offsets AIS transmits; length and
@@ -97,6 +97,32 @@ plugin) — and handles:
   B static, Parts A & B). "Not available" sentinels (lat 91°, lon 181°, COG 3600,
   heading 511, SOG 1023, ROT −128) decode to absent fields.
 
+## CpaCalculator
+
+`CpaCalculator` is the collision component referenced above. It reads ownship
+position/COG/SOG from `NavDataStore` and each target's position/COG/SOG from the
+store, treats both as straight-line tracks in a local east/north plane centred on
+the ownship, and computes:
+
+- **TCPA** = `-(Δr · Δv) / (Δv · Δv)` — the instant the relative-position vector
+  is perpendicular to the relative-velocity vector (negative once the contact is
+  opening, i.e. CPA already passed).
+- **CPA** = the range at that instant, `|Δr + Δv·TCPA|`.
+
+It also computes each target's **distance to ownship** (`rangeMeters`), written
+via `setRangeMeters`. Distance is kept separate from CPA/TCPA because it needs
+only the two positions: a target that reports no course/speed (so CPA can't be
+solved) still gets a range, as does the case where the ownship has a fix but no
+COG/SOG.
+
+It runs on a 1 Hz tick and also recomputes the moment ownship updates, writing
+results back with `setRangeMeters` / `setCpaTcpa`. It deliberately does **not**
+listen to `targetUpdated` (which those setters emit) to avoid recursion. When the
+ownship position is unavailable, every target's range/CPA/TCPA are cleared rather
+than left stale; the configured own MMSI is skipped so the boat's own AIS echo
+never alarms on itself. Both the quick-look popup and the full info window display
+distance and (when solvable) CPA (nm) and TCPA (min).
+
 ## AisOverlay
 
 `AisOverlay` (`IChartOverlay`) draws each `AisTarget` with `hasPosition()` using
@@ -109,7 +135,5 @@ the ownship one (a single user-configurable value, kept in sync).
 
 ## Not yet (next steps)
 
-- **CPA/TCPA computation** — a component reading ownship (`NavDataStore`) and
-  targets, computing closest approach and calling `setCpaTcpa`.
 - **Per-source arbitration** — currently last-writer-wins per MMSI (fine for a
   single receiver); priority could be added like the nav store if needed.

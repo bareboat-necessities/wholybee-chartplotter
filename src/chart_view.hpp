@@ -17,6 +17,7 @@
 #include "feature_cache.hpp"
 #include "nav_data_store.hpp"   // OwnshipState, NavFreshness
 #include "units.hpp"            // DepthUnit
+#include "heading_source.hpp"   // HeadingSource
 #include "plugin_api.hpp"       // IChartOverlay, ChartViewport
 #include "sym_atlas.hpp"        // SymAtlas
 
@@ -130,6 +131,8 @@ public:
     void setOwnship(const OwnshipState& s);   // freshness read per-value from s
     // Length of the course-prediction line, in minutes of run-time at SOG.
     void setOwnshipPredictionMinutes(double minutes);
+    // Which direction the ownship glyph points (heading vs COG).
+    void setHeadingSource(HeadingSource s);
 
     // Plugin chart overlays: drawn on top of the chart each frame, in registration
     // order. The view does not own them (the plugin does).
@@ -295,4 +298,5 @@ private:
     OwnshipState ownship_;
     NavFreshness ownshipFreshness_ = NavFreshness::Invalid;
     double       ownshipPredMin_ = 6.0;   // predictor length (minutes)
+    HeadingSource headingSource_ = HeadingSource::Heading;   // ownship glyph direction
 };

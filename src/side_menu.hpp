@@ -69,6 +69,8 @@ signals:
     void editSymbolSizeRequested();                    // open Symbol Size dialog
     void editVesselSizeRequested();                    // open Ship Size dialog
     void editOwnshipMmsiRequested();                   // open Own Ship MMSI dialog
+    void editHeadingSourceRequested();                 // open Heading Source dialog
+    void editDangerousShipsRequested();                // open Dangerous Ships dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

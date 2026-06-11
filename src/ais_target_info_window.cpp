@@ -125,12 +125,14 @@ void AisTargetInfoWindow::refresh() {
     if (t.navStatus != AisNavStatus::Undefined && t.cls == AisClass::A)
         rows.emplace_back(QStringLiteral("Nav status"), aisNavStatusName(int(t.navStatus)));
 
+    if (t.rangeMeters)
+        rows.emplace_back(QStringLiteral("Distance"),
+                          QString::number(*t.rangeMeters / 1852.0, 'f', 2) + QStringLiteral(" nm"));
     if (t.cpaMeters)
         rows.emplace_back(QStringLiteral("CPA"),
                           QString::number(*t.cpaMeters / 1852.0, 'f', 2) + QStringLiteral(" nm"));
     if (t.tcpaSeconds)
-        rows.emplace_back(QStringLiteral("TCPA"),
-                          QString::number(*t.tcpaSeconds / 60.0, 'f', 1) + QStringLiteral(" min"));
+        rows.emplace_back(QStringLiteral("TCPA"), aisFormatTcpa(*t.tcpaSeconds));
 
     if (!t.source.isEmpty()) rows.emplace_back(QStringLiteral("Source"), t.source);
 

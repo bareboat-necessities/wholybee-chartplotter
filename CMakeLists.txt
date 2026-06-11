@@ -82,6 +82,8 @@ qt_add_executable(chartviewer
     src/chart_symbol_size_dialog.cpp
     src/ship_size_dialog.cpp
     src/ownship_mmsi_dialog.cpp
+    src/heading_source_dialog.cpp
+    src/dangerous_ships_dialog.cpp
     src/core_api.cpp
     src/plugin_manager.cpp
     src/test_plugin.cpp
@@ -90,6 +92,7 @@ qt_add_executable(chartviewer
     src/chart_loader.cpp
     src/nav_data_store.cpp
     src/ais_target_store.cpp
+    src/cpa_calculator.cpp
     src/ais_decoder.cpp
     src/ais_overlay.cpp
     src/ais_target_info_window.cpp
