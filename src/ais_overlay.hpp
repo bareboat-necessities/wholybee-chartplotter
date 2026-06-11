@@ -3,6 +3,19 @@
 #include "plugin_api.hpp"   // IChartOverlay, ChartViewport
 
 class AisTargetStore;
+struct AisTarget;
+
+// User-configured rules deciding whether a target is "dangerous". CPA is the
+// base trigger; the others refine it. Thresholds are in the dialog's units
+// (nautical miles, minutes); the overlay converts to metres/seconds.
+struct DangerRules {
+    bool   ignoreFarEnabled = false;   // skip targets beyond ignoreFarNm
+    double ignoreFarNm      = 20.0;
+    bool   cpaEnabled  = false;        // dangerous if CPA < cpaNm
+    double cpaNm       = 2.0;
+    bool   tcpaEnabled = false;        // ...and TCPA within [0, tcpaMin)
+    double tcpaMin     = 30.0;
+};
 
 // Draws AIS targets on the chart through the overlay API. Each vessel uses the
 // same glyph as ownship (triangle + course-prediction line) but green, dimmed
@@ -18,6 +31,8 @@ public:
     void setPredictionMinutes(double minutes) { predMinutes_ = minutes; }
     // Uniform scale applied to the vessel glyph (1.0 = nominal).
     void setVesselScale(double scale) { vesselScale_ = scale; }
+    // Rules deciding which targets are drawn as dangerous (red + highlight).
+    void setDangerRules(const DangerRules& rules) { danger_ = rules; }
 
     // Invoked when the user clicks on a target's glyph (MMSI of that target).
     void setOnTargetClicked(std::function<void(quint32)> cb) { onClick_ = std::move(cb); }
@@ -28,9 +43,12 @@ public:
     bool hitTest(const QPointF& screenPt) override;
 
 private:
+    bool isDangerous(const AisTarget& t) const;
+
     const AisTargetStore* store_ = nullptr;
     double predMinutes_  = 6.0;
     double vesselScale_  = 1.0;
+    DangerRules danger_;
     // Camera snapshot from the most recent paint(); used by hitTest to project
     // target positions without re-deriving the view geometry.
     ChartViewport lastViewport_;

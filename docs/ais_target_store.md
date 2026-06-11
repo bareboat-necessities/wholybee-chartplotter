@@ -133,6 +133,15 @@ distinguishable. Targets are dimmed and crossed when their freshness is `Stale`
 the store, so the overlay never has to draw them. The predictor length tracks
 the ownship one (a single user-configurable value, kept in sync).
 
+**Dangerous targets** are drawn **red** instead of green, inside a yellow disc
+with a grey rim (diameter = 1.5× the glyph length) so they stand out against any
+chart. A target is dangerous when, per the user's *Dangerous Ships* rules, its
+CPA is within the configured limit (the base trigger), optionally also requiring
+its TCPA to be ahead and within a time window; a target beyond the optional
+range limit is never flagged. The overlay evaluates this each paint from the
+`rangeMeters` / `cpaMeters` / `tcpaSeconds` the `CpaCalculator` maintains, so no
+extra per-target state is stored.
+
 ## Not yet (next steps)
 
 - **Per-source arbitration** — currently last-writer-wins per MMSI (fine for a
