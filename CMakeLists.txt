@@ -9,7 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network Sql)
 
 # Prefer GDAL's own CMake config; fall back to pkg-config (e.g. MSYS2).
 find_package(GDAL QUIET)
@@ -90,6 +90,8 @@ qt_add_executable(chartviewer
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp
+    src/mbtiles_reader.cpp
+    src/mbtiles_service.cpp
     src/nav_data_store.cpp
     src/ais_target_store.cpp
     src/cpa_calculator.cpp
@@ -105,7 +107,7 @@ qt_add_executable(chartviewer
     src/nmea0183_client.cpp
 )
 
-target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Network ${GDAL_LINK})
+target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Network Qt6::Sql ${GDAL_LINK})
 add_dependencies(chartviewer symbols_bin)
 
 # Dev convenience: lets the basemap resolver fall back to the in-tree gshhg-shp

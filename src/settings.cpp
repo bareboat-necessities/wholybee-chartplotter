@@ -10,6 +10,7 @@ constexpr auto kSoundings = "display/showSoundings";
 constexpr auto kSymbols   = "display/showSymbols";
 constexpr auto kContours  = "display/showDepthContours";
 constexpr auto kAisShow   = "display/showAisTargets";
+constexpr auto kRasterShow = "display/showRasterCharts";
 constexpr auto kHideSymPan = "display/hideSymbolsWhilePanning";
 constexpr auto kViewLon   = "view/centerLon";
 constexpr auto kViewLat   = "view/centerLat";
@@ -47,6 +48,7 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     showSymbols_       = s.value(QLatin1String(kSymbols),   true).toBool();
     showDepthContours_ = s.value(QLatin1String(kContours),  true).toBool();
     showAisTargets_    = s.value(QLatin1String(kAisShow),   true).toBool();
+    showRasterCharts_  = s.value(QLatin1String(kRasterShow), true).toBool();
     hideSymbolsWhilePanning_ = s.value(QLatin1String(kHideSymPan), false).toBool();
     viewLon_   = s.value(QLatin1String(kViewLon),   0.0).toDouble();
     viewLat_   = s.value(QLatin1String(kViewLat),   0.0).toDouble();
@@ -326,6 +328,13 @@ void Settings::setShowAisTargets(bool on) {
     showAisTargets_ = on;
     QSettings().setValue(QLatin1String(kAisShow), on);
     emit showAisTargetsChanged(on);
+}
+
+void Settings::setShowRasterCharts(bool on) {
+    if (on == showRasterCharts_) return;
+    showRasterCharts_ = on;
+    QSettings().setValue(QLatin1String(kRasterShow), on);
+    emit showRasterChartsChanged(on);
 }
 
 void Settings::setHideSymbolsWhilePanning(bool on) {

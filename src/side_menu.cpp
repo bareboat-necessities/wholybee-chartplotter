@@ -142,6 +142,9 @@ QWidget* SideMenu::buildMainPage() {
     auto* con = makeCheckAction(QStringLiteral("Depth Contours"), settings_->showDepthContours());
     connect(con, &QPushButton::toggled, settings_, &Settings::setShowDepthContours);
     col->addWidget(con);
+    auto* raster = makeCheckAction(QStringLiteral("Raster Charts"), settings_->showRasterCharts());
+    connect(raster, &QPushButton::toggled, settings_, &Settings::setShowRasterCharts);
+    col->addWidget(raster);
 
     // Plugins section: hidden until a plugin contributes its first item.
     pluginHeader_ = makeHeader(QStringLiteral("Plugins"));
