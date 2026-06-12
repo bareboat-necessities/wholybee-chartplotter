@@ -27,6 +27,7 @@
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
 #include "nmea0183_plugin.hpp"
+#include "nmea2000_plugin.hpp"
 #include "test_plugin.hpp"
 
 #include <QStatusBar>
@@ -247,6 +248,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
+    plugins_->add(std::make_unique<Nmea2000Plugin>());
     plugins_->add(std::make_unique<TestPlugin>());
     plugins_->initializeAll();
 
