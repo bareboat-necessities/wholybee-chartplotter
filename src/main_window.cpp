@@ -62,12 +62,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->setShowSoundings(settings_->showSoundings());
     view_->setShowSymbols(settings_->showSymbols());
     view_->setShowDepthContours(settings_->showDepthContours());
+    view_->setShowRasterCharts(settings_->showRasterCharts());
     view_->setHideSymbolsWhilePanning(settings_->hideSymbolsWhilePanning());
     connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
+    connect(settings_, &Settings::showRasterChartsChanged,  view_, &ChartView::setShowRasterCharts);
     connect(settings_, &Settings::hideSymbolsWhilePanningChanged,
             view_, &ChartView::setHideSymbolsWhilePanning);
+    connect(view_, &ChartView::rasterChartsChanged, this, &MainWindow::onRasterChartsChanged);
     view_->setChartDetailLevel(settings_->chartDetailLevel());
     connect(settings_, &Settings::chartDetailLevelChanged,
             view_, &ChartView::setChartDetailLevel);
@@ -479,9 +482,15 @@ void MainWindow::publishOwnshipToView() {
 void MainWindow::startScan(const QString& dir) {
     if (catalog_->isScanning()) return;
     root_ = dir;
+    encScanDone_ = false;
+    encScanOk_ = false;
+    encScanMsg_.clear();
+    rasterCount_ = 0;
     statusLeft_->setText(dir + QStringLiteral("   —   scanning…"));
     statusMid_->clear();
     catalog_->startScan(dir);
+    // The raster layer scans the same folder for *.mbtiles, in parallel.
+    view_->setRasterChartFolder(dir);
 }
 
 void MainWindow::onScanProgress(int done, int total) {
@@ -489,12 +498,29 @@ void MainWindow::onScanProgress(int done, int total) {
 }
 
 void MainWindow::onScanFinished(bool ok, const QString& message) {
-    if (ok) {
-        statusLeft_->setText(root_ + QStringLiteral("   —   ") + message);
-    } else {
-        statusLeft_->setText(QStringLiteral("No chart folder selected"));
-        QMessageBox::warning(this, QStringLiteral("Could not catalog charts"), message);
-    }
+    encScanDone_ = true;
+    encScanOk_ = ok;
+    encScanMsg_ = message;
+    refreshChartStatus();
+}
+
+void MainWindow::onRasterChartsChanged(int count) {
+    rasterCount_ = count;
+    refreshChartStatus();
+}
+
+// Compose the status line from the two independent discovery results. A folder
+// may hold ENC cells, raster (MBTiles) charts, both, or neither — so a folder
+// with only raster charts is not treated as an error.
+void MainWindow::refreshChartStatus() {
+    QString s = root_ + QStringLiteral("   —   ");
+    if (encScanOk_)              s += encScanMsg_;
+    else if (rasterCount_ > 0)   s += QStringLiteral("no ENC cells");
+    else if (encScanDone_)       s += QStringLiteral("no charts found");
+    else                         s += QStringLiteral("scanning…");
+    if (rasterCount_ > 0)
+        s += QStringLiteral("   +   %1 raster chart(s)").arg(rasterCount_);
+    statusLeft_->setText(s);
 }
 
 void MainWindow::onViewStatus(const QString& text) {
