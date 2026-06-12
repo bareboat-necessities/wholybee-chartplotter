@@ -12,6 +12,11 @@ struct CellRecord {
     int     band = 0;          // 1=overview .. 6=berthing; 0 = unknown
     BBox    bbox;              // projected (Mercator), north-up
     bool    extentValid = false;
+    // Actual data-coverage outline (M_COVR exterior rings, projected Mercator).
+    // Empty when the cell has no usable M_COVR — consumers then treat the whole
+    // bbox as the coverage. Drives quilting (drawing only the finest band in any
+    // region; coarser bands fill only the gaps).
+    std::vector<std::vector<Pt>> coverage;
 };
 
 // Scans a directory tree for ENC base cells and resolves each cell's footprint

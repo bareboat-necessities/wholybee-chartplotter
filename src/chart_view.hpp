@@ -111,6 +111,9 @@ public:
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
+    // When true, soundings/symbols are skipped during a pan/zoom gesture (faster
+    // moving frame); when false they stay visible while interacting.
+    void setHideSymbolsWhilePanning(bool on);
     // Detail-level bias, in fractional bands. 0 = nominal mapping from visible
     // width to band; positive pulls in higher-detail cells (more detail on
     // screen); negative backs off. Range -2.0..+2.0.
@@ -246,6 +249,14 @@ private:
     QHash<QString, BuiltCell> loaded_;
     QHash<QString, int>       bandByPath_;
     QHash<QString, BBox>      bboxByPath_;
+    // Quilting (computed in updateVisibleCells, consumed in paintEvent):
+    //   active_   — loaded cells that contribute pixels (finest band in their
+    //               region); cells fully covered by finer bands are excluded.
+    //   drawClip_ — for a cell only partially covered by finer bands, the scene-
+    //               frame (cell-native, no wrap offset) path it may draw within.
+    //               Absent ⇒ draw unclipped. Keyed by cell path.
+    QSet<QString>             active_;
+    QHash<QString, QPainterPath> drawClip_;
     FeatureCache              cache_;
     QSet<QString> inFlight_;     // parse running on a worker
     QSet<QString> building_;     // clip/build running on a worker
@@ -281,6 +292,7 @@ private:
     bool showSoundings_ = true;
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
+    bool hideSymbolsWhilePanning_ = false;   // skip point overlays during a gesture
     double chartDetailLevel_ = 0.0;   // -2.0..+2.0, biases target band
     double symbolScale_      = 1.0;   // 0.5..3.0, uniform symbol scale
     double vesselScale_      = 1.0;   // 0.5..3.0, ownship + AIS glyph scale

@@ -97,6 +97,18 @@ bool computeCellExtentLonLat(const std::string& path,
                              double& minLon, double& minLat,
                              double& maxLon, double& maxLat, std::string& err);
 
+// Read the cell's actual data-coverage footprint from the M_COVR layer:
+// the exterior rings of every CATCOV=1 (coverage-available) polygon, projected
+// to Mercator metres, with their combined bounding box. This is the true cell
+// outline — usually a small polygon, often a diagonal sliver, not the bbox.
+// Thread-safe. Returns false when no usable M_COVR geometry is present (the
+// caller then falls back to the plain extent box as the coverage). Holes
+// (inner rings / CATCOV=2) are intentionally ignored: over-covering is the safe
+// direction for quilting (it can never leave a duplicate symbol showing).
+bool computeCellCoverage(const std::string& path,
+                         std::vector<std::vector<Pt>>& rings, BBox& bbox,
+                         std::string& err);
+
 // Load a GSHHG basemap tier into projected features: GSHHS L1 land polygons
 // (LandArea) and L2 lakes (DepthArea, drawn as water). `gshhgRoot` is the folder
 // containing GSHHS_shp/<tier>/; `tier` is one of c/l/i/h/f. Heavy — call from a

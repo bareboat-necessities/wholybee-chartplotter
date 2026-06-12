@@ -60,10 +60,15 @@ continuous gesture neither fires; they only fire once motion pauses.
 1. **Antialiasing off during interaction** (pre-existing) —
    `p.setRenderHint(QPainter::Antialiasing, !interacting_)`.
 
-2. **Skip point overlays during interaction** — the soundings/symbols block is
-   gated on `pointLodVisible_ && !interacting_`. The moving frame draws only
-   vector geometry; labels/symbols snap back on settle. This removed the
-   dominant cost from the moving frame.
+2. **Skip point overlays during interaction** — the soundings/symbols block can
+   be gated on `pointLodVisible_ && !interacting_`, so the moving frame draws
+   only vector geometry and labels/symbols snap back on settle. This removed the
+   dominant cost from the moving frame. **Now user-optional** (Settings → Charts
+   → "Hide Symbols during pan/zoom", `Settings::hideSymbolsWhilePanning`), and
+   **default off**: since coverage-subtraction quilting cut the per-frame point
+   count dramatically, keeping symbols visible while panning is affordable, so
+   the gate is `pointLodVisible_ && (!interacting_ || !hideSymbolsWhilePanning_)`.
+   Antialiasing is still dropped during interaction regardless (item 1).
 
 3. **Defer cell management during interaction** — `updateVisibleCells()` +
    `maybeBuildBasemap()` are skipped while `interacting_` is true and run once

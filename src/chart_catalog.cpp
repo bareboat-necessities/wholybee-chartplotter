@@ -39,23 +39,45 @@ void ChartCatalog::startScan(const QString& root) {
 
 namespace {
 
-struct CacheEntry { qint64 size; qint64 mtime; double minLon, minLat, maxLon, maxLat; };
+// Bump when the on-disk schema changes; older files are ignored (forces one
+// rescan). v2 added projected bbox + coverage rings (was lon/lat extent only).
+constexpr int kCacheVersion = 2;
+
+// One cached cell footprint: file identity plus the projected bbox and the
+// M_COVR coverage rings (empty ⇒ no coverage layer; treat bbox as coverage).
+struct CacheEntry {
+    qint64 size = 0;
+    qint64 mtime = 0;
+    BBox   bbox;
+    std::vector<std::vector<Pt>> coverage;
+};
 
 QHash<QString, CacheEntry> loadCache(const QString& cachePath) {
     QHash<QString, CacheEntry> map;
     QFile f(cachePath);
     if (!f.open(QIODevice::ReadOnly)) return map;
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-    if (!doc.isArray()) return map;
-    for (const QJsonValue& v : doc.array()) {
+    if (!doc.isObject()) return map;
+    const QJsonObject root = doc.object();
+    if (root.value("v").toInt() != kCacheVersion) return map;   // schema changed
+    for (const QJsonValue& v : root.value("cells").toArray()) {
         const QJsonObject o = v.toObject();
         CacheEntry e;
-        e.size   = (qint64)o.value("size").toDouble();
-        e.mtime  = (qint64)o.value("mtime").toDouble();
-        e.minLon = o.value("minLon").toDouble();
-        e.minLat = o.value("minLat").toDouble();
-        e.maxLon = o.value("maxLon").toDouble();
-        e.maxLat = o.value("maxLat").toDouble();
+        e.size  = (qint64)o.value("size").toDouble();
+        e.mtime = (qint64)o.value("mtime").toDouble();
+        const QJsonObject b = o.value("bbox").toObject();
+        e.bbox.minx = b.value("minx").toDouble();
+        e.bbox.miny = b.value("miny").toDouble();
+        e.bbox.maxx = b.value("maxx").toDouble();
+        e.bbox.maxy = b.value("maxy").toDouble();
+        for (const QJsonValue& rv : o.value("coverage").toArray()) {
+            const QJsonArray ra = rv.toArray();
+            std::vector<Pt> ring;
+            ring.reserve(ra.size() / 2);
+            for (int i = 0; i + 1 < ra.size(); i += 2)
+                ring.push_back({ra.at(i).toDouble(), ra.at(i + 1).toDouble()});
+            if (ring.size() >= 3) e.coverage.push_back(std::move(ring));
+        }
         map.insert(o.value("path").toString(), e);
     }
     return map;
@@ -64,19 +86,30 @@ QHash<QString, CacheEntry> loadCache(const QString& cachePath) {
 void saveCache(const QString& cachePath, const QHash<QString, CacheEntry>& map) {
     QJsonArray arr;
     for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+        const CacheEntry& e = it.value();
         QJsonObject o;
-        o.insert("path",   it.key());
-        o.insert("size",   (double)it.value().size);
-        o.insert("mtime",  (double)it.value().mtime);
-        o.insert("minLon", it.value().minLon);
-        o.insert("minLat", it.value().minLat);
-        o.insert("maxLon", it.value().maxLon);
-        o.insert("maxLat", it.value().maxLat);
+        o.insert("path",  it.key());
+        o.insert("size",  (double)e.size);
+        o.insert("mtime", (double)e.mtime);
+        QJsonObject b;
+        b.insert("minx", e.bbox.minx); b.insert("miny", e.bbox.miny);
+        b.insert("maxx", e.bbox.maxx); b.insert("maxy", e.bbox.maxy);
+        o.insert("bbox", b);
+        QJsonArray cov;
+        for (const std::vector<Pt>& ring : e.coverage) {
+            QJsonArray ra;
+            for (const Pt& p : ring) { ra.append(p.x); ra.append(p.y); }
+            cov.append(ra);
+        }
+        o.insert("coverage", cov);
         arr.append(o);
     }
+    QJsonObject root;
+    root.insert("v", kCacheVersion);
+    root.insert("cells", arr);
     QFile f(cachePath);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        f.write(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+        f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
 }
 
 BBox projectExtent(double minLon, double minLat, double maxLon, double maxLat) {
@@ -132,16 +165,27 @@ void ChartCatalog::runScan(QString root, QString cachePath) {
             e = *cached;
             ok = true;
         } else {
+            e.size = sz; e.mtime = mt;
             std::string err;
-            if (chart::computeCellExtentLonLat(path.toStdString(),
-                                               e.minLon, e.minLat, e.maxLon, e.maxLat, err)) {
-                e.size = sz; e.mtime = mt;
+            // Prefer the real M_COVR coverage footprint; its rings double as the
+            // bbox. Fall back to the plain extent box (no coverage rings) when a
+            // cell has no usable M_COVR.
+            if (chart::computeCellCoverage(path.toStdString(), e.coverage, e.bbox, err)) {
                 ok = true;
+            } else {
+                double minLon, minLat, maxLon, maxLat;
+                if (chart::computeCellExtentLonLat(path.toStdString(),
+                                                   minLon, minLat, maxLon, maxLat, err)) {
+                    e.bbox = projectExtent(minLon, minLat, maxLon, maxLat);
+                    e.coverage.clear();
+                    ok = true;
+                }
             }
         }
 
         if (ok) {
-            r.bbox = projectExtent(e.minLon, e.minLat, e.maxLon, e.maxLat);
+            r.bbox = e.bbox;
+            r.coverage = e.coverage;
             r.extentValid = r.bbox.valid();
             if (r.extentValid) bounds.expand(r.bbox);
             updated.insert(path, e);

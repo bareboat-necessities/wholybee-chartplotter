@@ -183,6 +183,16 @@ QWidget* SideMenu::buildSettingsPage() {
             [this] { emit editSymbolSizeRequested(); });
     col->addWidget(symSizeBtn);
 
+    auto* hideSymPanBtn = makeCheckAction(QStringLiteral("Hide Symbols during pan/zoom"),
+                                          settings_->hideSymbolsWhilePanning());
+    connect(hideSymPanBtn, &QPushButton::toggled,
+            settings_, &Settings::setHideSymbolsWhilePanning);
+    connect(settings_, &Settings::hideSymbolsWhilePanningChanged, hideSymPanBtn,
+            [hideSymPanBtn](bool on) {
+        if (hideSymPanBtn->isChecked() != on) hideSymPanBtn->setChecked(on);
+    });
+    col->addWidget(hideSymPanBtn);
+
     auto* basemapBtn = makeSettingsAction(QStringLiteral("Basemap Folder…"));
     connect(basemapBtn, &QPushButton::clicked, this,
             [this] { emit basemapFolderRequested(); });

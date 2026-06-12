@@ -34,6 +34,11 @@ public:
     // dangerous-ship logic keeps running — it just has nothing to draw.
     bool showAisTargets() const { return showAisTargets_; }
 
+    // When true, soundings and symbols are suppressed during a pan/zoom gesture
+    // (the moving frame draws only vector geometry, for speed). Default false:
+    // point overlays stay visible while interacting.
+    bool hideSymbolsWhilePanning() const { return hideSymbolsWhilePanning_; }
+
     // The user's defined chart sets, in menu order.
     const QVector<ChartSet>& chartSets() const { return chartSets_; }
 
@@ -118,6 +123,7 @@ public slots:
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
     void setShowAisTargets(bool on);
+    void setHideSymbolsWhilePanning(bool on);
     void setChartSets(const QVector<ChartSet>& sets);
     void setView(double lon, double lat, double scale);
     void setBasemapDirectory(const QString& dir);
@@ -145,6 +151,7 @@ signals:
     void showSymbolsChanged(bool on);
     void showDepthContoursChanged(bool on);
     void showAisTargetsChanged(bool on);
+    void hideSymbolsWhilePanningChanged(bool on);
     void chartSetsChanged();
     void basemapDirectoryChanged(const QString& dir);
     void simulatorEnabledChanged(bool on);
@@ -171,6 +178,7 @@ private:
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
     bool showAisTargets_ = true;
+    bool hideSymbolsWhilePanning_ = false;
     QVector<ChartSet> chartSets_;
     QString basemapDir_;
     double viewLon_ = 0.0;

@@ -62,9 +62,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->setShowSoundings(settings_->showSoundings());
     view_->setShowSymbols(settings_->showSymbols());
     view_->setShowDepthContours(settings_->showDepthContours());
+    view_->setHideSymbolsWhilePanning(settings_->hideSymbolsWhilePanning());
     connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
+    connect(settings_, &Settings::hideSymbolsWhilePanningChanged,
+            view_, &ChartView::setHideSymbolsWhilePanning);
     view_->setChartDetailLevel(settings_->chartDetailLevel());
     connect(settings_, &Settings::chartDetailLevelChanged,
             view_, &ChartView::setChartDetailLevel);
