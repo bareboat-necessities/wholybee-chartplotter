@@ -189,6 +189,41 @@ bool loadPolygonShp(const std::string& path, FeatureKind kind, int zorder,
     return true;
 }
 
+// Collect the exterior ring of each polygon under `g` (recursing through multi-
+// polygons / collections), projected to Mercator, into `rings`. Some producers
+// emit M_COVR coverage as bare rings/linestrings; those are taken whole.
+void collectExteriorRings(OGRGeometryH g, std::vector<std::vector<Pt>>& rings,
+                          BBox& bbox) {
+    if (!g) return;
+    const OGRwkbGeometryType t = wkbFlatten(OGR_G_GetGeometryType(g));
+    switch (t) {
+        case wkbPolygon: {
+            if (OGR_G_GetGeometryCount(g) > 0) {
+                std::vector<Pt> pts;
+                projectSimple(OGR_G_GetGeometryRef(g, 0), pts, bbox);  // ring 0 = exterior
+                if (pts.size() >= 3) rings.push_back(std::move(pts));
+            }
+            break;
+        }
+        case wkbMultiPolygon:
+        case wkbGeometryCollection: {
+            const int n = OGR_G_GetGeometryCount(g);
+            for (int i = 0; i < n; ++i)
+                collectExteriorRings(OGR_G_GetGeometryRef(g, i), rings, bbox);
+            break;
+        }
+        case wkbLineString:
+        case wkbLinearRing: {
+            std::vector<Pt> pts;
+            projectSimple(g, pts, bbox);
+            if (pts.size() >= 3) rings.push_back(std::move(pts));
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 } // namespace
 
 namespace chart {
@@ -332,6 +367,39 @@ bool computeCellExtentLonLat(const std::string& path,
     if (!have) { err = "No extent found in: " + path; return false; }
     minLon = total.MinX; minLat = total.MinY;
     maxLon = total.MaxX; maxLat = total.MaxY;
+    return true;
+}
+
+bool computeCellCoverage(const std::string& path,
+                         std::vector<std::vector<Pt>>& rings, BBox& bbox,
+                         std::string& err) {
+    rings.clear();
+    bbox = BBox{};
+    GDALDatasetH ds = GDALOpenEx(path.c_str(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                                 nullptr, nullptr, nullptr);
+    if (!ds) { err = "GDAL could not open: " + path; return false; }
+
+    OGRLayerH cov = GDALDatasetGetLayerByName(ds, "M_COVR");
+    if (!cov) { GDALClose(ds); return false; }   // no coverage layer: caller falls back
+
+    // CATCOV (1 = coverage available, 2 = none). Filter to 1 when the field is
+    // present; if a producer omits it, take every polygon.
+    OGRFeatureDefnH defn = OGR_L_GetLayerDefn(cov);
+    const int catIdx = defn ? OGR_FD_GetFieldIndex(defn, "CATCOV") : -1;
+
+    OGR_L_ResetReading(cov);
+    OGRFeatureH feat;
+    while ((feat = OGR_L_GetNextFeature(cov)) != nullptr) {
+        bool take = true;
+        if (catIdx >= 0 && OGR_F_IsFieldSetAndNotNull(feat, catIdx))
+            take = (OGR_F_GetFieldAsInteger(feat, catIdx) == 1);
+        if (take)
+            collectExteriorRings(OGR_F_GetGeometryRef(feat), rings, bbox);
+        OGR_F_Destroy(feat);
+    }
+    GDALClose(ds);
+
+    if (rings.empty() || !bbox.valid()) { err = "No M_COVR coverage in: " + path; return false; }
     return true;
 }
 

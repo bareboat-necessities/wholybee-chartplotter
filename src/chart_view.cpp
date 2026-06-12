@@ -17,6 +17,7 @@
 #include <QPushButton>
 #include <QPen>
 #include <QBrush>
+#include <QPolygonF>
 #include <QThread>
 #include <QDir>
 #include <QFileInfo>
@@ -108,6 +109,30 @@ double simplifyToleranceM(int band) {
         case 5: return 2.8;      // harbour
         default: return 0.0;     // berthing / unknown: keep full detail
     }
+}
+
+// A cell's data-coverage footprint as a scene-frame QPainterPath, shifted into
+// the common view frame by its wrap offset and clipped to `bound` (the kept
+// region, also scene-frame). Scene Y is north-up, so y = -projected y. Falls
+// back to the bbox rectangle when the cell has no M_COVR rings. Used by the
+// quilting pass to decide, region by region, which band is the finest present.
+QPainterPath coveragePath(const CellRecord& c, double off, const QPainterPath& bound) {
+    QPainterPath pp;
+    pp.setFillRule(Qt::WindingFill);
+    if (!c.coverage.empty()) {
+        for (const std::vector<Pt>& ring : c.coverage) {
+            if (ring.size() < 3) continue;
+            QPolygonF poly;
+            poly.reserve(static_cast<int>(ring.size()));
+            for (const Pt& p : ring) poly << QPointF(p.x + off, -p.y);
+            pp.addPolygon(poly);
+            pp.closeSubpath();
+        }
+    } else {
+        const BBox& b = c.bbox;
+        pp.addRect(QRectF(b.minx + off, -b.maxy, b.maxx - b.minx, b.maxy - b.miny));
+    }
+    return pp.intersected(bound);
 }
 
 // Resolve where the GSHHG basemap lives. Search order: an explicit override
@@ -498,6 +523,8 @@ void ChartView::clearAll() {
     inFlight_.clear();
     building_.clear();
     wanted_.clear();
+    active_.clear();
+    drawClip_.clear();
     bandByPath_.clear();
     bboxByPath_.clear();
     cache_.clear();
@@ -659,12 +686,82 @@ void ChartView::updateVisibleCells() {
     if (!haveAtOrBelow)
         for (int b = target + 1; b <= 6; ++b) if (present[b]) { maxBand = b; break; }
 
-    // Wanted set.
+    // --- Quilting: only the finest band draws in any given region ------------
+    // Walk candidate cells finest-band-first, accumulating a "covered" region.
+    // A cell contributes only the part of its coverage that a finer band has not
+    // already claimed; fully-covered cells are dropped, and partially-covered
+    // cells get a clip path so their geometry and symbols draw only where they
+    // are the finest data. Coarser bands then fill only the gaps — eliminating
+    // the stacked-duplicate symbols that came from drawing every band.
+    //
+    // Region math runs in a common scene frame (each cell shifted by its wrap
+    // offset into the view frame); the resulting clip is stored back in the
+    // cell's own un-shifted frame so it composes with drawOffsetX when painted.
+    // The work is bounded to keepArea (the 1.5x kept region) so the clips stay
+    // valid for the whole loaded set, not just the tighter wanted area.
+    const QRectF keepScene(keepArea.minx, -keepArea.maxy,
+                           keepArea.maxx - keepArea.minx,
+                           keepArea.maxy - keepArea.miny);
+    QPainterPath keepClip;
+    keepClip.addRect(keepScene);
+
+    struct Cand { const CellRecord* rec; double off; };
+    std::vector<Cand> cands;
+    for (const CellRecord& c : cells) {
+        if (!c.extentValid || c.band < 1 || c.band > maxBand) continue;
+        const double off = wrapOffsetFor((c.bbox.minx + c.bbox.maxx) / 2.0);
+        if (shiftX(c.bbox, off).intersects(keepArea)) cands.push_back({&c, off});
+    }
+    // Finest first: a higher band number is finer (harbour over coastal etc.).
+    std::sort(cands.begin(), cands.end(),
+              [](const Cand& a, const Cand& b) { return a.rec->band > b.rec->band; });
+
+    active_.clear();
+    drawClip_.clear();
+    QPainterPath covered;                  // union of finer coverage, common frame
+    covered.setFillRule(Qt::WindingFill);
+
+    // Band-0 cells (filename didn't yield a usage band) can't be reasoned about,
+    // so they always contribute, unclipped.
+    for (const CellRecord& c : cells) {
+        if (!c.extentValid || c.band != 0) continue;
+        const double off = wrapOffsetFor((c.bbox.minx + c.bbox.maxx) / 2.0);
+        if (shiftX(c.bbox, off).intersects(keepArea)) active_.insert(c.path);
+    }
+
+    for (std::size_t i = 0; i < cands.size();) {
+        // Process a whole band against the coverage of strictly-finer bands, so
+        // same-band cells (which tile without overlap) never clip each other.
+        const int band = cands[i].rec->band;
+        const QPainterPath coveredByFiner = covered;
+        QPainterPath bandUnion;
+        bandUnion.setFillRule(Qt::WindingFill);
+        std::size_t j = i;
+        for (; j < cands.size() && cands[j].rec->band == band; ++j) {
+            const CellRecord& c = *cands[j].rec;
+            const double off = cands[j].off;
+            const QPainterPath cov = coveragePath(c, off, keepClip);
+            if (cov.isEmpty()) continue;
+            bandUnion.addPath(cov);
+
+            if (coveredByFiner.isEmpty() || !coveredByFiner.intersects(cov)) {
+                active_.insert(c.path);                 // open: contributes, no clip
+                continue;
+            }
+            const QPainterPath contrib = cov.subtracted(coveredByFiner);
+            if (contrib.isEmpty()) continue;            // fully hidden: drop
+            active_.insert(c.path);
+            drawClip_.insert(c.path, contrib.translated(-off, 0.0));   // cell frame
+        }
+        covered.addPath(bandUnion);
+        i = j;
+    }
+
+    // Wanted set = contributing cells whose footprint reaches the tighter wanted
+    // area (the 0.5x margin that triggers loading, as before).
     wanted_.clear();
     for (const CellRecord& c : cells) {
-        if (!c.extentValid) continue;
-        const bool bandOk = (c.band == 0) || (c.band >= 1 && c.band <= maxBand);
-        if (!bandOk) continue;
+        if (!c.extentValid || !active_.contains(c.path)) continue;
         const double off = wrapOffsetFor((c.bbox.minx + c.bbox.maxx) / 2.0);
         if (shiftX(c.bbox, off).intersects(wantedArea)) wanted_.insert(c.path);
     }
@@ -691,7 +788,10 @@ void ChartView::updateVisibleCells() {
         const BBox bbox = bboxByPath_.value(path);
         const double off = wrapOffsetFor((bbox.minx + bbox.maxx) / 2.0);
         const bool bandOk = (band == 0) || (band >= 1 && band <= maxBand);
-        const bool keep = bbox.valid() && bandOk && shiftX(bbox, off).intersects(keepArea);
+        // Drop cells out of range/band, and cells the quilt found fully covered
+        // by a finer band (no longer in active_) so they stop drawing.
+        const bool keep = bbox.valid() && bandOk && active_.contains(path) &&
+                          shiftX(bbox, off).intersects(keepArea);
         if (!keep) { removeCell(path); continue; }
 
         const BBox clipBox = loaded_[path].clipBox;           // real frame
@@ -791,6 +891,8 @@ void ChartView::storeCell(BuiltCell bc) {
 
 void ChartView::removeCell(const QString& path) {
     loaded_.remove(path);
+    drawClip_.remove(path);
+    active_.remove(path);
 }
 
 void ChartView::updatePointLOD() {
@@ -986,6 +1088,11 @@ void ChartView::setShowDepthContours(bool on) {
     showDepthContours_ = on; update();
 }
 
+void ChartView::setHideSymbolsWhilePanning(bool on) {
+    if (on == hideSymbolsWhilePanning_) return;
+    hideSymbolsWhilePanning_ = on; update();
+}
+
 void ChartView::setChartDetailLevel(double level) {
     if (level < -2.0) level = -2.0;
     if (level >  2.0) level =  2.0;
@@ -1087,6 +1194,14 @@ void ChartView::paintEvent(QPaintEvent*) {
         QTransform t = cam;
         if (off != 0.0) t.translate(off, 0.0);
         p.setTransform(t);
+
+        // Quilt clip: where a finer band overlaps this cell, restrict it to the
+        // region it still owns. The path is in the cell's own scene frame, so it
+        // matches the transform just set.
+        const auto clipIt = drawClip_.constFind(c.path);
+        const bool clipped = (clipIt != drawClip_.constEnd());
+        if (clipped) { p.save(); p.setClipPath(*clipIt); }
+
         const QRectF visFrame = vis.translated(-off, 0.0);   // cull in cell frame
         for (const BuiltPath& bp : c.paths) {
             if (bp.isDepthContour && !showDepthContours_) continue;
@@ -1101,6 +1216,7 @@ void ChartView::paintEvent(QPaintEvent*) {
             else           { p.setPen(Qt::NoPen); }
             p.drawPath(bp.path);
         }
+        if (clipped) p.restore();
     };
 
     // 0) Basemap underlay (land/lakes) beneath everything; charts cover it where
@@ -1125,8 +1241,23 @@ void ChartView::paintEvent(QPaintEvent*) {
     // they snap back when the gesture settles (aaTimer_ clears interacting_ and
     // repaints, the same mechanism that restores antialiasing).
     p.resetTransform();
-    if (pointLodVisible_ && !interacting_) {
+    // Point overlays show when the zoom allows them (pointLodVisible_), except
+    // during a gesture if the user opted to hide them for a faster moving frame.
+    if (pointLodVisible_ && (!interacting_ || !hideSymbolsWhilePanning_)) {
         const QRectF screen = rect().adjusted(-24, -24, 24, 24);
+
+        // Quilt clips mapped into device space, so soundings and symbols from a
+        // partially-covered cell are suppressed where a finer band overlays it
+        // (the finer cell draws its own there). Computed once, reused by both
+        // the sounding and symbol passes below.
+        QHash<QString, QPainterPath> deviceClip;
+        for (const BuiltCell* c : order) {
+            const auto it = drawClip_.constFind(c->path);
+            if (it == drawClip_.constEnd()) continue;
+            QTransform t = cam;
+            if (c->drawOffsetX != 0.0) t.translate(c->drawOffsetX, 0.0);
+            deviceClip.insert(c->path, t.map(*it));
+        }
         if (showSoundings_) {
             QFont f = p.font(); f.setPointSizeF(8.0); p.setFont(f);
             p.setPen(QColor(26, 51, 115));
@@ -1171,6 +1302,9 @@ void ChartView::paintEvent(QPaintEvent*) {
             };
 
             for (const BuiltCell* c : order) {
+                const auto dcIt = deviceClip.constFind(c->path);
+                const bool clipped = (dcIt != deviceClip.constEnd());
+                if (clipped) { p.save(); p.setClipPath(*dcIt); }
                 const double off = c->drawOffsetX;
                 for (const Sounding& s : c->soundings) {
                     const QPointF d = cam.map(QPointF(s.pos.x() + off, s.pos.y()));
@@ -1181,6 +1315,7 @@ void ChartView::paintEvent(QPaintEvent*) {
                     p.drawText(QPointF(d.x() + 1.0, d.y() + asc), text);
                     remember(d);
                 }
+                if (clipped) p.restore();
             }
         }
         if (showSymbols_) {
@@ -1191,6 +1326,9 @@ void ChartView::paintEvent(QPaintEvent*) {
 
             const bool atlasOk = symAtlas_.isLoaded();
             for (const BuiltCell* c : order) {
+                const auto dcIt = deviceClip.constFind(c->path);
+                const bool clipped = (dcIt != deviceClip.constEnd());
+                if (clipped) { p.save(); p.setClipPath(*dcIt); }
                 const double off = c->drawOffsetX;
                 for (const BuiltSymbol& sym : c->symbols) {
                     const QPointF d = cam.map(
@@ -1206,6 +1344,7 @@ void ChartView::paintEvent(QPaintEvent*) {
                         p.drawEllipse(d, r, r);
                     }
                 }
+                if (clipped) p.restore();
             }
         }
     }

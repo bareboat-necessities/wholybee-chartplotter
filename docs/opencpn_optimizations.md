@@ -98,8 +98,9 @@ step is skipped.
 
 ## What our app does today
 
-Our pipeline (Qt6 + GDAL + QPainter; no OpenGL, no quilting — cells of all
-bands draw z-sorted):
+Our pipeline (Qt6 + GDAL + QPainter; no OpenGL; coverage-subtraction quilting,
+so only the finest band draws in any region — see borrowable win #2 below,
+now implemented):
 
 1. **Catalog scan** (`chart_catalog.cpp`): enumerate `*.000` under the chart
    root; resolve each cell's extent **cheaply** (M_COVR layer only, no full
@@ -142,7 +143,7 @@ bands draw z-sorted):
 | Polygon fill strategy | Pre-tessellated triangles from the SENC (GPU-friendly) | `QPainterPath` fill per frame (CPU raster; fine at our path counts after simplification) |
 | Draw organization | `razRules[priority][type]` walk in S-52 order | z-sorted `BuiltPath` list per cell (z = band×1000 + kind order) |
 | Pan repaint | Previous-frame bitmap shifted; only exposed strip re-rendered | Full-widget repaint each frame (mitigated by interaction LOD) |
-| Chart selection per view | Quilt: coverage-polygon-aware candidate stack, cached patches | Band targeting from visible width (+ detail bias), bbox intersection |
+| Chart selection per view | Quilt: coverage-polygon-aware candidate stack, cached patches | Quilt: M_COVR coverage subtraction, finest band per region, per-cell clip |
 | Update files (.001…) | Merged once into the SENC | Re-applied by GDAL on every cold parse |
 | Symbology resolution | S-52 plib parsed at runtime; per-object LUP rules cached | Baked at compile time (`symbols.bin`); resolved per feature at build |
 | Raster charts | Disk cache of DXT1-compressed texture tiles | N/A (no raster chart support) |
@@ -169,16 +170,35 @@ dialog. Deleting the cache directory must always be safe.
 Expect cold-view latency to drop from "GDAL parse" to "disk read": this is
 precisely the gap users feel in OpenCPN when the prepare step is skipped.
 
-### 2. Coverage-polygon culling (cheap, after #1)
+### 2. Coverage-polygon quilting — **implemented**
 
-Our catalog reduces each cell to a bounding box, but ENC footprints are often
-diagonal slivers; a bbox can intersect the view while the cell contributes
-nothing. OpenCPN stores the real (simplified) M_COVR polygon in its DB and
-quilts against it. We already read M_COVR in `computeCellExtentLonLat` — we
-just throw the ring away. Storing a DP-simplified coverage ring in the catalog
-cache and testing it (not just the bbox) in `updateVisibleCells` would skip
-loading/building cells whose data never reaches the screen. Helps most exactly
-where it hurts most: dense harbour areas at high detail level.
+*Status: done.* Originally listed here as a culling idea; it turned out to also
+fix a visible bug — the same real-world feature (a buoy, light, beacon) is
+repeated across usage bands in ENC data, and because we drew every band
+`≤ maxBand`, overlapping cells stacked their symbols, drawing each feature two
+or three times slightly offset.
+
+`computeCellCoverage` (in `chart_loader.cpp`) now reads each cell's M_COVR
+exterior rings (CATCOV=1), projected, and the catalog caches them per cell
+alongside the bbox (`CellRecord::coverage`; cache schema v2). In
+`updateVisibleCells`, a **quilting pass** walks candidate cells finest-band-
+first, accumulating a `covered` region (a `QPainterPath` in a common scene
+frame): each cell contributes only the part of its coverage a finer band has
+not already claimed. Fully-covered cells are dropped from the active/loaded
+set; partially-covered cells get a clip path (stored in the cell's own frame),
+applied at paint time to both the vector geometry (scene transform) and the
+soundings/symbols (mapped to device space). Coarser bands thus fill only the
+gaps the finer cells leave — no more stacked duplicates, and fully-hidden cells
+are never loaded or drawn.
+
+Holes (M_COVR CATCOV=2 / inner rings) are intentionally ignored: over-covering
+is the safe direction (it can never leave a duplicate showing, only at worst
+hide a coarse cell inside a small no-data hole). Region math is bounded to the
+1.5× keep area so the clip set stays valid across small pans without recompute.
+
+### 3. Pan-repaint reuse (only if profiling says paint is the bottleneck)
+
+OpenCPN's shifted-bitmap pan repaints only the exposed strip. Our equivalent
 
 ### 3. Pan-repaint reuse (only if profiling says paint is the bottleneck)
 
