@@ -33,6 +33,10 @@ public:
     void setVesselScale(double scale) { vesselScale_ = scale; }
     // Rules deciding which targets are drawn as dangerous (red + highlight).
     void setDangerRules(const DangerRules& rules) { danger_ = rules; }
+    // Master visibility switch. When off the overlay paints nothing and ignores
+    // clicks; the store/CpaCalculator/danger logic keep running underneath so
+    // turning it back on shows the current state without any warm-up.
+    void setVisible(bool on) { visible_ = on; }
 
     // Invoked when the user clicks on a target's glyph (MMSI of that target).
     void setOnTargetClicked(std::function<void(quint32)> cb) { onClick_ = std::move(cb); }
@@ -49,6 +53,7 @@ private:
     double predMinutes_  = 6.0;
     double vesselScale_  = 1.0;
     DangerRules danger_;
+    bool visible_ = true;
     // Camera snapshot from the most recent paint(); used by hitTest to project
     // target positions without re-deriving the view geometry.
     ChartViewport lastViewport_;

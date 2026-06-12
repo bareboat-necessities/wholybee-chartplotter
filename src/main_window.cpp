@@ -16,6 +16,7 @@
 #include "ownship_mmsi_dialog.hpp"
 #include "heading_source_dialog.hpp"
 #include "dangerous_ships_dialog.hpp"
+#include "ais_target_list_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
 #include "cpa_calculator.hpp"
@@ -133,6 +134,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     aisOverlay_ = std::make_unique<AisOverlay>(aisStore_);
     aisOverlay_->setPredictionMinutes(settings_->ownshipPredictionMinutes());
     aisOverlay_->setVesselScale(settings_->vesselScale());
+    aisOverlay_->setVisible(settings_->showAisTargets());
     aisStore_->setStaleSeconds(settings_->aisStaleSeconds());
     aisStore_->setLostSeconds(settings_->aisLostSeconds());
     aisOverlay_->setOnTargetClicked([this](quint32 mmsi) { showAisTarget(mmsi); });
@@ -151,6 +153,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::vesselScaleChanged,
             this, [this](double s) {
         if (aisOverlay_) aisOverlay_->setVesselScale(s);
+    });
+    connect(settings_, &Settings::showAisTargetsChanged,
+            this, [this](bool on) {
+        if (aisOverlay_) aisOverlay_->setVisible(on);
+        if (view_) view_->update();
     });
     // Dangerous-ship rules: push the current values into the overlay and keep
     // them in sync; a change repaints so flags update immediately.
@@ -225,6 +232,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editOwnshipMmsiRequested,         this, &MainWindow::editOwnshipMmsi);
     connect(sideMenu_, &SideMenu::editHeadingSourceRequested,       this, &MainWindow::editHeadingSource);
     connect(sideMenu_, &SideMenu::editDangerousShipsRequested,      this, &MainWindow::editDangerousShips);
+    connect(sideMenu_, &SideMenu::aisTargetListRequested,           this, &MainWindow::showAisTargetList);
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
@@ -404,6 +412,33 @@ void MainWindow::editDangerousShips() {
         settings_->setDangerousShips(dlg.ignoreFarEnabled(), dlg.ignoreFarNm(),
                                      dlg.cpaEnabled(), dlg.cpaNm(),
                                      dlg.tcpaEnabled(), dlg.tcpaMin());
+}
+
+void MainWindow::showAisTargetList() {
+    // Modeless: one instance, raised on subsequent opens; QPointer clears when
+    // the dialog self-deletes so the next open creates a fresh one.
+    if (!aisListDlg_) {
+        aisListDlg_ = new AisTargetListDialog(aisStore_, this);
+        aisListDlg_->setAttribute(Qt::WA_DeleteOnClose);
+        // Tapping a row opens (or raises) the full info window for that MMSI,
+        // skipping the chart's two-click quick-look since the list already
+        // serves as the "first click".
+        connect(aisListDlg_, &AisTargetListDialog::targetActivated,
+                this, [this](quint32 mmsi) {
+            AisTargetInfoWindow* w = aisInfoWindows_.value(mmsi);
+            if (!w) {
+                w = new AisTargetInfoWindow(mmsi, aisStore_, this);
+                w->setAttribute(Qt::WA_DeleteOnClose);
+                aisInfoWindows_.insert(mmsi, w);
+            }
+            w->show();
+            w->raise();
+            w->activateWindow();
+        });
+    }
+    aisListDlg_->show();
+    aisListDlg_->raise();
+    aisListDlg_->activateWindow();
 }
 
 void MainWindow::showAisTarget(quint32 mmsi) {

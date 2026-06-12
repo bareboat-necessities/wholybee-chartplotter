@@ -71,6 +71,7 @@ signals:
     void editOwnshipMmsiRequested();                   // open Own Ship MMSI dialog
     void editHeadingSourceRequested();                 // open Heading Source dialog
     void editDangerousShipsRequested();                // open Dangerous Ships dialog
+    void aisTargetListRequested();                     // open AIS Targets list dialog
 
 protected:
     void resizeEvent(QResizeEvent* e) override;

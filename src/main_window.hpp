@@ -18,6 +18,7 @@ class NavDataBrowserWindow;
 class AisOverlay;
 class AisTargetInfoWindow;
 class AisQuickInfoWindow;
+class AisTargetListDialog;
 class CoreApi;
 class PluginManager;
 class QLabel;
@@ -48,6 +49,7 @@ private slots:
     void editOwnshipMmsi();
     void editHeadingSource();
     void editDangerousShips();
+    void showAisTargetList();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
@@ -77,6 +79,8 @@ private:
     // chart interaction dismisses it. QPointer clears when it self-deletes.
     QPointer<AisQuickInfoWindow> aisQuickInfo_;
     quint32 aisQuickInfoMmsi_ = 0;
+    // Reused list window: one instance per session, raised on subsequent opens.
+    QPointer<AisTargetListDialog> aisListDlg_;
     void showAisTarget(quint32 mmsi);   // drives the two-click open behaviour
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services

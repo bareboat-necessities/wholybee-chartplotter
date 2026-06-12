@@ -28,7 +28,7 @@ void drawDangerHighlight(QPainter& p, const QPointF& pos, double scale) {
 } // namespace
 
 void AisOverlay::paint(QPainter& p, const ChartViewport& vp) {
-    if (!store_) return;
+    if (!store_ || !visible_) return;
 
     // Cache the camera snapshot so hitTest can project target positions without
     // re-deriving the view geometry.
@@ -120,7 +120,7 @@ bool AisOverlay::isDangerous(const AisTarget& t) const {
 }
 
 bool AisOverlay::hitTest(const QPointF& screenPt) {
-    if (!store_ || !haveViewport_ || !onClick_) return false;
+    if (!store_ || !visible_ || !haveViewport_ || !onClick_) return false;
     // Pick the target whose glyph centre is closest to the click, within the
     // glyph's roughly 14 px radius (scales with vessel size).
     const double kPickRadiusPx = 14.0 * vesselScale_;
