@@ -131,7 +131,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // AIS chart overlay: green vessel glyphs (same shape as ownship, predictor
     // line + cancellation slash when stale). Kept in step with ownship's
     // configurable predictor length, and triggers a repaint as targets change.
-    aisOverlay_ = std::make_unique<AisOverlay>(aisStore_);
+    aisOverlay_ = std::make_unique<AisOverlay>(aisStore_, navStore_);
     aisOverlay_->setPredictionMinutes(settings_->ownshipPredictionMinutes());
     aisOverlay_->setVesselScale(settings_->vesselScale());
     aisOverlay_->setVisible(settings_->showAisTargets());

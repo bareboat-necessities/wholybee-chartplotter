@@ -3,6 +3,7 @@
 #include "plugin_api.hpp"   // IChartOverlay, ChartViewport
 
 class AisTargetStore;
+class NavDataStore;
 struct AisTarget;
 
 // User-configured rules deciding whether a target is "dangerous". CPA is the
@@ -25,7 +26,10 @@ struct DangerRules {
 // already removed by the store.
 class AisOverlay : public IChartOverlay {
 public:
-    explicit AisOverlay(const AisTargetStore* store) : store_(store) {}
+    // The nav store supplies ownship's current position, where the ownship leg
+    // of the CPA encounter graphics starts.
+    AisOverlay(const AisTargetStore* store, const NavDataStore* nav)
+        : store_(store), nav_(nav) {}
 
     // Course-prediction length in minutes (kept in step with ownship's).
     void setPredictionMinutes(double minutes) { predMinutes_ = minutes; }
@@ -50,6 +54,7 @@ private:
     bool isDangerous(const AisTarget& t) const;
 
     const AisTargetStore* store_ = nullptr;
+    const NavDataStore*   nav_   = nullptr;
     double predMinutes_  = 6.0;
     double vesselScale_  = 1.0;
     DangerRules danger_;

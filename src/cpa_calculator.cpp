@@ -122,6 +122,13 @@ void CpaCalculator::recompute() {
         const double cy = dy + dvy * tcpa;
         const double cpa = std::sqrt(cx * cx + cy * cy);    // metres
 
-        ais_->setCpaTcpa(mmsi, cpa, tcpa);
+        // Project each vessel along its own track to TCPA — the geographic
+        // endpoints of the encounter, used to draw the CPA graphics.
+        const GeoPos ownAtCpa{ownLat + (ownVy * tcpa) / kMetresPerDegLat,
+                              ownLon + (ownVx * tcpa) / mPerDegLon};
+        const GeoPos tgtAtCpa{*t->latitudeDeg  + (tVy * tcpa) / kMetresPerDegLat,
+                              *t->longitudeDeg + (tVx * tcpa) / mPerDegLon};
+
+        ais_->setCpaTcpa(mmsi, cpa, tcpa, ownAtCpa, tgtAtCpa);
     }
 }
