@@ -29,6 +29,10 @@ public:
     bool showSoundings() const { return showSoundings_; }
     bool showSymbols() const { return showSymbols_; }
     bool showDepthContours() const { return showDepthContours_; }
+    // AIS targets drawn on the chart. When off, the overlay paints nothing and
+    // ignores clicks, but the store and CpaCalculator keep tracking and the
+    // dangerous-ship logic keeps running — it just has nothing to draw.
+    bool showAisTargets() const { return showAisTargets_; }
 
     // The user's defined chart sets, in menu order.
     const QVector<ChartSet>& chartSets() const { return chartSets_; }
@@ -113,6 +117,7 @@ public slots:
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
+    void setShowAisTargets(bool on);
     void setChartSets(const QVector<ChartSet>& sets);
     void setView(double lon, double lat, double scale);
     void setBasemapDirectory(const QString& dir);
@@ -139,6 +144,7 @@ signals:
     void showSoundingsChanged(bool on);
     void showSymbolsChanged(bool on);
     void showDepthContoursChanged(bool on);
+    void showAisTargetsChanged(bool on);
     void chartSetsChanged();
     void basemapDirectoryChanged(const QString& dir);
     void simulatorEnabledChanged(bool on);
@@ -164,6 +170,7 @@ private:
     bool showSoundings_ = true;
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
+    bool showAisTargets_ = true;
     QVector<ChartSet> chartSets_;
     QString basemapDir_;
     double viewLon_ = 0.0;

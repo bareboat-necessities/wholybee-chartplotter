@@ -9,6 +9,7 @@ constexpr auto kChartSets = "charts/sets";
 constexpr auto kSoundings = "display/showSoundings";
 constexpr auto kSymbols   = "display/showSymbols";
 constexpr auto kContours  = "display/showDepthContours";
+constexpr auto kAisShow   = "display/showAisTargets";
 constexpr auto kViewLon   = "view/centerLon";
 constexpr auto kViewLat   = "view/centerLat";
 constexpr auto kViewScale = "view/scale";
@@ -44,6 +45,7 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     showSoundings_     = s.value(QLatin1String(kSoundings), true).toBool();
     showSymbols_       = s.value(QLatin1String(kSymbols),   true).toBool();
     showDepthContours_ = s.value(QLatin1String(kContours),  true).toBool();
+    showAisTargets_    = s.value(QLatin1String(kAisShow),   true).toBool();
     viewLon_   = s.value(QLatin1String(kViewLon),   0.0).toDouble();
     viewLat_   = s.value(QLatin1String(kViewLat),   0.0).toDouble();
     viewScale_ = s.value(QLatin1String(kViewScale), 0.0).toDouble();
@@ -315,4 +317,11 @@ void Settings::setShowDepthContours(bool on) {
     showDepthContours_ = on;
     QSettings().setValue(QLatin1String(kContours), on);
     emit showDepthContoursChanged(on);
+}
+
+void Settings::setShowAisTargets(bool on) {
+    if (on == showAisTargets_) return;
+    showAisTargets_ = on;
+    QSettings().setValue(QLatin1String(kAisShow), on);
+    emit showAisTargetsChanged(on);
 }

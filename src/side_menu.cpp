@@ -115,6 +115,18 @@ QWidget* SideMenu::buildMainPage() {
             [this](bool on) { emit autoFollowToggled(on); });
     col->addWidget(autoFollowBtn_);
 
+    auto* aisShow = makeCheckAction(QStringLiteral("AIS Targets"),
+                                    settings_->showAisTargets());
+    connect(aisShow, &QPushButton::toggled, settings_, &Settings::setShowAisTargets);
+    col->addWidget(aisShow);
+
+    auto* aisListBtn = makeIndentedAction(QStringLiteral("List AIS Targets"));
+    connect(aisListBtn, &QPushButton::clicked, this, [this] {
+        emit aisTargetListRequested();
+        if (autoHide_) closeMenu();
+    });
+    col->addWidget(aisListBtn);
+
     col->addWidget(makeHeader(QStringLiteral("Chart Detail")));
     auto* detailLvlBtn = makeIndentedAction(QStringLiteral("Detail Level"));
     connect(detailLvlBtn, &QPushButton::clicked, this, [this] {
