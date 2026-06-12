@@ -31,7 +31,7 @@ reports. Optional fields are absent until a report supplies them.
 | voyage (Class A) | `destination`, `draughtMeters` |
 | size | `dimensions` (to bow/stern/port/starboard; `lengthMeters()`, `beamMeters()`) |
 | dynamic | `latitudeDeg`, `longitudeDeg`, `cogDegTrue`, `sogKnots`, `headingDegTrue`, `rotDegPerMin`, `navStatus` |
-| computed | `rangeMeters`, `cpaMeters`, `tcpaSeconds` (set by a collision component, not from AIS) |
+| computed | `rangeMeters`, `cpaMeters`, `tcpaSeconds`, `cpaOwnshipPos`/`cpaTargetPos` (set by a collision component, not from AIS) |
 | provenance | `source`, `lastUpdateUtc`, `ageSeconds`, `freshness` |
 
 `AisDimensions` stores the four reference-point offsets AIS transmits; length and
@@ -108,6 +108,9 @@ the ownship, and computes:
   is perpendicular to the relative-velocity vector (negative once the contact is
   opening, i.e. CPA already passed).
 - **CPA** = the range at that instant, `|Δr + Δv·TCPA|`.
+- **CPA endpoints** (`cpaOwnshipPos` / `cpaTargetPos`) — each vessel projected
+  along its own track to TCPA; the geographic stage of the encounter, consumed
+  by the overlay's CPA graphics. Absent when TCPA has no finite solution.
 
 It also computes each target's **distance to ownship** (`rangeMeters`), written
 via `setRangeMeters`. Distance is kept separate from CPA/TCPA because it needs
@@ -141,6 +144,13 @@ its TCPA to be ahead and within a time window; a target beyond the optional
 range limit is never flagged. The overlay evaluates this each paint from the
 `rangeMeters` / `cpaMeters` / `tcpaSeconds` the `CpaCalculator` maintains, so no
 extra per-target state is stored.
+
+When a dangerous encounter is still ahead (TCPA ≥ 0), the overlay also draws the
+**CPA encounter graphics**: a bold dashed red track from each vessel's bow to
+the point it will occupy at TCPA (`cpaTargetPos` for the target, `cpaOwnshipPos`
+for ownship — the overlay reads ownship's current fix from the `NavDataStore`),
+a blue dot at each of those points, and a red-edged yellow bar joining the dots —
+the closest-approach separation itself.
 
 ## Not yet (next steps)
 

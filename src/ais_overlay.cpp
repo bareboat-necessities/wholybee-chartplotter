@@ -1,10 +1,12 @@
 #include "ais_overlay.hpp"
 #include "ais_target_store.hpp"
+#include "nav_data_store.hpp"
 #include "vessel_symbol.hpp"
 
 #include <QColor>
 #include <QPainter>
 #include <QPen>
+#include <cmath>
 
 namespace {
 constexpr double kMetresPerNm  = 1852.0;
@@ -23,6 +25,61 @@ void drawDangerHighlight(QPainter& p, const QPointF& pos, double scale) {
     p.setPen(rim);
     p.setBrush(QColor(255, 214, 0, 200));   // yellow, slightly translucent
     p.drawEllipse(pos, r, r);
+    p.restore();
+}
+
+// Graphics for a dangerous encounter: a bold dashed red track from each
+// vessel's bow to the point it will occupy at TCPA, a blue dot at each of
+// those two points, and a red-edged yellow bar joining the dots — the CPA
+// separation itself. Drawn in device pixels like drawSymbol, before the
+// glyphs so the vessels land on top of their own track lines.
+void drawCpaEncounter(QPainter& p,
+                      const QPointF& tgtNow, const QPointF& tgtCpa,
+                      const QPointF& ownNow, const QPointF& ownCpa,
+                      double scale) {
+    p.save();
+    p.resetTransform();
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    // Track legs. Start just ahead of each glyph (the bow tip sits ~14 px from
+    // the centre at nominal scale) so the line reads as leaving the bow; skip a
+    // leg entirely once the vessel is closer to its CPA point than that.
+    const double bowPx = 14.0 * scale;
+    QPen track(QColor(210, 25, 25));
+    track.setWidthF(3.0);
+    track.setStyle(Qt::DashLine);
+    track.setCapStyle(Qt::FlatCap);
+    p.setPen(track);
+    auto trackLeg = [&p, bowPx](const QPointF& now, const QPointF& cpa) {
+        const QPointF d = cpa - now;
+        const double len = std::hypot(d.x(), d.y());
+        if (len <= bowPx) return;
+        p.drawLine(now + d * (bowPx / len), cpa);
+    };
+    trackLeg(tgtNow, tgtCpa);
+    trackLeg(ownNow, ownCpa);
+
+    // The CPA bar: solid yellow with a dashed red line centered on top,
+    // both the same width as the track legs.
+    QPen cpaYellow(QColor(255, 214, 0));
+    cpaYellow.setWidthF(3.0);
+    cpaYellow.setCapStyle(Qt::RoundCap);
+    p.setPen(cpaYellow);
+    p.drawLine(ownCpa, tgtCpa);
+    QPen cpaDash(QColor(210, 25, 25));
+    cpaDash.setWidthF(3.0);
+    cpaDash.setStyle(Qt::DashLine);
+    cpaDash.setCapStyle(Qt::FlatCap);
+    p.setPen(cpaDash);
+    p.drawLine(ownCpa, tgtCpa);
+
+    // Blue dots marking the two CPA positions, capping the bar and the legs.
+    const double r = 6.0 * scale;
+    p.setPen(QPen(QColor(10, 25, 90), 1.5));
+    p.setBrush(QColor(35, 70, 220));
+    p.drawEllipse(ownCpa, r, r);
+    p.drawEllipse(tgtCpa, r, r);
+
     p.restore();
 }
 } // namespace
@@ -82,7 +139,25 @@ void AisOverlay::paint(QPainter& p, const ChartViewport& vp) {
         else if (t.cogDegTrue) headingDeg = *t.cogDegTrue;
 
         const bool danger = isDangerous(t);
-        if (danger) drawDangerHighlight(p, pos, vesselScale_);
+        if (danger) {
+            drawDangerHighlight(p, pos, vesselScale_);
+            // CPA encounter graphics need a future encounter (TCPA still
+            // ahead), the projected endpoints, and a live ownship fix to
+            // anchor the ownship leg.
+            if (nav_ && t.tcpaSeconds && *t.tcpaSeconds >= 0.0
+                && t.cpaOwnshipPos && t.cpaTargetPos) {
+                const OwnshipState& os = nav_->ownship();
+                if (os.latitudeDeg.valid() && os.longitudeDeg.valid()) {
+                    const QPointF ownNow = vp.geoToScreen(os.latitudeDeg.value,
+                                                          os.longitudeDeg.value);
+                    const QPointF ownCpa = vp.geoToScreen(t.cpaOwnshipPos->latDeg,
+                                                          t.cpaOwnshipPos->lonDeg);
+                    const QPointF tgtCpa = vp.geoToScreen(t.cpaTargetPos->latDeg,
+                                                          t.cpaTargetPos->lonDeg);
+                    drawCpaEncounter(p, pos, tgtCpa, ownNow, ownCpa, vesselScale_);
+                }
+            }
+        }
 
         const vessel::SymbolStyle& style = danger
             ? (t.cls == AisClass::B ? kAisBDanger : kAisADanger)

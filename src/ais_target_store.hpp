@@ -34,6 +34,13 @@ enum class AisNavStatus {
     Reserved13 = 13, AisSart = 14, Undefined = 15
 };
 
+// A geographic point. Used for the projected CPA endpoints: where each vessel
+// will be at the moment of closest approach.
+struct GeoPos {
+    double latDeg = 0.0;
+    double lonDeg = 0.0;
+};
+
 // AIS reports a vessel's size as distances (metres) from the position reference
 // point to bow (A), stern (B), port (C) and starboard (D).
 struct AisDimensions {
@@ -69,6 +76,10 @@ struct AisTarget {
     std::optional<double> rangeMeters;     // current distance to ownship
     std::optional<double> cpaMeters;       // closest point of approach
     std::optional<double> tcpaSeconds;     // time to CPA (< 0 = opening)
+    // Where each vessel will be at TCPA (set with cpaMeters/tcpaSeconds; absent
+    // when TCPA has no finite solution). Drives the CPA encounter graphics.
+    std::optional<GeoPos> cpaOwnshipPos;   // ownship at the moment of CPA
+    std::optional<GeoPos> cpaTargetPos;    // this target at the moment of CPA
 
     // Provenance / freshness.
     QString   source;
@@ -136,8 +147,12 @@ public:
     // target. Distance is separate because it is known whenever both positions
     // are (even when a target reports no course/speed and CPA can't be solved).
     void setRangeMeters(quint32 mmsi, std::optional<double> rangeMeters);
+    // The optional endpoints are each vessel's projected position at TCPA;
+    // omitting them clears any previously attached pair.
     void setCpaTcpa(quint32 mmsi, std::optional<double> cpaMeters,
-                    std::optional<double> tcpaSeconds);
+                    std::optional<double> tcpaSeconds,
+                    std::optional<GeoPos> ownshipAtCpa = std::nullopt,
+                    std::optional<GeoPos> targetAtCpa  = std::nullopt);
 
 public slots:
     void setStaleSeconds(double s);

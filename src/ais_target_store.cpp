@@ -126,11 +126,15 @@ void AisTargetStore::setRangeMeters(quint32 mmsi, std::optional<double> rangeMet
 }
 
 void AisTargetStore::setCpaTcpa(quint32 mmsi, std::optional<double> cpaMeters,
-                                std::optional<double> tcpaSeconds) {
+                                std::optional<double> tcpaSeconds,
+                                std::optional<GeoPos> ownshipAtCpa,
+                                std::optional<GeoPos> targetAtCpa) {
     auto it = targets_.find(mmsi);
     if (it == targets_.end()) return;
     it->cpaMeters = cpaMeters;
     it->tcpaSeconds = tcpaSeconds;
+    it->cpaOwnshipPos = ownshipAtCpa;
+    it->cpaTargetPos  = targetAtCpa;
     emit targetUpdated(mmsi);
 }
 
