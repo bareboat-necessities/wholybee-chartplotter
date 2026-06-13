@@ -90,7 +90,6 @@ qt_add_executable(chartviewer
     src/dangerous_ships_dialog.cpp
     src/core_api.cpp
     src/plugin_manager.cpp
-    src/test_plugin.cpp
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp
@@ -118,11 +117,22 @@ add_dependencies(chartviewer symbols_bin)
 # folder during development. On an installed build this path won't exist, so it
 # is skipped and the standard data locations are used instead.
 target_compile_definitions(chartviewer PRIVATE
-    CHARTPLOTTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    CHARTPLOTTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    # Flips HOST_EXPORT to dllexport in the host's translation units; plugins
+    # don't define this, so they see dllimport for the same types.
+    CHARTPLOTTER_BUILD_HOST=1)
 
 set_target_properties(chartviewer PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
+    # Expose the host's symbols so dynamically loaded plugins can link against
+    # them. On Windows ENABLE_EXPORTS produces an import library (chartviewer.lib)
+    # and WINDOWS_EXPORT_ALL_SYMBOLS auto-generates a .def listing every global
+    # symbol from the exe's object files (including MOC-emitted metaobjects and
+    # signal stubs). On Linux/macOS ENABLE_EXPORTS adds -rdynamic so the
+    # dynamic linker honours dlopen lookups against the exe.
+    ENABLE_EXPORTS TRUE
+    WINDOWS_EXPORT_ALL_SYMBOLS TRUE
 )
 
 # ---- Qt DLL deployment (Windows only) --------------------------------------
@@ -260,3 +270,11 @@ foreach(_atlas_png
             "  Copy rastersymbols-*.png files into data/ to enable atlas symbols.")
     endif()
 endforeach()
+
+# ---- Dynamic plugins --------------------------------------------------------
+#
+# Each plugin lives in its own subdirectory under plugins/, builds to its own
+# shared library (a separate target / VS project), and post-build copies itself
+# into plugins/ next to the host exe so QPluginLoader picks it up at runtime.
+add_subdirectory(plugins/test_plugin)
+

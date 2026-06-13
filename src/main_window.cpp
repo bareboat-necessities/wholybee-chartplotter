@@ -28,8 +28,8 @@
 #include "plugin_manager.hpp"
 #include "nmea0183_plugin.hpp"
 #include "nmea2000_plugin.hpp"
-#include "test_plugin.hpp"
 
+#include <QCoreApplication>
 #include <QStatusBar>
 #include <QLabel>
 #include <QPushButton>
@@ -249,7 +249,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
     plugins_->add(std::make_unique<Nmea2000Plugin>());
-    plugins_->add(std::make_unique<TestPlugin>());
+    // Dynamic plugins discovered alongside the exe. Test Plugin lives here
+    // now — built as its own VS project under plugins/test_plugin/, loaded
+    // via QPluginLoader.
+    plugins_->loadFromDirectory(QCoreApplication::applicationDirPath()
+                                + QStringLiteral("/plugins"));
     plugins_->initializeAll();
 
     // Simulator is a core built-in source; register it last so real data
