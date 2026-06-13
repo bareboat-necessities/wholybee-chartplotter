@@ -19,10 +19,15 @@ class AisOverlay;
 class AisTargetInfoWindow;
 class AisQuickInfoWindow;
 class AisTargetListDialog;
+class RouteStore;
+class RouteOverlay;
+class RouteListDialog;
+class WaypointListDialog;
 class CoreApi;
 class PluginManager;
 class QLabel;
 class QPushButton;
+class QWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -50,6 +55,14 @@ private slots:
     void editHeadingSource();
     void editDangerousShips();
     void showAisTargetList();
+    // Routes & Waypoints.
+    void startCreateRoute();
+    void startEditRoute();
+    void startCreateWaypoint();
+    void startEditWaypoint();
+    void dropWaypoint();
+    void showRouteList();
+    void showWaypointList();
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
@@ -61,6 +74,20 @@ private:
     void startScan(const QString& dir);
     void refreshChartStatus();   // compose status from ENC + raster results
     void positionMenuButton();
+
+    // Routes & Waypoints helpers ---------------------------------------------
+    void buildEditBar();              // construct the floating action bar (hidden)
+    void positionEditBar();           // centre it over the chart top
+    void showRouteEditBar(const QString& hint);    // Complete/Delete/Cancel
+    void showWaypointPlaceBar(const QString& hint); // Cancel only
+    void showWaypointEditBar(const QString& hint);  // Done/Cancel (no Delete Point)
+    void endRouteMode();              // clear overlay edit + editor + bar
+    void beginEditRoute(qint64 id);   // fit chart + start editing a saved route
+    void beginEditWaypoint(qint64 id);// fit chart + start moving a saved waypoint
+    void completeEdit();              // Complete/Done button: dispatch by mode
+    void completeRoute();             // name + persist the working route
+    void completeWaypointMove();      // persist the moved waypoint
+    void onWaypointPlaced(double lat, double lon);  // create-waypoint tap
 
     ChartView*    view_ = nullptr;
     ChartCatalog* catalog_ = nullptr;
@@ -84,6 +111,18 @@ private:
     // Reused list window: one instance per session, raised on subsequent opens.
     QPointer<AisTargetListDialog> aisListDlg_;
     void showAisTarget(quint32 mmsi);   // drives the two-click open behaviour
+
+    // Routes & Waypoints -----------------------------------------------------
+    RouteStore* routeStore_ = nullptr;
+    std::unique_ptr<RouteOverlay> routeOverlay_;
+    QPointer<RouteListDialog>     routeListDlg_;
+    QPointer<WaypointListDialog>  waypointListDlg_;
+    // Floating action bar shown over the chart during a create/edit session.
+    QWidget*     editBar_ = nullptr;
+    QLabel*      editHint_ = nullptr;
+    QPushButton* completeBtn_ = nullptr;
+    QPushButton* deletePointBtn_ = nullptr;
+    QPushButton* cancelEditBtn_ = nullptr;
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins

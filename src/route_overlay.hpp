@@ -1,0 +1,79 @@
+#pragma once
+#include <functional>
+#include "plugin_api.hpp"     // IChartOverlay, ChartViewport
+#include "chart_view.hpp"     // IChartEditor
+#include "route_types.hpp"
+
+class RouteStore;
+
+// Draws saved routes and waypoints on the chart, and hosts the in-place editor
+// used to create/edit them. It is both an IChartOverlay (paint + tap pick) and an
+// IChartEditor (press/move/release for node dragging), so one object owns all the
+// route drawing and interaction.
+//
+// Interaction split (see ChartView's mouse handling):
+//   - Press on a working-route node  -> onPress() claims the gesture; a drag
+//     repositions the node, a tap (no movement) selects it.
+//   - Tap on empty chart             -> hitTest() appends a point (route modes)
+//     or places the waypoint (CreateWaypoint mode).
+// Outside an edit mode hitTest() declines, so AIS/other picks keep working.
+class RouteOverlay : public IChartOverlay, public IChartEditor {
+public:
+    enum class Mode { None, CreateRoute, EditRoute, CreateWaypoint, EditWaypoint };
+
+    explicit RouteOverlay(const RouteStore* store) : store_(store) {}
+
+    // Callbacks into the host (MainWindow). All optional.
+    void setRepaintCallback(std::function<void()> cb) { repaint_ = std::move(cb); }
+    // Invoked when the user taps to place a waypoint (CreateWaypoint mode).
+    void setWaypointPlacedCallback(std::function<void(double lat, double lon)> cb) {
+        onWaypointPlaced_ = std::move(cb);
+    }
+    // Invoked when the selected-node state changes (drives the Delete button).
+    void setSelectionChangedCallback(std::function<void(bool hasSelection)> cb) {
+        onSelectionChanged_ = std::move(cb);
+    }
+
+    // IChartOverlay ----------------------------------------------------------
+    void paint(QPainter& painter, const ChartViewport& viewport) override;
+    bool hitTest(const QPointF& screenPt) override;
+
+    // IChartEditor -----------------------------------------------------------
+    bool onPress(const QPointF& screenPt) override;
+    void onMove(const QPointF& screenPt) override;
+    void onRelease(const QPointF& screenPt) override;
+
+    // Edit session control (driven by MainWindow) ----------------------------
+    void beginCreateRoute();
+    void beginEditRoute(const Route& r);   // working copy keeps r.id
+    void beginCreateWaypoint();
+    void beginEditWaypoint(const Waypoint& w);   // working copy keeps w.id
+    void endEditing();
+    Mode mode() const { return mode_; }
+
+    const Route&    workingRoute()    const { return work_; }     // read on Complete Route
+    const Waypoint& workingWaypoint() const { return editWpt_; }  // read on Complete (wpt)
+    bool hasSelectedNode() const { return selected_ >= 0; }
+    void deleteSelectedNode();
+
+private:
+    int  nodeAt(const QPointF& screenPt) const;   // index in work_.points, or -1
+    void notifySelection();
+    void repaint();
+
+    const RouteStore* store_ = nullptr;
+    ChartViewport     vp_;
+    bool              haveVp_ = false;
+
+    Mode mode_ = Mode::None;
+    Route work_;                 // the route being created/edited
+    Waypoint editWpt_;           // the waypoint being edited (EditWaypoint mode)
+    int  selected_ = -1;         // selected node index (-1 none)
+    int  dragging_ = -1;         // node being dragged (-1 none)
+    bool dragMoved_ = false;     // distinguishes a drag from a tap-select
+    QPointF pressPos_;
+
+    std::function<void()>                     repaint_;
+    std::function<void(double, double)>       onWaypointPlaced_;
+    std::function<void(bool)>                 onSelectionChanged_;
+};
