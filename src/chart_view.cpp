@@ -1200,6 +1200,26 @@ void ChartView::fitToSceneBox(const BBox& b) {
     update();
 }
 
+// Pan/zoom to frame a geographic box (degrees). Builds the scene-frame box
+// (x = lonToX, y = -latToY) with ~25% padding and defers to fitToSceneBox. A
+// degenerate box (single point / zero span) is padded to a small minimum so a
+// one-point route still lands on screen at a sensible zoom.
+void ChartView::fitToGeoBox(double latMin, double lonMin, double latMax, double lonMax) {
+    BBox b;
+    b.expand(proj::lonToX(lonMin), -proj::latToY(latMin));
+    b.expand(proj::lonToX(lonMax), -proj::latToY(latMax));
+    if (!b.valid()) return;
+    double wM = b.maxx - b.minx, hM = b.maxy - b.miny;
+    // Pad so the route isn't jammed against the edges; floor the span so a
+    // single-point box (or a perfectly N-S / E-W line) still has area to frame.
+    const double padX = std::max(wM * 0.25, 500.0);
+    const double padY = std::max(hM * 0.25, 500.0);
+    b.minx -= padX; b.maxx += padX;
+    b.miny -= padY; b.maxy += padY;
+    userInteracted_ = true;        // an explicit jump; don't auto-refit on resize
+    fitToSceneBox(b);
+}
+
 // Draw the raster charts in device space: choose each chart's native pyramid
 // zoom from the current scale, blit cached tiles, request missing ones, and fall
 // back to the nearest cached coarser ancestor so zoom/pan never flashes blank.
@@ -1814,6 +1834,15 @@ void ChartView::wheelEvent(QWheelEvent* e) {
 
 void ChartView::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && ppm_ > 0.0) {
+        // Offer the gesture to the active editor first. If it grabs (e.g. the
+        // press landed on a draggable route node), we drag the node instead of
+        // panning the chart.
+        if (editor_ && editor_->onPress(e->position())) {
+            editorGrab_ = true;
+            userInteracted_ = true;
+            QWidget::mousePressEvent(e);
+            return;
+        }
         dragging_ = true;
         panDismissEmitted_ = false;           // re-arm pan dismissal for this gesture
         lastDragPos_ = e->position();
@@ -1828,6 +1857,12 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
     if (ppm_ > 0.0) {
         const QPointF s = screenToScene(e->position());
         emit cursorMoved(proj::xToLon(s.x()), proj::yToLat(-s.y()));
+        if (editorGrab_) {                    // dragging a node, not panning
+            editor_->onMove(e->position());
+            update();
+            QWidget::mouseMoveEvent(e);
+            return;
+        }
         if (dragging_) {
             const QPointF d = e->position() - lastDragPos_;
             lastDragPos_ = e->position();
@@ -1851,6 +1886,13 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void ChartView::mouseReleaseEvent(QMouseEvent* e) {
+    if (e->button() == Qt::LeftButton && editorGrab_) {
+        editorGrab_ = false;
+        editor_->onRelease(e->position());
+        update();
+        QWidget::mouseReleaseEvent(e);
+        return;
+    }
     if (e->button() == Qt::LeftButton && dragging_) {
         dragging_ = false;
         setCursor(Qt::OpenHandCursor);

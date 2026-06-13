@@ -72,6 +72,14 @@ signals:
     void editHeadingSourceRequested();                 // open Heading Source dialog
     void editDangerousShipsRequested();                // open Dangerous Ships dialog
     void aisTargetListRequested();                     // open AIS Targets list dialog
+    // Routes & Waypoints sub-page actions.
+    void createRouteRequested();
+    void editRouteRequested();
+    void routeListRequested();
+    void createWaypointRequested();
+    void editWaypointRequested();
+    void dropWaypointRequested();
+    void waypointListRequested();
 
 protected:
     void resizeEvent(QResizeEvent* e) override;
@@ -91,10 +99,12 @@ private:
     QPushButton* makeCheckAction(const QString& text, bool checked);
     QWidget*     buildMainPage();
     QWidget*     buildSettingsPage();
+    QWidget*     buildRoutesPage();
     QWidget*     wrapScroll(QWidget* content);   // scrollable container for a page
     void rebuildChartSets();
     void showMainPage();
     void showSettingsPage();
+    void showRoutesPage();
     void layoutPanel();
     void applyModeGeometry();   // size + scrim visibility for current autoHide_
 
@@ -117,4 +127,5 @@ private:
     bool autoHide_ = true;
     int  mainIndex_ = 0;
     int  settingsIndex_ = 1;
+    int  routesIndex_ = 2;
 };

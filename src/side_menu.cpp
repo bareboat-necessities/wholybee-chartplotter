@@ -105,10 +105,11 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     navBtn_->setStyleSheet(QStringLiteral(
         "QPushButton{ border:none; background:transparent; }"
         "QPushButton:pressed{ background:%1; border-radius:6px; }").arg(th.actionPressed));
-    // Context-sensitive: on the settings page it goes back, otherwise it closes.
+    // Context-sensitive: on any sub-page it goes back to the main page,
+    // otherwise it closes the menu.
     connect(navBtn_, &QPushButton::clicked, this, [this] {
-        if (stack_->currentIndex() == settingsIndex_) showMainPage();
-        else                                          closeMenu();
+        if (stack_->currentIndex() != mainIndex_) showMainPage();
+        else                                      closeMenu();
     });
     headerRow->addWidget(navBtn_);
 
@@ -123,6 +124,7 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     stack_ = new QStackedWidget(panel_);
     mainIndex_     = stack_->addWidget(wrapScroll(buildMainPage()));
     settingsIndex_ = stack_->addWidget(wrapScroll(buildSettingsPage()));
+    routesIndex_   = stack_->addWidget(wrapScroll(buildRoutesPage()));
     outer->addWidget(stack_, 1);
 
     anim_ = new QPropertyAnimation(panel_, "geometry", this);
@@ -186,6 +188,11 @@ QWidget* SideMenu::buildMainPage() {
         if (autoHide_) closeMenu();
     });
     col->addWidget(aisListBtn);
+
+    col->addWidget(makeHeader(QStringLiteral("Navigation")));
+    auto* routesBtn = makeIndentedAction(QStringLiteral("Routes and Waypoints"));
+    connect(routesBtn, &QPushButton::clicked, this, &SideMenu::showRoutesPage);
+    col->addWidget(routesBtn);
 
     col->addWidget(makeHeader(QStringLiteral("Chart Detail")));
     auto* detailLvlBtn = makeIndentedAction(QStringLiteral("Detail Level"));
@@ -359,6 +366,41 @@ QWidget* SideMenu::buildSettingsPage() {
     return page;
 }
 
+QWidget* SideMenu::buildRoutesPage() {
+    auto* page = new QWidget;
+    auto* col = new QVBoxLayout(page);
+    col->setContentsMargins(0, 0, 0, 0);
+    col->setSpacing(0);
+
+    col->addWidget(makeHeader(QStringLiteral("Routes")));
+    auto* createRoute = makeIndentedAction(QStringLiteral("Create Route"));
+    connect(createRoute, &QPushButton::clicked, this, [this] { emit createRouteRequested(); });
+    col->addWidget(createRoute);
+    auto* editRoute = makeIndentedAction(QStringLiteral("Edit Route"));
+    connect(editRoute, &QPushButton::clicked, this, [this] { emit editRouteRequested(); });
+    col->addWidget(editRoute);
+    auto* listRoutes = makeIndentedAction(QStringLiteral("List Routes"));
+    connect(listRoutes, &QPushButton::clicked, this, [this] { emit routeListRequested(); });
+    col->addWidget(listRoutes);
+
+    col->addWidget(makeHeader(QStringLiteral("Waypoints")));
+    auto* createWpt = makeIndentedAction(QStringLiteral("Create Waypoint"));
+    connect(createWpt, &QPushButton::clicked, this, [this] { emit createWaypointRequested(); });
+    col->addWidget(createWpt);
+    auto* editWpt = makeIndentedAction(QStringLiteral("Edit Waypoint"));
+    connect(editWpt, &QPushButton::clicked, this, [this] { emit editWaypointRequested(); });
+    col->addWidget(editWpt);
+    auto* dropWpt = makeIndentedAction(QStringLiteral("Drop Waypoint"));
+    connect(dropWpt, &QPushButton::clicked, this, [this] { emit dropWaypointRequested(); });
+    col->addWidget(dropWpt);
+    auto* listWpts = makeIndentedAction(QStringLiteral("List Waypoints"));
+    connect(listWpts, &QPushButton::clicked, this, [this] { emit waypointListRequested(); });
+    col->addWidget(listWpts);
+
+    col->addStretch(1);
+    return page;
+}
+
 QWidget* SideMenu::wrapScroll(QWidget* content) {
     // Let a page scroll when its items are taller than the panel, so the content
     // is always sized by its items (never squeezed by the layout) and the list
@@ -424,6 +466,13 @@ void SideMenu::showMainPage() {
 void SideMenu::showSettingsPage() {
     stack_->setCurrentIndex(settingsIndex_);
     title_->setText(QStringLiteral("Settings"));
+    navBtn_->setIcon(backIcon(QColor(theme::menu().titleFg)));
+    navBtn_->setToolTip(QStringLiteral("Back"));
+}
+
+void SideMenu::showRoutesPage() {
+    stack_->setCurrentIndex(routesIndex_);
+    title_->setText(QStringLiteral("Routes and Waypoints"));
     navBtn_->setIcon(backIcon(QColor(theme::menu().titleFg)));
     navBtn_->setToolTip(QStringLiteral("Back"));
 }

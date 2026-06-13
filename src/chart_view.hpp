@@ -31,6 +31,20 @@ class QPushButton;
 class QThread;
 class MbtilesService;
 
+// A chart-editing controller (e.g. the route/waypoint editor). When one is set,
+// ChartView consults it on the raw press/move/release before its own panning, so
+// the editor can grab a node and drag it without the gesture turning into a pan.
+// onPress returns true to claim the gesture (suppressing the pan); the subsequent
+// move/release for that gesture are then delivered to the editor instead. Points
+// are device pixels; the editor converts via the viewport it caches as an overlay.
+class IChartEditor {
+public:
+    virtual ~IChartEditor() = default;
+    virtual bool onPress(const QPointF& screenPt)   = 0;   // true => claim gesture
+    virtual void onMove(const QPointF& screenPt)    = 0;
+    virtual void onRelease(const QPointF& screenPt) = 0;
+};
+
 // Identity of one raster tile in the cache: which chart (index into the
 // discovered list), the pyramid zoom level, and the XYZ tile column/row.
 struct RasterTileKey {
@@ -170,6 +184,14 @@ public:
     // order. The view does not own them (the plugin does).
     void addOverlay(IChartOverlay* overlay);
     void removeOverlay(IChartOverlay* overlay);
+
+    // Active chart editor (nullptr = none). While set, press/move/release are
+    // offered to it before panning, so it can drag chart nodes. Not owned.
+    void setChartEditor(IChartEditor* editor) { editor_ = editor; }
+
+    // Pan/zoom the view to frame a geographic box (degrees), with a little
+    // padding. Used to jump to a route when editing it.
+    void fitToGeoBox(double latMin, double lonMin, double latMax, double lonMax);
 
     // Restore the view (center in degrees + zoom) on the next catalog load
     // instead of fitting. One-shot: consumed on the next load.
@@ -363,6 +385,8 @@ private:
     bool userInteracted_ = false;
     bool autoFollow_ = false;                 // keep view centered on ownship
     std::vector<IChartOverlay*> overlays_;    // plugin overlays (not owned)
+    IChartEditor* editor_ = nullptr;          // active chart editor (not owned)
+    bool    editorGrab_ = false;              // editor claimed the current gesture
 
     bool    dragging_ = false;
     bool    panDismissEmitted_ = false;   // chartInteracted() fired once per drag
