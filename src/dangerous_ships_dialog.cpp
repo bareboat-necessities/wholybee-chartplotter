@@ -40,10 +40,11 @@ QWidget* ruleRow(QCheckBox* check, TouchSpinBox* box) {
 DangerousShipsDialog::DangerousShipsDialog(bool ignoreFarEnabled, double ignoreFarNm,
                                            bool cpaEnabled, double cpaNm,
                                            bool tcpaEnabled, double tcpaMin,
+                                           bool anchoredSafeEnabled, double anchoredSogKn,
                                            QWidget* parent)
     : QDialog(parent) {
     setWindowTitle(QStringLiteral("Dangerous Ships"));
-    resize(440, 460);
+    resize(440, 560);
 
     auto* col = new QVBoxLayout(this);
     col->setSpacing(14);
@@ -104,6 +105,49 @@ DangerousShipsDialog::DangerousShipsDialog(bool ignoreFarEnabled, double ignoreF
     connect(tcpaCheck_, &QCheckBox::toggled, this, [syncDangerIf](bool) { syncDangerIf(); });
     syncDangerIf();
 
+    col->addWidget(makeDivider());
+
+    // ---- Anchored-safe override ---------------------------------------------
+    // Treat stationary vessels as never dangerous, to clear the false-positive
+    // swarm from a marina or anchorage.
+    anchoredCheck_ = new QCheckBox(QStringLiteral("Consider anchored vessels safe"));
+    anchoredCheck_->setStyleSheet(QStringLiteral("font-size:14px;"));
+    anchoredCheck_->setChecked(anchoredSafeEnabled);
+    col->addWidget(anchoredCheck_);
+
+    auto* anchoredHint = new QLabel(
+        QStringLiteral("Anchored if AIS status is \"At anchor\", or SOG is at or below:"));
+    anchoredHint->setWordWrap(true);
+    anchoredHint->setStyleSheet(QStringLiteral("font-size:12px; color:%1;").arg(theme::textMuted()));
+
+    anchoredSogBox_ = new TouchSpinBox;
+    anchoredSogBox_->setRange(0.0, 5.0);
+    anchoredSogBox_->setSingleStep(0.1);
+    anchoredSogBox_->setDecimals(1);
+    anchoredSogBox_->setSuffix(QStringLiteral(" kn"));
+    anchoredSogBox_->setValue(anchoredSogKn);
+
+    auto* anchoredIndent = new QVBoxLayout;
+    anchoredIndent->setContentsMargins(24, 0, 0, 0);
+    anchoredIndent->setSpacing(4);
+    anchoredIndent->addWidget(anchoredHint);
+    {
+        auto* sogRow = new QHBoxLayout;
+        sogRow->addWidget(anchoredSogBox_);
+        sogRow->addStretch(1);
+        anchoredIndent->addLayout(sogRow);
+    }
+    col->addLayout(anchoredIndent);
+
+    // The SOG threshold (and its hint) only matter while the override is on.
+    auto syncAnchored = [this, anchoredHint] {
+        const bool on = anchoredCheck_->isChecked();
+        anchoredSogBox_->setEnabled(on);
+        anchoredHint->setEnabled(on);
+    };
+    connect(anchoredCheck_, &QCheckBox::toggled, this, [syncAnchored](bool) { syncAnchored(); });
+    syncAnchored();
+
     col->addStretch(1);
 
     auto* row = new QHBoxLayout;
@@ -126,3 +170,5 @@ bool   DangerousShipsDialog::cpaEnabled()  const { return cpaCheck_->isChecked()
 double DangerousShipsDialog::cpaNm()       const { return cpaBox_->value(); }
 bool   DangerousShipsDialog::tcpaEnabled() const { return tcpaCheck_->isChecked(); }
 double DangerousShipsDialog::tcpaMin()     const { return tcpaBox_->value(); }
+bool   DangerousShipsDialog::anchoredSafeEnabled() const { return anchoredCheck_->isChecked(); }
+double DangerousShipsDialog::anchoredSogKn()       const { return anchoredSogBox_->value(); }

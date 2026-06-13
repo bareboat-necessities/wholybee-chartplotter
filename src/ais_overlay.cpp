@@ -174,6 +174,15 @@ bool AisOverlay::isDangerous(const AisTarget& t) const {
     // CPA is the base trigger; with it off, nothing is flagged dangerous.
     if (!danger_.cpaEnabled || !t.cpaMeters) return false;
 
+    // Anchored pre-filter: a vessel sitting still is no collision threat, so
+    // never flag it. Anchored = AIS nav status "At anchor", or SOG at/below the
+    // configured threshold (which also catches moored/berthed vessels broadcast-
+    // ing other statuses). This clears the false-positive swarm in a marina.
+    if (danger_.anchoredSafeEnabled
+        && (t.navStatus == AisNavStatus::AtAnchor
+            || (t.sogKnots && *t.sogKnots <= danger_.anchoredSogKn)))
+        return false;
+
     // Far-away pre-filter: a target beyond the range limit is never dangerous,
     // however close its (geometric) CPA may be.
     if (danger_.ignoreFarEnabled && t.rangeMeters

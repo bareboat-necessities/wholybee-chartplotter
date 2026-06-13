@@ -14,6 +14,7 @@ public:
     DangerousShipsDialog(bool ignoreFarEnabled, double ignoreFarNm,
                          bool cpaEnabled, double cpaNm,
                          bool tcpaEnabled, double tcpaMin,
+                         bool anchoredSafeEnabled, double anchoredSogKn,
                          QWidget* parent = nullptr);
 
     bool   ignoreFarEnabled() const;
@@ -22,6 +23,8 @@ public:
     double cpaNm()       const;
     bool   tcpaEnabled() const;
     double tcpaMin()     const;
+    bool   anchoredSafeEnabled() const;
+    double anchoredSogKn()       const;
 
 private:
     QCheckBox*    ignoreFarCheck_ = nullptr;
@@ -30,4 +33,6 @@ private:
     TouchSpinBox* cpaBox_ = nullptr;
     QCheckBox*    tcpaCheck_ = nullptr;
     TouchSpinBox* tcpaBox_ = nullptr;
+    QCheckBox*    anchoredCheck_ = nullptr;
+    TouchSpinBox* anchoredSogBox_ = nullptr;
 };

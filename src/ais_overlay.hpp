@@ -16,6 +16,12 @@ struct DangerRules {
     double cpaNm       = 2.0;
     bool   tcpaEnabled = false;        // ...and TCPA within [0, tcpaMin)
     double tcpaMin     = 30.0;
+    // Anchored/stationary vessels are never a collision threat, so treat them as
+    // safe to suppress the swarm of false CPA flags from a marina or anchorage.
+    // A target counts as anchored if its AIS nav status is "At anchor", or its
+    // speed over ground is at or below anchoredSogKn.
+    bool   anchoredSafeEnabled = false;
+    double anchoredSogKn       = 0.1;  // SOG (knots) at/below which it's anchored
 };
 
 // Draws AIS targets on the chart through the overlay API. Each vessel uses the

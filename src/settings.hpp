@@ -116,6 +116,8 @@ public:
     double dangerCpaNm()       const { return dangerCpaNm_; }
     bool   dangerTcpaEnabled() const { return dangerTcpaEnabled_; }
     double dangerTcpaMin()     const { return dangerTcpaMin_; }
+    bool   dangerAnchoredSafeEnabled() const { return dangerAnchoredSafeEnabled_; }
+    double dangerAnchoredSogKn()       const { return dangerAnchoredSogKn_; }
 
     // Data-source priority: ordered source ids, highest priority first.
     QStringList dataSourcePriority() const { return dataSourcePriority_; }
@@ -147,7 +149,8 @@ public slots:
     void setHeadingSource(HeadingSource s);
     void setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
                            bool cpaEnabled, double cpaNm,
-                           bool tcpaEnabled, double tcpaMin);
+                           bool tcpaEnabled, double tcpaMin,
+                           bool anchoredSafeEnabled, double anchoredSogKn);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -215,4 +218,6 @@ private:
     double dangerCpaNm_       = 2.0;
     bool   dangerTcpaEnabled_ = true;
     double dangerTcpaMin_     = 30.0;
+    bool   dangerAnchoredSafeEnabled_ = true;   // suppress flags on stationary vessels
+    double dangerAnchoredSogKn_       = 0.1;     // SOG (kn) at/below which it's anchored
 };
