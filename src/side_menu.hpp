@@ -102,6 +102,7 @@ private:
     QWidget*  scrim_ = nullptr;   // dim layer; tap to dismiss
     QWidget*  panel_ = nullptr;   // the menu surface itself
     QLabel*   title_ = nullptr;   // top bar, reflects the current page
+    QPushButton* navBtn_ = nullptr;  // header close (✕) / back (‹) affordance
     QStackedWidget* stack_ = nullptr;
     QVBoxLayout* chartSetsBox_ = nullptr;   // container for the dynamic set buttons
     QPushButton* autoFollowBtn_ = nullptr;  // checkable Auto Follow item
