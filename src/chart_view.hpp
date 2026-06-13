@@ -196,6 +196,10 @@ public:
     // Restore the view (center in degrees + zoom) on the next catalog load
     // instead of fitting. One-shot: consumed on the next load.
     void setInitialView(double lon, double lat, double scale);
+    // Capture the current pan/zoom and restore it on the next catalog load
+    // instead of fitting — used when switching chart sets so the view doesn't
+    // snap to the new set's extent. No-op if there is no view yet.
+    void keepCurrentViewOnNextLoad();
     // Emit viewChanged immediately with the current view (e.g. on app close).
     void persistViewNow();
 

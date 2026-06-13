@@ -1374,6 +1374,11 @@ void ChartView::setInitialView(double lon, double lat, double scale) {
     havePendingView_ = (scale > 0.0);
 }
 
+void ChartView::keepCurrentViewOnNextLoad() {
+    double lon, lat, scale;
+    if (currentView(lon, lat, scale)) setInitialView(lon, lat, scale);
+}
+
 void ChartView::persistViewNow() {
     double lon, lat, scale;
     if (currentView(lon, lat, scale)) emit viewChanged(lon, lat, scale);
@@ -1648,19 +1653,22 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
         else if (ownship_.cogDegTrue.valid()) headingDeg = ownship_.cogDegTrue.value;
     }
 
-    // Red ownship glyph: filled triangle.
+    // Red ownship glyph: a simplified boat hull (distinct from the AIS wedges).
     static const vessel::SymbolStyle kOwnship{
-        vessel::SymbolStyle::Shape::FilledTriangle,
+        vessel::SymbolStyle::Shape::BoatHull,
         QColor(220, 30, 30),        // fill
         QColor(200, 110, 110, 200), // stale fill
         QColor(40, 0, 0),           // edge
         QColor(40, 0, 0),           // stale edge
         QColor(20, 20, 20, 220)     // pred line
     };
+    // Draw the ownship a touch larger than the AIS targets (which use the same
+    // vesselScale_) so the boat stands out as the vessel you're on.
+    constexpr double kOwnshipScale = 1.15;
     vessel::drawSymbol(p, d, headingDeg, ownship_.sogKnots.valueOr(0.0),
                        ownshipPredMin_, ppm_,
                        ownshipFreshness_ == NavFreshness::Stale, kOwnship,
-                       vesselScale_);
+                       vesselScale_ * kOwnshipScale);
 }
 
 // A vertical scale bar in the lower-right corner. Five segments alternating

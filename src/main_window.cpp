@@ -247,7 +247,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     sideMenu_->setAutoHide(settings_->autoHideMenu());
     connect(settings_, &Settings::autoHideMenuChanged,
             sideMenu_, &SideMenu::setAutoHide);
-    connect(sideMenu_, &SideMenu::fitRequested,             view_, &ChartView::fitToCatalog);
     connect(sideMenu_, &SideMenu::centerOnOwnshipRequested, view_, &ChartView::centerOnOwnship);
     connect(sideMenu_, &SideMenu::autoFollowToggled,        view_, &ChartView::setAutoFollow);
     connect(view_, &ChartView::autoFollowChanged,           sideMenu_, &SideMenu::setAutoFollowChecked);
@@ -357,7 +356,9 @@ void MainWindow::positionMenuButton() {
 }
 
 void MainWindow::onChartSetSelected(const QString& dir) {
-    // Tapping a set loads it; tapping the active set again re-scans it.
+    // Tapping a set loads it; tapping the active set again re-scans it. Keep the
+    // current pan/zoom across the switch rather than fitting to the new set.
+    view_->keepCurrentViewOnNextLoad();
     settings_->setChartDirectory(dir);
     startScan(dir);
 }

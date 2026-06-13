@@ -17,10 +17,13 @@ namespace vessel {
 constexpr double kGlyphLengthPx = 22.0;
 
 struct SymbolStyle {
-    // FilledTriangle — Class A / ownship: solid filled triangle.
+    // FilledTriangle — Class A: solid filled triangle.
     // Chevron        — Class B: open arrowhead (two forward sides only, no
     //                  base, no fill). Matches the IALA/IHO Class B convention.
-    enum class Shape { FilledTriangle, Chevron };
+    // BoatHull       — ownship: a simplified top-down boat silhouette (curved
+    //                  bow, full beam, transom stern) so it reads differently
+    //                  from the AIS target wedges.
+    enum class Shape { FilledTriangle, Chevron, BoatHull };
 
     Shape  shape    = Shape::FilledTriangle;
     QColor fill;        // bright fill (FilledTriangle only)
