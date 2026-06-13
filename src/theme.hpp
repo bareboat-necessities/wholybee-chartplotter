@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include "host_export.hpp"
 
 // Centralised palette so the side menu, the hamburger button, and the chart's
 // floating zoom buttons all draw in matching colours regardless of the system
@@ -7,7 +8,7 @@
 // switching the OS theme while the app is running requires a restart.
 namespace theme {
 
-bool isDark();
+HOST_EXPORT bool isDark();
 
 // Side-menu palette (the slide-out drawer plus its action items).
 struct MenuPalette {
@@ -24,7 +25,7 @@ struct MenuPalette {
     QString separator;      // divider line within a section
     QString hint;           // dim explanatory label
 };
-const MenuPalette& menu();
+HOST_EXPORT const MenuPalette& menu();
 
 // Floating circular/rounded buttons over the chart (hamburger + zoom +/-).
 // Translucent so they sit nicely over a chart of any colour.
@@ -34,7 +35,7 @@ struct OverlayBtnPalette {
     QString fg;
     QString pressed;
 };
-const OverlayBtnPalette& overlayBtn();
+HOST_EXPORT const OverlayBtnPalette& overlayBtn();
 
 // Numeric input "card" used inside dialogs: a text field flanked by big +/-
 // buttons (TouchSpinBox). The field and button get subtly different shades in
@@ -47,11 +48,11 @@ struct InputPalette {
     QString fg;
     QString pressed;
 };
-const InputPalette& input();
+HOST_EXPORT const InputPalette& input();
 
 // Dimmed text colour for hint/secondary labels inside dialogs. Chosen so it
 // reads as "muted" against either a light or dark dialog background instead
 // of being unreadable hard-coded dark grey under dark mode.
-QString textMuted();
+HOST_EXPORT QString textMuted();
 
 } // namespace theme
