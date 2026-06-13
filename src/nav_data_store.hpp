@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QDateTime>
 #include <optional>
+#include "host_export.hpp"
 
 class QTimer;
 
@@ -95,7 +96,7 @@ public:
 // lower-priority source can only overwrite a value once the current one becomes
 // Invalid (aged out) — i.e. priority with fall-back. Priority is the ordered
 // source-id list set via setSourcePriority() (highest first).
-class NavDataStore : public QObject, public INavDataPublisher {
+class HOST_EXPORT NavDataStore : public QObject, public INavDataPublisher {
     Q_OBJECT
 public:
     explicit NavDataStore(QObject* parent = nullptr);
