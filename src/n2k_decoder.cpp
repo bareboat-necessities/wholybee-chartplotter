@@ -25,10 +25,16 @@ double wrap360(double d) {
     return d;
 }
 
-NavValueMeta meta(const QString& src, const QDateTime& t) {
+// Freshness is driven by when we received the frame, not by the gateway's
+// self-reported time. The Actisense timestamp (carried in f.time) comes from
+// the gateway's own clock, which is frequently unset or free-running and can be
+// many minutes off real UTC — using it here would age every value out the
+// instant it arrived. This mirrors the NMEA 0183 path, which stamps with the
+// receive time. (f.time is retained on the frame for debug/logging only.)
+NavValueMeta meta(const QString& src) {
     NavValueMeta m;
     m.source = src;
-    m.timestampUtc = t.isValid() ? t : QDateTime::currentDateTimeUtc();
+    m.timestampUtc = QDateTime::currentDateTimeUtc();
     return m;
 }
 
@@ -40,7 +46,7 @@ void pgn129025(const N2kFrame& f, INavDataPublisher* nav, const QString& src) {
     const qint32 lat = qint32(r.i(32));
     const qint32 lon = qint32(r.i(32));
     if (nai32(lat) || nai32(lon)) return;
-    nav->publishOwnshipPosition(lat * 1e-7, lon * 1e-7, meta(src, f.time));
+    nav->publishOwnshipPosition(lat * 1e-7, lon * 1e-7, meta(src));
 }
 
 // PGN 129026 - COG & SOG, Rapid Update. SID(8), COG ref(2)+reserved(6),
@@ -57,7 +63,7 @@ void pgn129026(const N2kFrame& f, INavDataPublisher* nav, const QString& src) {
     if (ref != 0) return;                   // only publish true-referenced COG
     const double cogDeg = wrap360(cog * 1e-4 * kRad_to_Deg);
     const double sogKn  = sog * 1e-2 * kMs_to_Kn;
-    nav->publishCogSog(cogDeg, sogKn, meta(src, f.time));
+    nav->publishCogSog(cogDeg, sogKn, meta(src));
 }
 
 // PGN 127250 - Vessel Heading. SID(8), Heading(16, 1e-4 rad), Deviation(16),
@@ -72,7 +78,7 @@ void pgn127250(const N2kFrame& f, INavDataPublisher* nav, const QString& src) {
     const int     ref    = int(r.u(2));
     if (nau16(hdgRaw)) return;
     const double hdg = wrap360(hdgRaw * 1e-4 * kRad_to_Deg);
-    const NavValueMeta m = meta(src, f.time);
+    const NavValueMeta m = meta(src);
     std::optional<double> variation;
     if (!nai16(varRaw)) {
         variation = varRaw * 1e-4 * kRad_to_Deg;
@@ -99,7 +105,7 @@ void pgn128267(const N2kFrame& f, INavDataPublisher* nav, const QString& src) {
     if (nau32(depthRaw)) return;
     double depth = depthRaw * 0.01;
     if (!nai16(offsetRaw)) depth += offsetRaw * 0.001;   // shift to waterline
-    nav->publishDepth(depth, meta(src, f.time));
+    nav->publishDepth(depth, meta(src));
 }
 
 // PGN 128259 - Speed (Water Referenced). SID(8), Water referenced(16, 0.01
@@ -110,7 +116,7 @@ void pgn128259(const N2kFrame& f, INavDataPublisher* nav, const QString& src) {
     r.skip(8);                              // SID
     const quint16 swr = quint16(r.u(16));
     if (nau16(swr)) return;
-    nav->publishWaterSpeed(swr * 0.01 * kMs_to_Kn, meta(src, f.time));
+    nav->publishWaterSpeed(swr * 0.01 * kMs_to_Kn, meta(src));
 }
 
 // PGN 130306 - Wind Data. SID(8), Speed(16, 0.01 m/s), Angle(16, 1e-4 rad),
@@ -126,7 +132,7 @@ void pgn130306(const N2kFrame& f, INavDataPublisher* nav, const QString& src) {
     if (nau16(spdRaw) || nau16(angRaw)) return;
     const double kn  = spdRaw * 0.01 * kMs_to_Kn;
     const double ang = wrap360(angRaw * 1e-4 * kRad_to_Deg);
-    const NavValueMeta m = meta(src, f.time);
+    const NavValueMeta m = meta(src);
     switch (ref) {
         case 2:  nav->publishApparentWind(kn, ang, m); break;          // apparent
         case 3:                                                         // true (boat)
