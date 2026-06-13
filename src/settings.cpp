@@ -39,6 +39,8 @@ constexpr auto kDangCpaOn   = "ships/dangerCpaEnabled";
 constexpr auto kDangCpaNm   = "ships/dangerCpaNm";
 constexpr auto kDangTcpaOn  = "ships/dangerTcpaEnabled";
 constexpr auto kDangTcpaMin = "ships/dangerTcpaMin";
+constexpr auto kDangAnchoredOn  = "ships/dangerAnchoredSafeEnabled";
+constexpr auto kDangAnchoredKn  = "ships/dangerAnchoredSogKn";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -98,6 +100,8 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     dangerCpaNm_       = s.value(QLatin1String(kDangCpaNm), 2.0).toDouble();
     dangerTcpaEnabled_ = s.value(QLatin1String(kDangTcpaOn), true).toBool();
     dangerTcpaMin_     = s.value(QLatin1String(kDangTcpaMin), 30.0).toDouble();
+    dangerAnchoredSafeEnabled_ = s.value(QLatin1String(kDangAnchoredOn), true).toBool();
+    dangerAnchoredSogKn_       = s.value(QLatin1String(kDangAnchoredKn), 0.1).toDouble();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -229,10 +233,13 @@ void Settings::setHeadingSource(HeadingSource src) {
 
 void Settings::setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
                                  bool cpaEnabled, double cpaNm,
-                                 bool tcpaEnabled, double tcpaMin) {
+                                 bool tcpaEnabled, double tcpaMin,
+                                 bool anchoredSafeEnabled, double anchoredSogKn) {
     if (ignoreFarEnabled == dangerIgnoreFarEnabled_ && ignoreFarNm == dangerIgnoreFarNm_
         && cpaEnabled == dangerCpaEnabled_ && cpaNm == dangerCpaNm_
-        && tcpaEnabled == dangerTcpaEnabled_ && tcpaMin == dangerTcpaMin_)
+        && tcpaEnabled == dangerTcpaEnabled_ && tcpaMin == dangerTcpaMin_
+        && anchoredSafeEnabled == dangerAnchoredSafeEnabled_
+        && anchoredSogKn == dangerAnchoredSogKn_)
         return;
     dangerIgnoreFarEnabled_ = ignoreFarEnabled;
     dangerIgnoreFarNm_      = ignoreFarNm;
@@ -240,6 +247,8 @@ void Settings::setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
     dangerCpaNm_       = cpaNm;
     dangerTcpaEnabled_ = tcpaEnabled;
     dangerTcpaMin_     = tcpaMin;
+    dangerAnchoredSafeEnabled_ = anchoredSafeEnabled;
+    dangerAnchoredSogKn_       = anchoredSogKn;
     QSettings s;
     s.setValue(QLatin1String(kDangIgnoreFarOn), ignoreFarEnabled);
     s.setValue(QLatin1String(kDangIgnoreFarNm), ignoreFarNm);
@@ -247,6 +256,8 @@ void Settings::setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
     s.setValue(QLatin1String(kDangCpaNm),   cpaNm);
     s.setValue(QLatin1String(kDangTcpaOn),  tcpaEnabled);
     s.setValue(QLatin1String(kDangTcpaMin), tcpaMin);
+    s.setValue(QLatin1String(kDangAnchoredOn), anchoredSafeEnabled);
+    s.setValue(QLatin1String(kDangAnchoredKn), anchoredSogKn);
     emit dangerousShipsChanged();
 }
 

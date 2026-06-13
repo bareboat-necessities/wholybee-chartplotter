@@ -177,6 +177,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         r.cpaNm       = settings_->dangerCpaNm();
         r.tcpaEnabled = settings_->dangerTcpaEnabled();
         r.tcpaMin     = settings_->dangerTcpaMin();
+        r.anchoredSafeEnabled = settings_->dangerAnchoredSafeEnabled();
+        r.anchoredSogKn       = settings_->dangerAnchoredSogKn();
         aisOverlay_->setDangerRules(r);
         if (view_) view_->update();
     };
@@ -419,11 +421,13 @@ void MainWindow::editDangerousShips() {
     DangerousShipsDialog dlg(settings_->dangerIgnoreFarEnabled(), settings_->dangerIgnoreFarNm(),
                              settings_->dangerCpaEnabled(), settings_->dangerCpaNm(),
                              settings_->dangerTcpaEnabled(), settings_->dangerTcpaMin(),
+                             settings_->dangerAnchoredSafeEnabled(), settings_->dangerAnchoredSogKn(),
                              this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setDangerousShips(dlg.ignoreFarEnabled(), dlg.ignoreFarNm(),
                                      dlg.cpaEnabled(), dlg.cpaNm(),
-                                     dlg.tcpaEnabled(), dlg.tcpaMin());
+                                     dlg.tcpaEnabled(), dlg.tcpaMin(),
+                                     dlg.anchoredSafeEnabled(), dlg.anchoredSogKn());
 }
 
 void MainWindow::showAisTargetList() {
