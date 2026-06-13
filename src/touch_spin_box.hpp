@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <QString>
+#include "host_export.hpp"
 
 class QDoubleSpinBox;
 class QPushButton;
@@ -8,7 +9,7 @@ class QPushButton;
 // A touch-friendly numeric stepper: large minus/plus buttons flanking a
 // QDoubleSpinBox. The spin box keeps keyboard entry, range clamping, decimals
 // and a suffix; the big buttons replace its tiny native arrows for finger use.
-class TouchSpinBox : public QWidget {
+class HOST_EXPORT TouchSpinBox : public QWidget {
     Q_OBJECT
 public:
     explicit TouchSpinBox(QWidget* parent = nullptr);

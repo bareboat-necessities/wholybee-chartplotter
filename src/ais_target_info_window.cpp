@@ -2,11 +2,13 @@
 #include "ais_target_store.hpp"
 
 #include <QVBoxLayout>
-#include <QTableWidget>
-#include <QHeaderView>
+#include <QHBoxLayout>
+#include <QScrollArea>
+#include <QScroller>
+#include <QFrame>
+#include <QLabel>
 #include <QTimer>
 #include <QDateTime>
-#include <QLabel>
 #include <vector>
 #include <utility>
 
@@ -44,15 +46,26 @@ AisTargetInfoWindow::AisTargetInfoWindow(quint32 mmsi, const AisTargetStore* sto
     setWindowFlag(Qt::Window, true);
 
     auto* col = new QVBoxLayout(this);
-    table_ = new QTableWidget(0, 2, this);
-    table_->setHorizontalHeaderLabels({QStringLiteral("Field"), QStringLiteral("Value")});
-    table_->verticalHeader()->setVisible(false);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->setSelectionMode(QAbstractItemView::NoSelection);
-    table_->setFocusPolicy(Qt::NoFocus);
-    table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    col->addWidget(table_);
+    col->setContentsMargins(0, 0, 0, 0);
+    col->setSpacing(0);
+
+    // Scrollable field/value area. Uses QScrollArea so QScroller delivers the
+    // same pixel-level drag-to-scroll behaviour as the side menu and target list.
+    scrollArea_ = new QScrollArea(this);
+    scrollArea_->setFrameShape(QFrame::NoFrame);
+    scrollArea_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea_->setWidgetResizable(true);
+
+    rowContainer_ = new QWidget;
+    rowLayout_ = new QVBoxLayout(rowContainer_);
+    rowLayout_->setContentsMargins(0, 0, 0, 0);
+    rowLayout_->setSpacing(0);
+    rowLayout_->addStretch(1);          // keeps rows packed to the top
+    scrollArea_->setWidget(rowContainer_);
+
+    QScroller::grabGesture(scrollArea_->viewport(), QScroller::LeftMouseButtonGesture);
+    col->addWidget(scrollArea_, 1);
 
     if (store_) {
         connect(store_, &AisTargetStore::targetUpdated, this, &AisTargetInfoWindow::onTargetUpdated);
@@ -75,15 +88,29 @@ void AisTargetInfoWindow::onTargetExpired(quint32 mmsi) {
     if (mmsi == mmsi_) { lost_ = true; refresh(); }
 }
 
-void AisTargetInfoWindow::setRow(int row, const QString& name, const QString& value) {
-    auto ensure = [this](int r, int c) {
-        if (auto* it = table_->item(r, c)) return it;
-        auto* it = new QTableWidgetItem;
-        table_->setItem(r, c, it);
-        return it;
-    };
-    ensure(row, 0)->setText(name);
-    ensure(row, 1)->setText(value);
+AisTargetInfoWindow::Row AisTargetInfoWindow::makeRow() {
+    Row r;
+    r.widget = new QWidget(rowContainer_);
+    r.widget->setStyleSheet(QStringLiteral(
+        "QWidget { border-bottom:1px solid palette(mid); }"));
+    auto* hl = new QHBoxLayout(r.widget);
+    hl->setContentsMargins(12, 8, 12, 8);
+    hl->setSpacing(8);
+
+    r.field = new QLabel(r.widget);
+    r.field->setFixedWidth(130);
+    r.field->setStyleSheet(QStringLiteral("font-size:14px; font-weight:600; border:none;"));
+    r.field->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+    r.value = new QLabel(r.widget);
+    r.value->setStyleSheet(QStringLiteral("font-size:14px; border:none;"));
+    r.value->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    r.value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    r.value->setWordWrap(true);
+
+    hl->addWidget(r.field);
+    hl->addWidget(r.value, 1);
+    return r;
 }
 
 void AisTargetInfoWindow::refresh() {
@@ -94,47 +121,47 @@ void AisTargetInfoWindow::refresh() {
     const AisTarget& t = live ? *live : kEmpty;
     const QDateTime now = QDateTime::currentDateTimeUtc();
 
-    std::vector<std::pair<QString, QString>> rows;
-    rows.emplace_back(QStringLiteral("MMSI"), QString::number(mmsi_));
+    std::vector<std::pair<QString, QString>> fields;
+    fields.emplace_back(QStringLiteral("MMSI"), QString::number(mmsi_));
     if (t.cls != AisClass::Unknown)
-        rows.emplace_back(QStringLiteral("Class"), fmtClass(t.cls));
+        fields.emplace_back(QStringLiteral("Class"), fmtClass(t.cls));
 
-    if (!t.name.isEmpty())        rows.emplace_back(QStringLiteral("Name"),        t.name);
-    if (!t.callSign.isEmpty())    rows.emplace_back(QStringLiteral("Call sign"),   t.callSign);
-    if (t.shipType)               rows.emplace_back(QStringLiteral("Ship type"),   aisShipTypeName(*t.shipType));
-    if (t.imoNumber)              rows.emplace_back(QStringLiteral("IMO"),         QString::number(*t.imoNumber));
-    if (!t.destination.isEmpty()) rows.emplace_back(QStringLiteral("Destination"), t.destination);
-    if (t.draughtMeters)          rows.emplace_back(QStringLiteral("Draught"),     fmtMeters(*t.draughtMeters));
+    if (!t.name.isEmpty())        fields.emplace_back(QStringLiteral("Name"),        t.name);
+    if (!t.callSign.isEmpty())    fields.emplace_back(QStringLiteral("Call sign"),   t.callSign);
+    if (t.shipType)               fields.emplace_back(QStringLiteral("Ship type"),   aisShipTypeName(*t.shipType));
+    if (t.imoNumber)              fields.emplace_back(QStringLiteral("IMO"),         QString::number(*t.imoNumber));
+    if (!t.destination.isEmpty()) fields.emplace_back(QStringLiteral("Destination"), t.destination);
+    if (t.draughtMeters)          fields.emplace_back(QStringLiteral("Draught"),     fmtMeters(*t.draughtMeters));
 
     if (t.dimensions.known()) {
-        rows.emplace_back(QStringLiteral("Length"),
-                          fmtMeters(t.dimensions.lengthMeters()));
-        rows.emplace_back(QStringLiteral("Beam"),
-                          fmtMeters(t.dimensions.beamMeters()));
+        fields.emplace_back(QStringLiteral("Length"),
+                            fmtMeters(t.dimensions.lengthMeters()));
+        fields.emplace_back(QStringLiteral("Beam"),
+                            fmtMeters(t.dimensions.beamMeters()));
     }
 
-    if (t.latitudeDeg)    rows.emplace_back(QStringLiteral("Latitude"),  fmtCoord(*t.latitudeDeg));
-    if (t.longitudeDeg)   rows.emplace_back(QStringLiteral("Longitude"), fmtCoord(*t.longitudeDeg));
-    if (t.cogDegTrue)     rows.emplace_back(QStringLiteral("COG (true)"), fmtAngle(*t.cogDegTrue));
-    if (t.sogKnots)       rows.emplace_back(QStringLiteral("SOG"),       fmtKnots(*t.sogKnots));
-    if (t.headingDegTrue) rows.emplace_back(QStringLiteral("Heading"),   fmtAngle(*t.headingDegTrue));
+    if (t.latitudeDeg)    fields.emplace_back(QStringLiteral("Latitude"),  fmtCoord(*t.latitudeDeg));
+    if (t.longitudeDeg)   fields.emplace_back(QStringLiteral("Longitude"), fmtCoord(*t.longitudeDeg));
+    if (t.cogDegTrue)     fields.emplace_back(QStringLiteral("COG (true)"), fmtAngle(*t.cogDegTrue));
+    if (t.sogKnots)       fields.emplace_back(QStringLiteral("SOG"),       fmtKnots(*t.sogKnots));
+    if (t.headingDegTrue) fields.emplace_back(QStringLiteral("Heading"),   fmtAngle(*t.headingDegTrue));
     if (t.rotDegPerMin)
-        rows.emplace_back(QStringLiteral("Rate of turn"),
-                          QString::number(*t.rotDegPerMin, 'f', 1) + QStringLiteral(" °/min"));
+        fields.emplace_back(QStringLiteral("Rate of turn"),
+                            QString::number(*t.rotDegPerMin, 'f', 1) + QStringLiteral(" °/min"));
 
     if (t.navStatus != AisNavStatus::Undefined && t.cls == AisClass::A)
-        rows.emplace_back(QStringLiteral("Nav status"), aisNavStatusName(int(t.navStatus)));
+        fields.emplace_back(QStringLiteral("Nav status"), aisNavStatusName(int(t.navStatus)));
 
     if (t.rangeMeters)
-        rows.emplace_back(QStringLiteral("Distance"),
-                          QString::number(*t.rangeMeters / 1852.0, 'f', 2) + QStringLiteral(" nm"));
+        fields.emplace_back(QStringLiteral("Distance"),
+                            QString::number(*t.rangeMeters / 1852.0, 'f', 2) + QStringLiteral(" nm"));
     if (t.cpaMeters)
-        rows.emplace_back(QStringLiteral("CPA"),
-                          QString::number(*t.cpaMeters / 1852.0, 'f', 2) + QStringLiteral(" nm"));
+        fields.emplace_back(QStringLiteral("CPA"),
+                            QString::number(*t.cpaMeters / 1852.0, 'f', 2) + QStringLiteral(" nm"));
     if (t.tcpaSeconds)
-        rows.emplace_back(QStringLiteral("TCPA"), aisFormatTcpa(*t.tcpaSeconds));
+        fields.emplace_back(QStringLiteral("TCPA"), aisFormatTcpa(*t.tcpaSeconds));
 
-    if (!t.source.isEmpty()) rows.emplace_back(QStringLiteral("Source"), t.source);
+    if (!t.source.isEmpty()) fields.emplace_back(QStringLiteral("Source"), t.source);
 
     // Age (relative to last update) and current freshness. When the target is
     // gone from the store we use the empty target's defaults; show "Lost" so
@@ -143,13 +170,28 @@ void AisTargetInfoWindow::refresh() {
         ? t.lastUpdateUtc.msecsTo(now) / 1000.0
         : (live ? 0.0 : -1.0);
     if (age >= 0.0)
-        rows.emplace_back(QStringLiteral("Age"),
-                          QString::number(age, 'f', 0) + QStringLiteral(" s"));
-    rows.emplace_back(QStringLiteral("Status"),
-                      fmtFreshness(live ? t.freshness : AisFreshness::Lost, lost_ || !live));
+        fields.emplace_back(QStringLiteral("Age"),
+                            QString::number(age, 'f', 0) + QStringLiteral(" s"));
+    fields.emplace_back(QStringLiteral("Status"),
+                        fmtFreshness(live ? t.freshness : AisFreshness::Lost, lost_ || !live));
 
-    if (table_->rowCount() != int(rows.size()))
-        table_->setRowCount(int(rows.size()));
-    for (int i = 0; i < int(rows.size()); ++i)
-        setRow(i, rows[i].first, rows[i].second);
+    // Grow / shrink the reusable row pool, then update in place — never tearing
+    // down surviving rows, so the scroll position and any in-progress drag are
+    // preserved and nothing flickers.
+    const int want = int(fields.size());
+    while (int(rows_.size()) < want) {
+        Row r = makeRow();
+        rowLayout_->insertWidget(rowLayout_->count() - 1, r.widget);
+        rows_.push_back(r);
+    }
+    while (int(rows_.size()) > want) {
+        rows_.back().widget->deleteLater();
+        rows_.pop_back();
+    }
+
+    auto setText = [](QLabel* l, const QString& s) { if (l->text() != s) l->setText(s); };
+    for (int i = 0; i < want; ++i) {
+        setText(rows_[i].field, fields[i].first);
+        setText(rows_[i].value, fields[i].second);
+    }
 }

@@ -10,6 +10,9 @@
 #include <QRectF>
 #include <QTransform>
 #include <QThreadPool>
+#include <QPixmap>
+#include <QImage>
+#include <QVector>
 #include <vector>
 #include <utility>
 #include <memory>
@@ -20,10 +23,28 @@
 #include "heading_source.hpp"   // HeadingSource
 #include "plugin_api.hpp"       // IChartOverlay, ChartViewport
 #include "sym_atlas.hpp"        // SymAtlas
+#include "mbtiles_reader.hpp"   // MbtilesMeta
 
 class ChartCatalog;
 class QTimer;
 class QPushButton;
+class QThread;
+class MbtilesService;
+
+// Identity of one raster tile in the cache: which chart (index into the
+// discovered list), the pyramid zoom level, and the XYZ tile column/row.
+struct RasterTileKey {
+    int chart = 0;
+    int z = 0;
+    int x = 0;
+    int y = 0;
+    bool operator==(const RasterTileKey& o) const {
+        return chart == o.chart && z == o.z && x == o.x && y == o.y;
+    }
+};
+inline size_t qHash(const RasterTileKey& k, size_t seed = 0) noexcept {
+    return qHashMulti(seed, k.chart, k.z, k.x, k.y);
+}
 
 // Result handed back from a worker thread after loading one cell.
 struct CellLoadResult {
@@ -97,6 +118,7 @@ class ChartView : public QWidget {
     Q_OBJECT
 public:
     explicit ChartView(QWidget* parent = nullptr);
+    ~ChartView() override;
 
     void setCatalog(ChartCatalog* catalog);
     void fitToCatalog();
@@ -114,6 +136,13 @@ public:
     // When true, soundings/symbols are skipped during a pan/zoom gesture (faster
     // moving frame); when false they stay visible while interacting.
     void setHideSymbolsWhilePanning(bool on);
+    // Show/hide the MBTiles raster-chart layer (tracking + loading continue).
+    void setShowRasterCharts(bool on);
+
+    // Point the raster-chart layer at a folder: it is scanned (recursively, on a
+    // worker thread) for *.mbtiles files, which are drawn beneath the ENC vector
+    // cells. Pass the same folder used for the ENC chart set. Empty clears it.
+    void setRasterChartFolder(const QString& dir);
     // Detail-level bias, in fractional bands. 0 = nominal mapping from visible
     // width to band; positive pulls in higher-detail cells (more detail on
     // screen); negative backs off. Range -2.0..+2.0.
@@ -161,6 +190,13 @@ signals:
     // this to dismiss themselves. Not emitted when a click hits a chart overlay
     // (e.g. an AIS target), so target clicks keep their own handling.
     void chartInteracted();
+    // How many raster (MBTiles) charts were found in the active folder. Lets the
+    // main window report folders that hold raster charts but no ENC cells.
+    void rasterChartsChanged(int count);
+
+    // To the MBTiles worker thread (queued). Not for external use.
+    void rasterSetFolder(const QString& dir, quint64 gen);
+    void rasterRequestTile(int chartId, int z, int x, int y, quint64 gen);
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -174,6 +210,10 @@ private slots:
     void onCatalogFinished(bool ok, const QString& message);
     void scheduleUpdate();
     void updateVisibleCells();
+    // MBTiles worker replies (queued).
+    void onRasterDiscovered(const QVector<MbtilesMeta>& charts, quint64 gen);
+    void onRasterTileReady(int chartId, int z, int x, int y,
+                           const QImage& img, quint64 gen);
 
 private:
     void dispatchLoad(const QString& path);
@@ -200,6 +240,13 @@ private:
     static int  bandForVisibleWidth(double metres);
     static BBox expandBox(const BBox& b, double frac);
     static BBox shiftX(const BBox& b, double dx);
+
+    // Raster (MBTiles) layer -------------------------------------------------
+    void drawRasterCharts(QPainter& p, const QTransform& cam, const QRectF& vis);
+    void requestRasterTile(const RasterTileKey& k);
+    void fitToSceneBox(const BBox& sceneBox);   // box already in scene frame
+    // True once a view exists from either ENC cells or raster charts.
+    bool haveContent() const { return haveCatalog_ || !rasterCharts_.isEmpty(); }
 
     // Camera ----------------------------------------------------------------
     QTransform cameraTransform() const;     // scene metres -> screen pixels
@@ -262,6 +309,21 @@ private:
     QSet<QString> building_;     // clip/build running on a worker
     QSet<QString> wanted_;       // last computed wanted set
     quint64       generation_ = 0;
+
+    // Raster (MBTiles) chart layer. The service runs on its own thread; the view
+    // caches decoded tiles keyed by (chart, z, x, y) and draws them beneath the
+    // ENC vector cells. rasterGen_ rises on each folder change so stale worker
+    // replies are dropped. tileNeeded_ is per-frame scratch for LRU eviction.
+    QThread*        mbThread_  = nullptr;
+    MbtilesService* mbService_ = nullptr;
+    QVector<MbtilesMeta>          rasterCharts_;
+    BBox                          rasterSceneBounds_;   // union, scene frame
+    QHash<RasterTileKey, QPixmap> tileCache_;
+    QSet<RasterTileKey>           tileInFlight_;
+    QSet<RasterTileKey>           tileAbsent_;
+    QSet<RasterTileKey>           tileNeeded_;
+    quint64                       rasterGen_ = 0;
+    bool                          showRasterCharts_ = true;
 
     // Basemap state. basemap_ holds the clipped/simplified copies (one per wrap
     // offset) currently drawn beneath the cells. The active tier is chosen by

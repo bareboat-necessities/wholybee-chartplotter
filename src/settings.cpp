@@ -10,6 +10,7 @@ constexpr auto kSoundings = "display/showSoundings";
 constexpr auto kSymbols   = "display/showSymbols";
 constexpr auto kContours  = "display/showDepthContours";
 constexpr auto kAisShow   = "display/showAisTargets";
+constexpr auto kRasterShow = "display/showRasterCharts";
 constexpr auto kHideSymPan = "display/hideSymbolsWhilePanning";
 constexpr auto kViewLon   = "view/centerLon";
 constexpr auto kViewLat   = "view/centerLat";
@@ -38,6 +39,8 @@ constexpr auto kDangCpaOn   = "ships/dangerCpaEnabled";
 constexpr auto kDangCpaNm   = "ships/dangerCpaNm";
 constexpr auto kDangTcpaOn  = "ships/dangerTcpaEnabled";
 constexpr auto kDangTcpaMin = "ships/dangerTcpaMin";
+constexpr auto kDangAnchoredOn  = "ships/dangerAnchoredSafeEnabled";
+constexpr auto kDangAnchoredKn  = "ships/dangerAnchoredSogKn";
 } // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent) {
@@ -47,6 +50,7 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     showSymbols_       = s.value(QLatin1String(kSymbols),   true).toBool();
     showDepthContours_ = s.value(QLatin1String(kContours),  true).toBool();
     showAisTargets_    = s.value(QLatin1String(kAisShow),   true).toBool();
+    showRasterCharts_  = s.value(QLatin1String(kRasterShow), true).toBool();
     hideSymbolsWhilePanning_ = s.value(QLatin1String(kHideSymPan), false).toBool();
     viewLon_   = s.value(QLatin1String(kViewLon),   0.0).toDouble();
     viewLat_   = s.value(QLatin1String(kViewLat),   0.0).toDouble();
@@ -96,6 +100,8 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     dangerCpaNm_       = s.value(QLatin1String(kDangCpaNm), 2.0).toDouble();
     dangerTcpaEnabled_ = s.value(QLatin1String(kDangTcpaOn), true).toBool();
     dangerTcpaMin_     = s.value(QLatin1String(kDangTcpaMin), 30.0).toDouble();
+    dangerAnchoredSafeEnabled_ = s.value(QLatin1String(kDangAnchoredOn), true).toBool();
+    dangerAnchoredSogKn_       = s.value(QLatin1String(kDangAnchoredKn), 0.1).toDouble();
     loadChartSets();
 
     // Migrate a pre-chart-sets install: if no sets are defined yet but a chart
@@ -227,10 +233,13 @@ void Settings::setHeadingSource(HeadingSource src) {
 
 void Settings::setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
                                  bool cpaEnabled, double cpaNm,
-                                 bool tcpaEnabled, double tcpaMin) {
+                                 bool tcpaEnabled, double tcpaMin,
+                                 bool anchoredSafeEnabled, double anchoredSogKn) {
     if (ignoreFarEnabled == dangerIgnoreFarEnabled_ && ignoreFarNm == dangerIgnoreFarNm_
         && cpaEnabled == dangerCpaEnabled_ && cpaNm == dangerCpaNm_
-        && tcpaEnabled == dangerTcpaEnabled_ && tcpaMin == dangerTcpaMin_)
+        && tcpaEnabled == dangerTcpaEnabled_ && tcpaMin == dangerTcpaMin_
+        && anchoredSafeEnabled == dangerAnchoredSafeEnabled_
+        && anchoredSogKn == dangerAnchoredSogKn_)
         return;
     dangerIgnoreFarEnabled_ = ignoreFarEnabled;
     dangerIgnoreFarNm_      = ignoreFarNm;
@@ -238,6 +247,8 @@ void Settings::setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
     dangerCpaNm_       = cpaNm;
     dangerTcpaEnabled_ = tcpaEnabled;
     dangerTcpaMin_     = tcpaMin;
+    dangerAnchoredSafeEnabled_ = anchoredSafeEnabled;
+    dangerAnchoredSogKn_       = anchoredSogKn;
     QSettings s;
     s.setValue(QLatin1String(kDangIgnoreFarOn), ignoreFarEnabled);
     s.setValue(QLatin1String(kDangIgnoreFarNm), ignoreFarNm);
@@ -245,6 +256,8 @@ void Settings::setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
     s.setValue(QLatin1String(kDangCpaNm),   cpaNm);
     s.setValue(QLatin1String(kDangTcpaOn),  tcpaEnabled);
     s.setValue(QLatin1String(kDangTcpaMin), tcpaMin);
+    s.setValue(QLatin1String(kDangAnchoredOn), anchoredSafeEnabled);
+    s.setValue(QLatin1String(kDangAnchoredKn), anchoredSogKn);
     emit dangerousShipsChanged();
 }
 
@@ -326,6 +339,13 @@ void Settings::setShowAisTargets(bool on) {
     showAisTargets_ = on;
     QSettings().setValue(QLatin1String(kAisShow), on);
     emit showAisTargetsChanged(on);
+}
+
+void Settings::setShowRasterCharts(bool on) {
+    if (on == showRasterCharts_) return;
+    showRasterCharts_ = on;
+    QSettings().setValue(QLatin1String(kRasterShow), on);
+    emit showRasterChartsChanged(on);
 }
 
 void Settings::setHideSymbolsWhilePanning(bool on) {

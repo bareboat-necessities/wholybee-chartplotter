@@ -27,8 +27,9 @@
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
 #include "nmea0183_plugin.hpp"
-#include "test_plugin.hpp"
+#include "nmea2000_plugin.hpp"
 
+#include <QCoreApplication>
 #include <QStatusBar>
 #include <QLabel>
 #include <QPushButton>
@@ -62,12 +63,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->setShowSoundings(settings_->showSoundings());
     view_->setShowSymbols(settings_->showSymbols());
     view_->setShowDepthContours(settings_->showDepthContours());
+    view_->setShowRasterCharts(settings_->showRasterCharts());
     view_->setHideSymbolsWhilePanning(settings_->hideSymbolsWhilePanning());
     connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
+    connect(settings_, &Settings::showRasterChartsChanged,  view_, &ChartView::setShowRasterCharts);
     connect(settings_, &Settings::hideSymbolsWhilePanningChanged,
             view_, &ChartView::setHideSymbolsWhilePanning);
+    connect(view_, &ChartView::rasterChartsChanged, this, &MainWindow::onRasterChartsChanged);
     view_->setChartDetailLevel(settings_->chartDetailLevel());
     connect(settings_, &Settings::chartDetailLevelChanged,
             view_, &ChartView::setChartDetailLevel);
@@ -173,6 +177,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         r.cpaNm       = settings_->dangerCpaNm();
         r.tcpaEnabled = settings_->dangerTcpaEnabled();
         r.tcpaMin     = settings_->dangerTcpaMin();
+        r.anchoredSafeEnabled = settings_->dangerAnchoredSafeEnabled();
+        r.anchoredSogKn       = settings_->dangerAnchoredSogKn();
         aisOverlay_->setDangerRules(r);
         if (view_) view_->update();
     };
@@ -244,7 +250,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
-    plugins_->add(std::make_unique<TestPlugin>());
+    plugins_->add(std::make_unique<Nmea2000Plugin>());
+    // Dynamic plugins discovered alongside the exe. Test Plugin lives here
+    // now — built as its own VS project under plugins/test_plugin/, loaded
+    // via QPluginLoader.
+    plugins_->loadFromDirectory(QCoreApplication::applicationDirPath()
+                                + QStringLiteral("/plugins"));
     plugins_->initializeAll();
 
     // Simulator is a core built-in source; register it last so real data
@@ -410,11 +421,13 @@ void MainWindow::editDangerousShips() {
     DangerousShipsDialog dlg(settings_->dangerIgnoreFarEnabled(), settings_->dangerIgnoreFarNm(),
                              settings_->dangerCpaEnabled(), settings_->dangerCpaNm(),
                              settings_->dangerTcpaEnabled(), settings_->dangerTcpaMin(),
+                             settings_->dangerAnchoredSafeEnabled(), settings_->dangerAnchoredSogKn(),
                              this);
     if (dlg.exec() == QDialog::Accepted)
         settings_->setDangerousShips(dlg.ignoreFarEnabled(), dlg.ignoreFarNm(),
                                      dlg.cpaEnabled(), dlg.cpaNm(),
-                                     dlg.tcpaEnabled(), dlg.tcpaMin());
+                                     dlg.tcpaEnabled(), dlg.tcpaMin(),
+                                     dlg.anchoredSafeEnabled(), dlg.anchoredSogKn());
 }
 
 void MainWindow::showAisTargetList() {
@@ -479,9 +492,15 @@ void MainWindow::publishOwnshipToView() {
 void MainWindow::startScan(const QString& dir) {
     if (catalog_->isScanning()) return;
     root_ = dir;
+    encScanDone_ = false;
+    encScanOk_ = false;
+    encScanMsg_.clear();
+    rasterCount_ = 0;
     statusLeft_->setText(dir + QStringLiteral("   —   scanning…"));
     statusMid_->clear();
     catalog_->startScan(dir);
+    // The raster layer scans the same folder for *.mbtiles, in parallel.
+    view_->setRasterChartFolder(dir);
 }
 
 void MainWindow::onScanProgress(int done, int total) {
@@ -489,12 +508,29 @@ void MainWindow::onScanProgress(int done, int total) {
 }
 
 void MainWindow::onScanFinished(bool ok, const QString& message) {
-    if (ok) {
-        statusLeft_->setText(root_ + QStringLiteral("   —   ") + message);
-    } else {
-        statusLeft_->setText(QStringLiteral("No chart folder selected"));
-        QMessageBox::warning(this, QStringLiteral("Could not catalog charts"), message);
-    }
+    encScanDone_ = true;
+    encScanOk_ = ok;
+    encScanMsg_ = message;
+    refreshChartStatus();
+}
+
+void MainWindow::onRasterChartsChanged(int count) {
+    rasterCount_ = count;
+    refreshChartStatus();
+}
+
+// Compose the status line from the two independent discovery results. A folder
+// may hold ENC cells, raster (MBTiles) charts, both, or neither — so a folder
+// with only raster charts is not treated as an error.
+void MainWindow::refreshChartStatus() {
+    QString s = root_ + QStringLiteral("   —   ");
+    if (encScanOk_)              s += encScanMsg_;
+    else if (rasterCount_ > 0)   s += QStringLiteral("no ENC cells");
+    else if (encScanDone_)       s += QStringLiteral("no charts found");
+    else                         s += QStringLiteral("scanning…");
+    if (rasterCount_ > 0)
+        s += QStringLiteral("   +   %1 raster chart(s)").arg(rasterCount_);
+    statusLeft_->setText(s);
 }
 
 void MainWindow::onViewStatus(const QString& text) {

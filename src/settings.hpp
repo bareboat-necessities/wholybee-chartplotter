@@ -33,6 +33,9 @@ public:
     // ignores clicks, but the store and CpaCalculator keep tracking and the
     // dangerous-ship logic keeps running — it just has nothing to draw.
     bool showAisTargets() const { return showAisTargets_; }
+    // MBTiles raster charts drawn beneath the ENC vector cells. When off, the
+    // raster layer paints nothing; discovery/loading is unaffected.
+    bool showRasterCharts() const { return showRasterCharts_; }
 
     // When true, soundings and symbols are suppressed during a pan/zoom gesture
     // (the moving frame draws only vector geometry, for speed). Default false:
@@ -113,6 +116,8 @@ public:
     double dangerCpaNm()       const { return dangerCpaNm_; }
     bool   dangerTcpaEnabled() const { return dangerTcpaEnabled_; }
     double dangerTcpaMin()     const { return dangerTcpaMin_; }
+    bool   dangerAnchoredSafeEnabled() const { return dangerAnchoredSafeEnabled_; }
+    double dangerAnchoredSogKn()       const { return dangerAnchoredSogKn_; }
 
     // Data-source priority: ordered source ids, highest priority first.
     QStringList dataSourcePriority() const { return dataSourcePriority_; }
@@ -123,6 +128,7 @@ public slots:
     void setShowSymbols(bool on);
     void setShowDepthContours(bool on);
     void setShowAisTargets(bool on);
+    void setShowRasterCharts(bool on);
     void setHideSymbolsWhilePanning(bool on);
     void setChartSets(const QVector<ChartSet>& sets);
     void setView(double lon, double lat, double scale);
@@ -143,7 +149,8 @@ public slots:
     void setHeadingSource(HeadingSource s);
     void setDangerousShips(bool ignoreFarEnabled, double ignoreFarNm,
                            bool cpaEnabled, double cpaNm,
-                           bool tcpaEnabled, double tcpaMin);
+                           bool tcpaEnabled, double tcpaMin,
+                           bool anchoredSafeEnabled, double anchoredSogKn);
 
 signals:
     void chartDirectoryChanged(const QString& dir);
@@ -151,6 +158,7 @@ signals:
     void showSymbolsChanged(bool on);
     void showDepthContoursChanged(bool on);
     void showAisTargetsChanged(bool on);
+    void showRasterChartsChanged(bool on);
     void hideSymbolsWhilePanningChanged(bool on);
     void chartSetsChanged();
     void basemapDirectoryChanged(const QString& dir);
@@ -178,6 +186,7 @@ private:
     bool showSymbols_ = true;
     bool showDepthContours_ = true;
     bool showAisTargets_ = true;
+    bool showRasterCharts_ = true;
     bool hideSymbolsWhilePanning_ = false;
     QVector<ChartSet> chartSets_;
     QString basemapDir_;
@@ -209,4 +218,6 @@ private:
     double dangerCpaNm_       = 2.0;
     bool   dangerTcpaEnabled_ = true;
     double dangerTcpaMin_     = 30.0;
+    bool   dangerAnchoredSafeEnabled_ = true;   // suppress flags on stationary vessels
+    double dangerAnchoredSogKn_       = 0.1;     // SOG (kn) at/below which it's anchored
 };

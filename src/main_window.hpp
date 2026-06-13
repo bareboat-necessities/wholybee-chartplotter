@@ -54,10 +54,12 @@ private slots:
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
     void onScanFinished(bool ok, const QString& message);
+    void onRasterChartsChanged(int count);
     void onViewStatus(const QString& text);
 
 private:
     void startScan(const QString& dir);
+    void refreshChartStatus();   // compose status from ENC + raster results
     void positionMenuButton();
 
     ChartView*    view_ = nullptr;
@@ -90,4 +92,10 @@ private:
     QLabel*       statusMid_ = nullptr;    // band / cells shown
     QLabel*       statusRight_ = nullptr;  // cursor lat/lon
     QString       root_;
+    // Latest scan results for the active folder, reconciled into one status line
+    // (ENC scan and raster discovery finish independently / out of order).
+    bool          encScanDone_ = false;
+    bool          encScanOk_ = false;
+    QString       encScanMsg_;
+    int           rasterCount_ = 0;
 };

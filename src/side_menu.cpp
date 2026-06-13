@@ -5,6 +5,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QStackedWidget>
 #include <QScrollArea>
 #include <QScroller>
@@ -15,6 +16,7 @@
 #include <QResizeEvent>
 #include <QPixmap>
 #include <QPainter>
+#include <QColor>
 #include <QIcon>
 
 namespace {
@@ -31,6 +33,38 @@ QIcon statusDotIcon(bool active) {
         p.setBrush(QColor(40, 170, 70));   // green
         p.drawEllipse(QPointF(7, 7), 5, 5);
     }
+    return QIcon(pm);
+}
+
+// Header nav-button glyphs, drawn rather than shipped as assets so they pick up
+// the menu's title-foreground colour and stay crisp at the button size. A close
+// "✕" on the main page, a back chevron "‹" on the settings sub-page.
+QIcon closeIcon(const QColor& c) {
+    QPixmap pm(24, 24);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QPen pen(c);
+    pen.setWidthF(2.2);
+    pen.setCapStyle(Qt::RoundCap);
+    p.setPen(pen);
+    p.drawLine(7, 7, 17, 17);
+    p.drawLine(17, 7, 7, 17);
+    return QIcon(pm);
+}
+
+QIcon backIcon(const QColor& c) {
+    QPixmap pm(24, 24);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QPen pen(c);
+    pen.setWidthF(2.2);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    p.setPen(pen);
+    p.drawLine(15, 6, 9, 12);
+    p.drawLine(9, 12, 15, 18);
     return QIcon(pm);
 }
 } // namespace
@@ -54,11 +88,37 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
 
-    title_ = new QLabel(QStringLiteral("Menu"), panel_);
+    // Header bar: a nav button (close "✕" on the main page, back "‹" on the
+    // settings sub-page) plus the page title. Keeping the dismiss/back affordance
+    // here means it is always reachable without scrolling to the bottom.
+    auto* header = new QWidget(panel_);
+    header->setStyleSheet(QStringLiteral("background:%1;").arg(th.titleBg));
+    auto* headerRow = new QHBoxLayout(header);
+    headerRow->setContentsMargins(8, 8, 16, 8);
+    headerRow->setSpacing(6);
+
+    navBtn_ = new QPushButton(header);
+    navBtn_->setFlat(true);
+    navBtn_->setFixedSize(44, 44);                 // comfortable touch target
+    navBtn_->setIconSize(QSize(24, 24));
+    navBtn_->setCursor(Qt::PointingHandCursor);
+    navBtn_->setStyleSheet(QStringLiteral(
+        "QPushButton{ border:none; background:transparent; }"
+        "QPushButton:pressed{ background:%1; border-radius:6px; }").arg(th.actionPressed));
+    // Context-sensitive: on the settings page it goes back, otherwise it closes.
+    connect(navBtn_, &QPushButton::clicked, this, [this] {
+        if (stack_->currentIndex() == settingsIndex_) showMainPage();
+        else                                          closeMenu();
+    });
+    headerRow->addWidget(navBtn_);
+
+    title_ = new QLabel(QStringLiteral("Menu"), header);
     title_->setStyleSheet(QStringLiteral(
-        "font-size:18px; font-weight:600; padding:18px 20px;"
-        "background:%1; color:%2;").arg(th.titleBg, th.titleFg));
-    outer->addWidget(title_);
+        "font-size:18px; font-weight:600; background:transparent; color:%1;")
+        .arg(th.titleFg));
+    headerRow->addWidget(title_, 1);
+
+    outer->addWidget(header);
 
     stack_ = new QStackedWidget(panel_);
     mainIndex_     = stack_->addWidget(wrapScroll(buildMainPage()));
@@ -142,6 +202,9 @@ QWidget* SideMenu::buildMainPage() {
     auto* con = makeCheckAction(QStringLiteral("Depth Contours"), settings_->showDepthContours());
     connect(con, &QPushButton::toggled, settings_, &Settings::setShowDepthContours);
     col->addWidget(con);
+    auto* raster = makeCheckAction(QStringLiteral("Raster Charts"), settings_->showRasterCharts());
+    connect(raster, &QPushButton::toggled, settings_, &Settings::setShowRasterCharts);
+    col->addWidget(raster);
 
     // Plugins section: hidden until a plugin contributes its first item.
     pluginHeader_ = makeHeader(QStringLiteral("Plugins"));
@@ -159,9 +222,7 @@ QWidget* SideMenu::buildMainPage() {
     auto* settingsBtn = makeIndentedAction(QStringLiteral("Settings"));
     connect(settingsBtn, &QPushButton::clicked, this, &SideMenu::showSettingsPage);
     col->addWidget(settingsBtn);
-    auto* closeBtn = makeIndentedAction(QStringLiteral("Close"));
-    connect(closeBtn, &QPushButton::clicked, this, &SideMenu::closeMenu);
-    col->addWidget(closeBtn);
+    // Dismiss now lives on the header bar (the "✕" button), always reachable.
 
     return page;
 }
@@ -293,10 +354,7 @@ QWidget* SideMenu::buildSettingsPage() {
     col->addWidget(psHolder);
 
     col->addStretch(1);
-
-    auto* backBtn = makeSettingsAction(QStringLiteral("Back"));
-    connect(backBtn, &QPushButton::clicked, this, &SideMenu::showMainPage);
-    col->addWidget(backBtn);
+    // Back now lives on the header bar (the "‹" button), always reachable.
 
     return page;
 }
@@ -359,11 +417,15 @@ void SideMenu::rebuildChartSets() {
 void SideMenu::showMainPage() {
     stack_->setCurrentIndex(mainIndex_);
     title_->setText(QStringLiteral("Menu"));
+    navBtn_->setIcon(closeIcon(QColor(theme::menu().titleFg)));
+    navBtn_->setToolTip(QStringLiteral("Close menu"));
 }
 
 void SideMenu::showSettingsPage() {
     stack_->setCurrentIndex(settingsIndex_);
     title_->setText(QStringLiteral("Settings"));
+    navBtn_->setIcon(backIcon(QColor(theme::menu().titleFg)));
+    navBtn_->setToolTip(QStringLiteral("Back"));
 }
 
 // ---- widget factories -----------------------------------------------------

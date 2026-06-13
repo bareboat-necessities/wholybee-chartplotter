@@ -5,6 +5,7 @@
 #include "vessel_symbol.hpp"
 #include "sym_atlas.hpp"
 #include "theme.hpp"
+#include "mbtiles_service.hpp"
 
 #include <QPainter>
 #include <QPaintEvent>
@@ -448,6 +449,27 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     // its attribute set is immutable for the rest of the run.
     if (symAtlas_.isLoaded())
         chart::setSymbologyAttrs(symAtlas_.relevantAttrs());
+
+    // MBTiles raster layer: a service object on its own thread does all SQLite
+    // access and image decoding; we talk to it through queued signals/slots.
+    mbThread_  = new QThread(this);
+    mbService_ = new MbtilesService;          // no parent: moved to the worker
+    mbService_->moveToThread(mbThread_);
+    connect(this, &ChartView::rasterSetFolder,   mbService_, &MbtilesService::setFolder);
+    connect(this, &ChartView::rasterRequestTile, mbService_, &MbtilesService::requestTile);
+    connect(mbService_, &MbtilesService::discovered, this, &ChartView::onRasterDiscovered);
+    connect(mbService_, &MbtilesService::tileReady,  this, &ChartView::onRasterTileReady);
+    connect(mbService_, &MbtilesService::message,    this,
+            [this](const QString& t) { emit statusChanged(t); });
+    mbThread_->start();
+}
+
+ChartView::~ChartView() {
+    // Stop the worker before tearing down: once the thread is joined no code runs
+    // there, so deleting the service from this (GUI) thread is race-free.
+    if (mbThread_) { mbThread_->quit(); mbThread_->wait(); }
+    delete mbService_;
+    mbService_ = nullptr;
 }
 
 void ChartView::setCatalog(ChartCatalog* catalog) {
@@ -509,7 +531,7 @@ void ChartView::restoreView(double lon, double lat, double s) {
 }
 
 bool ChartView::currentView(double& lon, double& lat, double& s) const {
-    if (!haveCatalog_ || ppm_ <= 0.0) return false;
+    if (!haveContent() || ppm_ <= 0.0) return false;
     lon = proj::xToLon(scx_);
     lat = proj::yToLat(-scy_);
     s = ppm_;
@@ -1093,6 +1115,183 @@ void ChartView::setHideSymbolsWhilePanning(bool on) {
     hideSymbolsWhilePanning_ = on; update();
 }
 
+void ChartView::setShowRasterCharts(bool on) {
+    if (on == showRasterCharts_) return;
+    showRasterCharts_ = on; update();
+}
+
+// ---- raster (MBTiles) layer ------------------------------------------------
+
+void ChartView::setRasterChartFolder(const QString& dir) {
+    // New generation invalidates any in-flight discovery / tile replies.
+    ++rasterGen_;
+    rasterCharts_.clear();
+    rasterSceneBounds_ = BBox{};
+    tileCache_.clear();
+    tileInFlight_.clear();
+    tileAbsent_.clear();
+    // A folder change is a fresh start: allow the next discovery to frame the
+    // charts (the ENC catalog finishing also resets this). Guards against the
+    // old folder's view lingering over a new, geographically distant chart set.
+    userInteracted_ = false;
+    emit rasterSetFolder(dir, rasterGen_);
+    update();
+}
+
+void ChartView::onRasterDiscovered(const QVector<MbtilesMeta>& charts, quint64 gen) {
+    if (gen != rasterGen_) return;            // a newer folder superseded this
+    rasterCharts_ = charts;
+    rasterSceneBounds_ = BBox{};
+    for (const MbtilesMeta& m : charts)
+        if (m.sceneBounds.valid()) rasterSceneBounds_.expand(m.sceneBounds);
+
+    // A pure-raster folder (no ENC cells) has no ENC-driven view — frame the
+    // raster coverage so the charts are actually visible. A pending saved view
+    // wins; once the user pans/zooms we leave their view alone. (When ENC cells
+    // are present they drive the view instead.)
+    if (!charts.isEmpty() && !haveCatalog_ && !userInteracted_) {
+        if (havePendingView_) {
+            restoreView(pendingLon_, pendingLat_, pendingScale_);
+            havePendingView_ = false;
+            userInteracted_ = true;
+        } else if (rasterSceneBounds_.valid()) {
+            fitToSceneBox(rasterSceneBounds_);
+        }
+    }
+    emit rasterChartsChanged(charts.size());
+    update();
+}
+
+void ChartView::onRasterTileReady(int chartId, int z, int x, int y,
+                                  const QImage& img, quint64 gen) {
+    if (gen != rasterGen_) return;
+    const RasterTileKey k{chartId, z, x, y};
+    tileInFlight_.remove(k);
+    if (img.isNull()) {
+        // Bound the negative cache so a long session over sparse coverage can't
+        // grow it without limit.
+        if (tileAbsent_.size() > 8192) tileAbsent_.clear();
+        tileAbsent_.insert(k);
+    } else {
+        tileCache_.insert(k, QPixmap::fromImage(img));
+    }
+    update();
+}
+
+void ChartView::requestRasterTile(const RasterTileKey& k) {
+    if (tileInFlight_.contains(k)) return;
+    tileInFlight_.insert(k);
+    emit rasterRequestTile(k.chart, k.z, k.x, k.y, rasterGen_);
+}
+
+// Frame a box given in the scene frame (x = lonToX, y = -latToY). Mirrors
+// fitToCatalog, which takes a raw-projected box and negates Y itself.
+void ChartView::fitToSceneBox(const BBox& b) {
+    if (width() <= 0 || height() <= 0 || !b.valid()) return;
+    const double wM = b.maxx - b.minx, hM = b.maxy - b.miny;
+    if (wM <= 0.0 || hM <= 0.0) return;
+    const double ppmW = (width()  * 0.92) / wM;
+    const double ppmH = (height() * 0.92) / hM;
+    ppm_ = std::max(1e-9, std::min(ppmW, ppmH));
+    scx_ = (b.minx + b.maxx) / 2.0;
+    scy_ = (b.miny + b.maxy) / 2.0;
+    normalizeCenter();
+    updatePointLOD();
+    update();
+}
+
+// Draw the raster charts in device space: choose each chart's native pyramid
+// zoom from the current scale, blit cached tiles, request missing ones, and fall
+// back to the nearest cached coarser ancestor so zoom/pan never flashes blank.
+void ChartView::drawRasterCharts(QPainter& p, const QTransform& cam, const QRectF& vis) {
+    if (!showRasterCharts_ || rasterCharts_.isEmpty() || ppm_ <= 0.0) return;
+
+    constexpr int    kTilePx       = 256;   // logical tile edge, pixels
+    constexpr int    kMaxCacheTiles = 384;  // ~working set; older tiles evicted
+    const double ww = worldWidthM();
+    const double W  = ww * 0.5;
+
+    p.resetTransform();                       // draw with explicit device rects
+    p.setRenderHint(QPainter::SmoothPixmapTransform, !interacting_);
+    tileNeeded_.clear();
+
+    for (int chartId = 0; chartId < rasterCharts_.size(); ++chartId) {
+        const MbtilesMeta& m = rasterCharts_[chartId];
+
+        // Native zoom: one tile (kTilePx) ≈ one tile-span of scene metres at the
+        // current scale, i.e. 2^z ≈ worldWidth * ppm / kTilePx. Clamp to range.
+        int z = static_cast<int>(std::lround(std::log2(ww * ppm_ / kTilePx)));
+        z = std::clamp(z, m.minZoom, m.maxZoom);
+        const int    n    = 1 << z;
+        const double span = ww / n;           // scene metres per tile
+
+        // Visible tile span. Columns wrap (longitude); rows clamp (no N/S wrap).
+        const int col0 = static_cast<int>(std::floor((vis.left()   + W) / span));
+        const int col1 = static_cast<int>(std::floor((vis.right()  + W) / span));
+        int row0 = static_cast<int>(std::floor((vis.top()    + W) / span));
+        int row1 = static_cast<int>(std::floor((vis.bottom() + W) / span));
+        row0 = std::clamp(row0, 0, n - 1);
+        row1 = std::clamp(row1, 0, n - 1);
+
+        const QRectF coverRect = m.sceneBounds.valid()
+            ? QRectF(m.sceneBounds.minx, m.sceneBounds.miny,
+                     m.sceneBounds.maxx - m.sceneBounds.minx,
+                     m.sceneBounds.maxy - m.sceneBounds.miny)
+            : QRectF();
+
+        for (int col = col0; col <= col1; ++col) {
+            const int    tx = ((col % n) + n) % n;     // wrapped XYZ column
+            const double sx = -W + col * span;         // scene X of this copy
+            for (int row = row0; row <= row1; ++row) {
+                const int    ty = row;
+                const double sy = -W + row * span;
+
+                // Cull against the chart's coverage using the tile's canonical
+                // (un-wrapped) position; draw at the wrapped sx.
+                if (!coverRect.isNull()) {
+                    const QRectF canon(-W + tx * span, sy, span, span);
+                    if (!canon.intersects(coverRect)) continue;
+                }
+
+                const RasterTileKey k{chartId, z, tx, ty};
+                tileNeeded_.insert(k);
+                const QRectF dev = cam.mapRect(QRectF(sx, sy, span, span));
+
+                auto it = tileCache_.constFind(k);
+                if (it != tileCache_.constEnd()) {
+                    p.drawPixmap(dev, it.value(), it.value().rect());
+                    continue;
+                }
+                if (!tileAbsent_.contains(k)) requestRasterTile(k);
+
+                // Fallback: nearest cached coarser ancestor, sub-rectangled to
+                // this tile's footprint, so the area isn't blank while loading.
+                for (int L = 1; z - L >= m.minZoom; ++L) {
+                    const int az = z - L;
+                    const int ax = tx >> L, ay = ty >> L;
+                    auto ait = tileCache_.constFind(RasterTileKey{chartId, az, ax, ay});
+                    if (ait == tileCache_.constEnd()) continue;
+                    const QPixmap& pm = ait.value();
+                    const double cell = double(pm.width()) / (1 << L);
+                    const QRectF src((tx - (ax << L)) * cell,
+                                     (ty - (ay << L)) * cell, cell, cell);
+                    p.drawPixmap(dev, pm, src);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Evict tiles outside this frame's working set when over budget.
+    if (tileCache_.size() > kMaxCacheTiles) {
+        for (auto it = tileCache_.begin();
+             it != tileCache_.end() && tileCache_.size() > kMaxCacheTiles; ) {
+            if (tileNeeded_.contains(it.key())) ++it;
+            else it = tileCache_.erase(it);
+        }
+    }
+}
+
 void ChartView::setChartDetailLevel(double level) {
     if (level < -2.0) level = -2.0;
     if (level >  2.0) level =  2.0;
@@ -1222,6 +1421,12 @@ void ChartView::paintEvent(QPaintEvent*) {
     // 0) Basemap underlay (land/lakes) beneath everything; charts cover it where
     //    they exist.
     for (const BuiltCell& bc : basemap_) drawPaths(bc);
+
+    // 0.5) Raster (MBTiles) charts above the basemap, below the ENC vector cells
+    //      so vector detail and overlays stay on top. Drawn in device space, so
+    //      it resets the transform; restore the camera for the cell loop below.
+    drawRasterCharts(p, cam, vis);
+    p.setTransform(cam);
 
     // 1) Chart cells, coarser bands first so finer detail draws on top.
     std::vector<const BuiltCell*> order;
@@ -1667,6 +1872,8 @@ void ChartView::mouseReleaseEvent(QMouseEvent* e) {
 void ChartView::resizeEvent(QResizeEvent* e) {
     QWidget::resizeEvent(e);
     if (haveCatalog_ && !userInteracted_) fitToCatalog();
+    else if (!haveCatalog_ && !userInteracted_ && rasterSceneBounds_.valid())
+        fitToSceneBox(rasterSceneBounds_);   // raster-only folder
     else { updatePointLOD(); scheduleUpdate(); }
     ensureViewForBasemap();   // in case the widget had no size when basemap loaded
     // Widening the window raises the whole-globe floor; re-enforce it so we

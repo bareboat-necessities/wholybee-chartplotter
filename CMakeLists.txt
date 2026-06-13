@@ -9,7 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network Sql)
 
 # Prefer GDAL's own CMake config; fall back to pkg-config (e.g. MSYS2).
 find_package(GDAL QUIET)
@@ -76,6 +76,10 @@ qt_add_executable(chartviewer
     src/ownship_prediction_dialog.cpp
     src/nmea0183_debug_window.cpp
     src/nmea0183_plugin.cpp
+    src/nmea2000_client.cpp
+    src/nmea2000_plugin.cpp
+    src/n2k_decoder.cpp
+    src/actisense_ascii_parser.cpp
     src/nav_data_browser_window.cpp
     src/data_priority_dialog.cpp
     src/chart_detail_dialog.cpp
@@ -86,10 +90,11 @@ qt_add_executable(chartviewer
     src/dangerous_ships_dialog.cpp
     src/core_api.cpp
     src/plugin_manager.cpp
-    src/test_plugin.cpp
     src/chart_view.cpp
     src/chart_catalog.cpp
     src/chart_loader.cpp
+    src/mbtiles_reader.cpp
+    src/mbtiles_service.cpp
     src/nav_data_store.cpp
     src/ais_target_store.cpp
     src/cpa_calculator.cpp
@@ -105,18 +110,29 @@ qt_add_executable(chartviewer
     src/nmea0183_client.cpp
 )
 
-target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Network ${GDAL_LINK})
+target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Network Qt6::Sql ${GDAL_LINK})
 add_dependencies(chartviewer symbols_bin)
 
 # Dev convenience: lets the basemap resolver fall back to the in-tree gshhg-shp
 # folder during development. On an installed build this path won't exist, so it
 # is skipped and the standard data locations are used instead.
 target_compile_definitions(chartviewer PRIVATE
-    CHARTPLOTTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    CHARTPLOTTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    # Flips HOST_EXPORT to dllexport in the host's translation units; plugins
+    # don't define this, so they see dllimport for the same types.
+    CHARTPLOTTER_BUILD_HOST=1)
 
 set_target_properties(chartviewer PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
+    # Expose the host's symbols so dynamically loaded plugins can link against
+    # them. On Windows ENABLE_EXPORTS produces an import library (chartviewer.lib)
+    # and WINDOWS_EXPORT_ALL_SYMBOLS auto-generates a .def listing every global
+    # symbol from the exe's object files (including MOC-emitted metaobjects and
+    # signal stubs). On Linux/macOS ENABLE_EXPORTS adds -rdynamic so the
+    # dynamic linker honours dlopen lookups against the exe.
+    ENABLE_EXPORTS TRUE
+    WINDOWS_EXPORT_ALL_SYMBOLS TRUE
 )
 
 # ---- Qt DLL deployment (Windows only) --------------------------------------
@@ -254,3 +270,11 @@ foreach(_atlas_png
             "  Copy rastersymbols-*.png files into data/ to enable atlas symbols.")
     endif()
 endforeach()
+
+# ---- Dynamic plugins --------------------------------------------------------
+#
+# Each plugin lives in its own subdirectory under plugins/, builds to its own
+# shared library (a separate target / VS project), and post-build copies itself
+# into plugins/ next to the host exe so QPluginLoader picks it up at runtime.
+add_subdirectory(plugins/test_plugin)
+
