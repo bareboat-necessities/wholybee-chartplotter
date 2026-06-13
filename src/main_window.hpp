@@ -144,6 +144,8 @@ private:
     QLabel*       statusMid_ = nullptr;    // band / cells shown
     QLabel*       statusRight_ = nullptr;  // cursor lat/lon
     QString       root_;
+    double        lastCursorLon_ = 0.0;   // last cursor pos, for re-rendering the
+    double        lastCursorLat_ = 0.0;   // status bar when the coord format changes
     // Latest scan results for the active folder, reconciled into one status line
     // (ENC scan and raster discovery finish independently / out of order).
     bool          encScanDone_ = false;

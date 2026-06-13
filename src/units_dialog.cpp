@@ -21,10 +21,11 @@ QRadioButton* addChoice(QButtonGroup* group, QVBoxLayout* into,
 }
 } // namespace
 
-UnitsDialog::UnitsDialog(DepthUnit depth, DistanceUnit distance, QWidget* parent)
+UnitsDialog::UnitsDialog(DepthUnit depth, DistanceUnit distance, AngleFormat angle,
+                         QWidget* parent)
     : QDialog(parent) {
     setWindowTitle(QStringLiteral("Units"));
-    resize(420, 360);
+    resize(440, 480);
 
     auto* col = new QVBoxLayout(this);
 
@@ -50,6 +51,18 @@ UnitsDialog::UnitsDialog(DepthUnit depth, DistanceUnit distance, QWidget* parent
               int(DistanceUnit::Kilometers),    distance == DistanceUnit::Kilometers);
     col->addWidget(distBox);
 
+    // ---- Coordinates (lat/lon display) ----
+    auto* angleBox = new QGroupBox(QStringLiteral("Coordinates"));
+    auto* angleCol = new QVBoxLayout(angleBox);
+    angleGroup_ = new QButtonGroup(this);
+    addChoice(angleGroup_, angleCol, units::angleFormatLabel(AngleFormat::DecimalDegrees),
+              int(AngleFormat::DecimalDegrees), angle == AngleFormat::DecimalDegrees);
+    addChoice(angleGroup_, angleCol, units::angleFormatLabel(AngleFormat::DegMinutes),
+              int(AngleFormat::DegMinutes),     angle == AngleFormat::DegMinutes);
+    addChoice(angleGroup_, angleCol, units::angleFormatLabel(AngleFormat::DegMinSec),
+              int(AngleFormat::DegMinSec),      angle == AngleFormat::DegMinSec);
+    col->addWidget(angleBox);
+
     col->addStretch(1);
 
     auto* row = new QHBoxLayout;
@@ -72,4 +85,8 @@ DepthUnit UnitsDialog::depthUnit() const {
 
 DistanceUnit UnitsDialog::distanceUnit() const {
     return DistanceUnit(distGroup_->checkedId());
+}
+
+AngleFormat UnitsDialog::angleFormat() const {
+    return AngleFormat(angleGroup_->checkedId());
 }

@@ -1,4 +1,5 @@
 #include "route_properties_dialog.hpp"
+#include "units.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -9,19 +10,16 @@
 #include <QScrollArea>
 #include <QScroller>
 #include <QFrame>
-#include <QDoubleValidator>
-#include <QLocale>
 #include <QMessageBox>
 
 namespace {
-QLineEdit* makeCoordEdit(double value, double lo, double hi) {
+// Coordinate entry field, shown in the user's selected lat/lon format. Free text
+// (no validator) since formats like DMS aren't plain numbers; the input is parsed
+// tolerantly on commit via units::parseLatitude/Longitude.
+QLineEdit* makeCoordEdit(double value, bool isLat) {
     auto* e = new QLineEdit;
     e->setMinimumHeight(34);
-    auto* v = new QDoubleValidator(lo, hi, 6, e);
-    v->setNotation(QDoubleValidator::StandardNotation);
-    v->setLocale(QLocale::c());   // '.' decimal, matching QString::number/toDouble
-    e->setValidator(v);
-    e->setText(QString::number(value, 'f', 6));
+    e->setText(isLat ? units::formatLatitude(value) : units::formatLongitude(value));
     return e;
 }
 }  // namespace
@@ -102,10 +100,10 @@ void RoutePropertiesDialog::rebuildRows() {
 
         Row row;
         row.widget = w;
-        row.lat = makeCoordEdit(p.lat, -90.0, 90.0);
-        row.lon = makeCoordEdit(p.lon, -180.0, 180.0);
-        row.lat->setToolTip(QStringLiteral("Latitude (°)"));
-        row.lon->setToolTip(QStringLiteral("Longitude (°)"));
+        row.lat = makeCoordEdit(p.lat, /*isLat=*/true);
+        row.lon = makeCoordEdit(p.lon, /*isLat=*/false);
+        row.lat->setToolTip(QStringLiteral("Latitude"));
+        row.lon->setToolTip(QStringLiteral("Longitude"));
         hl->addWidget(row.lat, 1);
         hl->addWidget(row.lon, 1);
 
@@ -129,8 +127,11 @@ void RoutePropertiesDialog::commitFieldsToWorking() {
     work_.name = nameEdit_->text().trimmed();
     work_.description = descEdit_->text().trimmed();
     for (int i = 0; i < int(rows_.size()) && i < work_.points.size(); ++i) {
-        work_.points[i].lat = rows_[i].lat->text().toDouble();
-        work_.points[i].lon = rows_[i].lon->text().toDouble();
+        bool ok = false;
+        const double la = units::parseLatitude(rows_[i].lat->text(), &ok);
+        if (ok) work_.points[i].lat = la;             // keep old value if unparseable
+        const double lo = units::parseLongitude(rows_[i].lon->text(), &ok);
+        if (ok) work_.points[i].lon = lo;
     }
 }
 
@@ -146,8 +147,11 @@ Route RoutePropertiesDialog::currentRoute() const {
     r.name = nameEdit_->text().trimmed();
     r.description = descEdit_->text().trimmed();
     for (int i = 0; i < int(rows_.size()) && i < r.points.size(); ++i) {
-        r.points[i].lat = rows_[i].lat->text().toDouble();
-        r.points[i].lon = rows_[i].lon->text().toDouble();
+        bool ok = false;
+        const double la = units::parseLatitude(rows_[i].lat->text(), &ok);
+        if (ok) r.points[i].lat = la;                 // fall back to stored value
+        const double lo = units::parseLongitude(rows_[i].lon->text(), &ok);
+        if (ok) r.points[i].lon = lo;
     }
     return r;
 }
@@ -160,21 +164,22 @@ void RoutePropertiesDialog::setRoute(const Route& route) {
 }
 
 void RoutePropertiesDialog::onOk() {
+    // Every coordinate field must parse (and be in range) in the current format.
+    for (int i = 0; i < int(rows_.size()); ++i) {
+        bool okLat = false, okLon = false;
+        units::parseLatitude(rows_[i].lat->text(), &okLat);
+        units::parseLongitude(rows_[i].lon->text(), &okLon);
+        if (!okLat || !okLon) {
+            QMessageBox::information(this, QStringLiteral("Route Properties"),
+                QStringLiteral("Point %1 has an invalid latitude/longitude.").arg(i + 1));
+            return;
+        }
+    }
     commitFieldsToWorking();
     if (work_.points.size() < 2) {
         QMessageBox::information(this, QStringLiteral("Route Properties"),
             QStringLiteral("A route needs at least two points."));
         return;
-    }
-    for (int i = 0; i < work_.points.size(); ++i) {
-        const RoutePoint& p = work_.points[i];
-        if (p.lat < -90.0 || p.lat > 90.0 || p.lon < -180.0 || p.lon > 180.0
-            || rows_[i].lat->text().trimmed().isEmpty()
-            || rows_[i].lon->text().trimmed().isEmpty()) {
-            QMessageBox::information(this, QStringLiteral("Route Properties"),
-                QStringLiteral("Point %1 has an invalid latitude/longitude.").arg(i + 1));
-            return;
-        }
     }
     accept();
 }
