@@ -107,6 +107,7 @@ qt_add_executable(chartviewer
     src/route_overlay.cpp
     src/route_list_dialog.cpp
     src/waypoint_list_dialog.cpp
+    src/route_properties_dialog.cpp
     src/name_dialog.cpp
     src/vessel_symbol.cpp
     src/sym_atlas.cpp

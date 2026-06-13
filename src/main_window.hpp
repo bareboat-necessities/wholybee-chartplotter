@@ -5,6 +5,7 @@
 #include <QString>
 #include <memory>
 #include "data_sources.hpp"   // DataSourceRegistry (value member)
+#include "route_types.hpp"    // Route (value member for the props working copy)
 
 class ChartView;
 class ChartCatalog;
@@ -23,6 +24,7 @@ class RouteStore;
 class RouteOverlay;
 class RouteListDialog;
 class WaypointListDialog;
+class RoutePropertiesDialog;
 class CoreApi;
 class PluginManager;
 class QLabel;
@@ -63,6 +65,7 @@ private slots:
     void dropWaypoint();
     void showRouteList();
     void showWaypointList();
+    void openRouteProperties(qint64 id);   // from List Routes "Properties"
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
@@ -81,13 +84,18 @@ private:
     void showRouteEditBar(const QString& hint);    // Complete/Delete/Cancel
     void showWaypointPlaceBar(const QString& hint); // Cancel only
     void showWaypointEditBar(const QString& hint);  // Done/Cancel (no Delete Point)
+    void showPointDragBar(const QString& hint);     // Done/Cancel for props-drag
     void endRouteMode();              // clear overlay edit + editor + bar
     void beginEditRoute(qint64 id);   // fit chart + start editing a saved route
     void beginEditWaypoint(qint64 id);// fit chart + start moving a saved waypoint
     void completeEdit();              // Complete/Done button: dispatch by mode
+    void cancelEdit();                // Cancel button: dispatch by mode
     void completeRoute();             // name + persist the working route
     void completeWaypointMove();      // persist the moved waypoint
     void onWaypointPlaced(double lat, double lon);  // create-waypoint tap
+    // Route Properties drag round-trip.
+    void onPropsEditPoint(int index); // dialog asked to drag point `index`
+    void finishPropsDrag(bool apply); // return from chart drag to the dialog
 
     ChartView*    view_ = nullptr;
     ChartCatalog* catalog_ = nullptr;
@@ -117,6 +125,11 @@ private:
     std::unique_ptr<RouteOverlay> routeOverlay_;
     QPointer<RouteListDialog>     routeListDlg_;
     QPointer<WaypointListDialog>  waypointListDlg_;
+    // Route Properties editor + the drag round-trip it hands off to the chart.
+    QPointer<RoutePropertiesDialog> propsDlg_;
+    Route propsWork_;                  // working route while Properties is open
+    enum class EditContext { None, RouteProps };
+    EditContext editContext_ = EditContext::None;
     // Floating action bar shown over the chart during a create/edit session.
     QWidget*     editBar_ = nullptr;
     QLabel*      editHint_ = nullptr;

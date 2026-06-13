@@ -23,7 +23,8 @@ public:
     RouteListDialog(RouteStore* store, bool pickMode, QWidget* parent = nullptr);
 
 signals:
-    void routePicked(qint64 id);     // pick mode: user chose a route
+    void routePicked(qint64 id);          // pick mode: user chose a route
+    void propertiesRequested(qint64 id);  // open the Properties editor for a route
 
 private slots:
     void refresh();
@@ -49,5 +50,6 @@ private:
     QVBoxLayout* rowLayout_   = nullptr;
     QLabel*      countLabel_  = nullptr;
     QPushButton* deleteBtn_   = nullptr;
+    QPushButton* propsBtn_    = nullptr;
     std::vector<Row> rows_;
 };

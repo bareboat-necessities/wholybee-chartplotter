@@ -21,6 +21,7 @@
 #include "route_overlay.hpp"
 #include "route_list_dialog.hpp"
 #include "waypoint_list_dialog.hpp"
+#include "route_properties_dialog.hpp"
 #include "name_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
@@ -501,7 +502,7 @@ void MainWindow::buildEditBar() {
     row->addWidget(completeBtn_);
 
     cancelEditBtn_ = new QPushButton(QStringLiteral("Cancel"), editBar_);
-    connect(cancelEditBtn_, &QPushButton::clicked, this, &MainWindow::endRouteMode);
+    connect(cancelEditBtn_, &QPushButton::clicked, this, &MainWindow::cancelEdit);
     row->addWidget(cancelEditBtn_);
 
     editBar_->hide();
@@ -534,6 +535,17 @@ void MainWindow::showWaypointPlaceBar(const QString& hint) {
 }
 
 void MainWindow::showWaypointEditBar(const QString& hint) {
+    editHint_->setText(hint);
+    completeBtn_->setText(QStringLiteral("Done"));
+    deletePointBtn_->hide();
+    completeBtn_->show();
+    editBar_->show();
+    positionEditBar();
+}
+
+void MainWindow::showPointDragBar(const QString& hint) {
+    // Done/Cancel only — deletion of route points is handled in the Properties
+    // dialog, so no Delete Point button here.
     editHint_->setText(hint);
     completeBtn_->setText(QStringLiteral("Done"));
     deletePointBtn_->hide();
@@ -582,12 +594,21 @@ void MainWindow::beginEditRoute(qint64 id) {
 }
 
 void MainWindow::completeEdit() {
-    // The single Complete/Done button serves both route and waypoint editing.
+    // The single Complete/Done button serves route creation/editing, waypoint
+    // moves, and the Route Properties point-drag round-trip.
     if (!routeOverlay_) return;
+    if (editContext_ == EditContext::RouteProps) { finishPropsDrag(/*apply=*/true); return; }
     if (routeOverlay_->mode() == RouteOverlay::Mode::EditWaypoint)
         completeWaypointMove();
     else
         completeRoute();
+}
+
+void MainWindow::cancelEdit() {
+    // Cancel discards the current edit. For a Properties point-drag it returns to
+    // the dialog (without applying the drag); otherwise it ends the edit session.
+    if (editContext_ == EditContext::RouteProps) { finishPropsDrag(/*apply=*/false); return; }
+    endRouteMode();
 }
 
 void MainWindow::completeRoute() {
@@ -676,6 +697,8 @@ void MainWindow::showRouteList() {
     if (!routeListDlg_) {
         routeListDlg_ = new RouteListDialog(routeStore_, /*pickMode=*/false, this);
         routeListDlg_->setAttribute(Qt::WA_DeleteOnClose);
+        connect(routeListDlg_, &RouteListDialog::propertiesRequested,
+                this, &MainWindow::openRouteProperties);
     }
     routeListDlg_->show();
     routeListDlg_->raise();
@@ -690,6 +713,61 @@ void MainWindow::showWaypointList() {
     waypointListDlg_->show();
     waypointListDlg_->raise();
     waypointListDlg_->activateWindow();
+}
+
+void MainWindow::openRouteProperties(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    if (!r) return;
+    // One Properties editor at a time; replace any existing.
+    if (propsDlg_) propsDlg_->close();
+    propsWork_ = *r;
+    propsDlg_ = new RoutePropertiesDialog(*r, this);
+    propsDlg_->setAttribute(Qt::WA_DeleteOnClose);
+    connect(propsDlg_, &RoutePropertiesDialog::editPointRequested,
+            this, &MainWindow::onPropsEditPoint);
+    connect(propsDlg_, &QDialog::accepted, this, [this] {
+        // Commit the edited working route to the store on OK.
+        if (propsDlg_ && routeStore_) routeStore_->updateRoute(propsDlg_->currentRoute());
+    });
+    propsDlg_->show();
+    propsDlg_->raise();
+    propsDlg_->activateWindow();
+}
+
+void MainWindow::onPropsEditPoint(int index) {
+    if (!propsDlg_ || !routeOverlay_) return;
+    // Capture the dialog's current edits (incl. any typed coords), then hand off
+    // to the chart so the user can drag. The dialog hides during the drag.
+    propsWork_ = propsDlg_->currentRoute();
+    propsDlg_->hide();
+
+    if (!propsWork_.points.isEmpty()) {
+        double latMin = 90, latMax = -90, lonMin = 180, lonMax = -180;
+        for (const RoutePoint& p : propsWork_.points) {
+            latMin = std::min(latMin, p.lat); latMax = std::max(latMax, p.lat);
+            lonMin = std::min(lonMin, p.lon); lonMax = std::max(lonMax, p.lon);
+        }
+        view_->fitToGeoBox(latMin, lonMin, latMax, lonMax);
+    }
+    routeOverlay_->beginEditRoute(propsWork_);
+    view_->setChartEditor(routeOverlay_.get());
+    editContext_ = EditContext::RouteProps;
+    (void)index;   // the entry point; any node is then draggable
+    showPointDragBar(QStringLiteral("Drag a point to move it, then Done"));
+}
+
+void MainWindow::finishPropsDrag(bool apply) {
+    if (apply && routeOverlay_)
+        propsWork_ = routeOverlay_->workingRoute();   // read back the dragged points
+    editContext_ = EditContext::None;
+    endRouteMode();                                   // clear overlay edit + bar
+    if (propsDlg_) {
+        propsDlg_->setRoute(propsWork_);              // reflect the new coordinates
+        propsDlg_->show();
+        propsDlg_->raise();
+        propsDlg_->activateWindow();
+    }
 }
 
 void MainWindow::showAisTargetList() {
