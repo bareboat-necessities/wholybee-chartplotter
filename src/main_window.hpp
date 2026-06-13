@@ -65,7 +65,8 @@ private slots:
     void dropWaypoint();
     void showRouteList();
     void showWaypointList();
-    void openRouteProperties(qint64 id);   // from List Routes "Properties"
+    void openRouteProperties(qint64 id);     // from List Routes "Properties"
+    void openWaypointProperties(qint64 id);  // from List Waypoints "Properties"
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
