@@ -390,14 +390,14 @@ int main(int argc, char** argv) {
             const auto tag = xml.name();
             if (tag == u"color-table") {
                 inDayColorTable =
-                    (xml.attributes().value(u"name") == u"DAY_BRIGHT");
+                    (xml.attributes().value(QStringLiteral("name")) == u"DAY_BRIGHT");
             }
             else if (inDayColorTable && tag == u"color") {
                 const auto a = xml.attributes();
-                const QByteArray name = a.value(u"name").trimmed().toLatin1();
-                const int r = a.value(u"r").toInt();
-                const int g = a.value(u"g").toInt();
-                const int b = a.value(u"b").toInt();
+                const QByteArray name = a.value(QStringLiteral("name")).trimmed().toLatin1();
+                const int r = a.value(QStringLiteral("r")).toInt();
+                const int g = a.value(QStringLiteral("g")).toInt();
+                const int b = a.value(QStringLiteral("b")).toInt();
                 colors.insert(name, packRgb(r, g, b));
             }
             else if (tag == u"symbols") inSymbols = true;
@@ -406,24 +406,24 @@ int main(int argc, char** argv) {
                 if      (tag == u"symbol") sym = {};
                 else if (tag == u"name")   sym.name = xml.readElementText().trimmed().toLatin1();
                 else if (tag == u"bitmap") {
-                    sym.w = static_cast<int16_t>(xml.attributes().value(u"width").toInt());
-                    sym.h = static_cast<int16_t>(xml.attributes().value(u"height").toInt());
+                    sym.w = static_cast<int16_t>(xml.attributes().value(QStringLiteral("width")).toInt());
+                    sym.h = static_cast<int16_t>(xml.attributes().value(QStringLiteral("height")).toInt());
                     inBitmap = true;
                 }
                 else if (inBitmap && tag == u"graphics-location") {
-                    sym.ax = static_cast<int16_t>(xml.attributes().value(u"x").toInt());
-                    sym.ay = static_cast<int16_t>(xml.attributes().value(u"y").toInt());
+                    sym.ax = static_cast<int16_t>(xml.attributes().value(QStringLiteral("x")).toInt());
+                    sym.ay = static_cast<int16_t>(xml.attributes().value(QStringLiteral("y")).toInt());
                     sym.hasLoc = true;
                 }
                 else if (inBitmap && tag == u"pivot") {
-                    sym.px = static_cast<int16_t>(xml.attributes().value(u"x").toInt());
-                    sym.py = static_cast<int16_t>(xml.attributes().value(u"y").toInt());
+                    sym.px = static_cast<int16_t>(xml.attributes().value(QStringLiteral("x")).toInt());
+                    sym.py = static_cast<int16_t>(xml.attributes().value(QStringLiteral("y")).toInt());
                 }
             }
             else if (inLookups) {
                 if (tag == u"lookup") {
                     look = {};
-                    look.objClass = xml.attributes().value(u"name").trimmed().toLatin1();
+                    look.objClass = xml.attributes().value(QStringLiteral("name")).trimmed().toLatin1();
                 }
                 else if (tag == u"type")        look.type  = xml.readElementText().trimmed();
                 else if (tag == u"table-name")  look.table = xml.readElementText().trimmed();

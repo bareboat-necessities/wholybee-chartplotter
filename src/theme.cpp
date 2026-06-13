@@ -1,13 +1,17 @@
 #include "theme.hpp"
 #include <QGuiApplication>
+#include <QPalette>
 #include <QStyleHints>
+#include <QtGlobal>
 
 namespace theme {
 
 bool isDark() {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     if (auto* h = QGuiApplication::styleHints())
         return h->colorScheme() == Qt::ColorScheme::Dark;
-    return false;
+#endif
+    return QGuiApplication::palette().color(QPalette::Window).lightness() < 128;
 }
 
 namespace {
