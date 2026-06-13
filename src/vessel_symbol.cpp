@@ -1,6 +1,7 @@
 #include "vessel_symbol.hpp"
 #include <QPainter>
 #include <QPolygonF>
+#include <QPainterPath>
 #include <QPen>
 
 namespace vessel {
@@ -36,7 +37,30 @@ void drawSymbol(QPainter& p, const QPointF& pos,
 
     const QColor strokeColor = stale ? s.staleEdge : s.edge;
 
-    if (s.shape == SymbolStyle::Shape::Chevron) {
+    if (s.shape == SymbolStyle::Shape::BoatHull) {
+        // Ownship: a simplified top-down boat hull — curved bow at the top, full
+        // beam amidships, flat transom at the stern. Spans the same -14..+8
+        // footprint as the AIS triangle so scale/highlight framing is unchanged.
+        QPen edge(strokeColor); edge.setWidthF(1.2);
+        edge.setJoinStyle(Qt::RoundJoin);
+        p.setBrush(stale ? s.staleFill : s.fill);
+        p.setPen(edge);
+        if (headingDeg) {
+            QPainterPath hull;
+            hull.moveTo(0, -14);            // bow tip
+            hull.quadTo(6.5, -8, 6, -1);    // starboard bow flare -> beam
+            hull.lineTo(5, 6);              // starboard quarter
+            hull.lineTo(4, 8);              // starboard transom corner
+            hull.lineTo(-4, 8);             // port transom corner
+            hull.lineTo(-5, 6);             // port quarter
+            hull.lineTo(-6, -1);            // port beam
+            hull.quadTo(-6.5, -8, 0, -14);  // port bow flare -> bow tip
+            hull.closeSubpath();
+            p.drawPath(hull);
+        } else {
+            p.drawEllipse(QPointF(0, 0), 7.0, 7.0);
+        }
+    } else if (s.shape == SymbolStyle::Shape::Chevron) {
         // Class B: filled arrowhead (a dart with a concave back notch).
         // Unknown heading falls back to a circle.
         QPen edge(strokeColor); edge.setWidthF(1.2);

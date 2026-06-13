@@ -158,13 +158,6 @@ QWidget* SideMenu::buildMainPage() {
     rebuildChartSets();
 
     col->addWidget(makeHeader(QStringLiteral("View")));
-    auto* fitBtn = makeIndentedAction(QStringLiteral("Fit to Charts"));
-    connect(fitBtn, &QPushButton::clicked, this, [this] {
-        emit fitRequested();
-        if (autoHide_) closeMenu();
-    });
-    col->addWidget(fitBtn);
-
     auto* centerBtn = makeIndentedAction(QStringLiteral("Center on Own Ship"));
     connect(centerBtn, &QPushButton::clicked, this, [this] {
         emit centerOnOwnshipRequested();

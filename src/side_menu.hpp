@@ -54,7 +54,6 @@ public:
     void addPluginSettingsItem(const QString& title, std::function<void()> onClicked);
 
 signals:
-    void fitRequested();
     void centerOnOwnshipRequested();                  // recenter on ownship
     void autoFollowToggled(bool on);                  // auto-follow on/off
     void chartSetSelected(const QString& directory);  // user tapped a set to load
