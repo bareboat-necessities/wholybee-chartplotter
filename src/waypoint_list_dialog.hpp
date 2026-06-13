@@ -21,7 +21,7 @@ public:
 signals:
     void waypointPicked(qint64 id);   // pick mode: user chose a waypoint
 
-private slots:
+public slots:
     void refresh();
 
 private:

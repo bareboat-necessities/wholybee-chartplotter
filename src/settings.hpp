@@ -81,6 +81,7 @@ public:
     // stored for upcoming range/route features and not consumed yet.
     DepthUnit    depthUnit()    const { return depthUnit_; }
     DistanceUnit distanceUnit() const { return distanceUnit_; }
+    AngleFormat  angleFormat()  const { return angleFormat_; }
 
     // When true, tapping outside the side menu (or an action item) closes it
     // automatically. When false, the menu stays open until the user presses
@@ -140,6 +141,7 @@ public slots:
     void setOwnshipPredictionMinutes(double minutes);
     void setDepthUnit(DepthUnit u);
     void setDistanceUnit(DistanceUnit u);
+    void setAngleFormat(AngleFormat u);
     void setDataSourcePriority(const QStringList& orderedSourceIds);
     void setAutoHideMenu(bool on);
     void setChartDetailLevel(double level);
@@ -168,6 +170,7 @@ signals:
     void ownshipPredictionMinutesChanged(double minutes);
     void depthUnitChanged(DepthUnit u);
     void distanceUnitChanged(DistanceUnit u);
+    void angleFormatChanged(AngleFormat u);
     void dataSourcePriorityChanged(const QStringList& orderedSourceIds);
     void autoHideMenuChanged(bool on);
     void chartDetailLevelChanged(double level);
@@ -203,6 +206,7 @@ private:
     double ownshipPredMin_ = 6.0;   // minutes of run-time ahead
     DepthUnit    depthUnit_    = DepthUnit::Feet;
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;
+    AngleFormat  angleFormat_  = AngleFormat::DecimalDegrees;
     QStringList   dataSourcePriority_;
     bool          autoHideMenu_ = true;   // legacy default = current behaviour
     double        chartDetailLevel_ = 0.0;   // -2.0 .. +2.0, 0 = nominal

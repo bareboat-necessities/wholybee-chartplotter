@@ -1,5 +1,8 @@
 #pragma once
 #include <QString>
+#include <QChar>
+#include <QList>
+#include <cmath>
 
 // Shared unit preferences. Kept in a tiny header (no Qt object, no .cpp) so the
 // core Settings store, the Units dialog, and the chart view can all agree on the
@@ -9,6 +12,8 @@
 
 enum class DepthUnit { Feet, Meters };
 enum class DistanceUnit { NauticalMiles, StatuteMiles, Kilometers };
+// How a latitude/longitude is displayed (and accepted as input).
+enum class AngleFormat { DecimalDegrees, DegMinutes, DegMinSec };
 
 namespace units {
 
@@ -54,5 +59,121 @@ inline QString distanceUnitLabel(DistanceUnit u) {
     }
     return QStringLiteral("Nautical miles (nm)");
 }
+
+// ---- coordinate (lat/lon) display format -----------------------------------
+
+inline QString angleFormatKey(AngleFormat u) {
+    switch (u) {
+        case AngleFormat::DegMinutes: return QStringLiteral("dm");
+        case AngleFormat::DegMinSec:  return QStringLiteral("dms");
+        case AngleFormat::DecimalDegrees: break;
+    }
+    return QStringLiteral("dd");
+}
+inline AngleFormat angleFormatFromKey(const QString& s,
+                                      AngleFormat fallback = AngleFormat::DecimalDegrees) {
+    if (s == QStringLiteral("dm"))  return AngleFormat::DegMinutes;
+    if (s == QStringLiteral("dms")) return AngleFormat::DegMinSec;
+    if (s == QStringLiteral("dd"))  return AngleFormat::DecimalDegrees;
+    return fallback;
+}
+inline QString angleFormatLabel(AngleFormat u) {
+    switch (u) {
+        case AngleFormat::DegMinutes:
+            return QStringLiteral("Degrees, decimal minutes (12° 34.567')");
+        case AngleFormat::DegMinSec:
+            return QStringLiteral("Degrees, minutes, seconds (12° 34' 56.7\")");
+        case AngleFormat::DecimalDegrees: break;
+    }
+    return QStringLiteral("Decimal degrees (12.34567°)");
+}
+
+// Process-wide current coordinate format. An inline function-local static gives a
+// single shared instance across translation units (header-only). The host seeds
+// it from Settings at startup and updates it when the user changes the format, so
+// display widgets can format coordinates without each holding a Settings pointer.
+inline AngleFormat& coordFormatRef() {
+    static AngleFormat fmt = AngleFormat::DecimalDegrees;
+    return fmt;
+}
+inline AngleFormat coordFormat()            { return coordFormatRef(); }
+inline void        setCoordFormat(AngleFormat f) { coordFormatRef() = f; }
+
+// Format one signed degree value as latitude (N/S) or longitude (E/W) in the
+// given format. Decimal degrees to 5 places (~1 m), decimal minutes to 3 places,
+// seconds to 1 place; rounding carries cleanly (e.g. 59.9996' -> next degree).
+inline QString formatAngle(double deg, bool isLat, AngleFormat fmt) {
+    const QChar D(0x00B0);
+    const bool neg = deg < 0.0;
+    double a = neg ? -deg : deg;
+    const QString hem = isLat ? (neg ? QStringLiteral("S") : QStringLiteral("N"))
+                              : (neg ? QStringLiteral("W") : QStringLiteral("E"));
+    if (fmt == AngleFormat::DegMinutes) {
+        int d = int(a);
+        double m = (a - d) * 60.0;
+        double mR = std::floor(m * 1000.0 + 0.5) / 1000.0;   // round to 0.001'
+        if (mR >= 60.0) { mR -= 60.0; d += 1; }
+        QString mStr = QString::number(mR, 'f', 3);
+        if (mR < 10.0) mStr.prepend(QLatin1Char('0'));
+        return QString::number(d) + D + QLatin1Char(' ') + mStr + QStringLiteral("' ") + hem;
+    }
+    if (fmt == AngleFormat::DegMinSec) {
+        int d = int(a);
+        double mf = (a - d) * 60.0;
+        int m = int(mf);
+        double s = (mf - m) * 60.0;
+        double sR = std::floor(s * 10.0 + 0.5) / 10.0;       // round to 0.1"
+        if (sR >= 60.0) { sR -= 60.0; m += 1; }
+        if (m >= 60)    { m -= 60;    d += 1; }
+        QString mStr = (m < 10 ? QStringLiteral("0") : QString()) + QString::number(m);
+        QString sStr = QString::number(sR, 'f', 1);
+        if (sR < 10.0) sStr.prepend(QLatin1Char('0'));
+        return QString::number(d) + D + QLatin1Char(' ') + mStr + QStringLiteral("' ")
+             + sStr + QStringLiteral("\" ") + hem;
+    }
+    return QString::number(a, 'f', 5) + D + QLatin1Char(' ') + hem;
+}
+inline QString formatLatitude(double deg, AngleFormat f)  { return formatAngle(deg, true,  f); }
+inline QString formatLongitude(double deg, AngleFormat f) { return formatAngle(deg, false, f); }
+inline QString formatLatitude(double deg)  { return formatAngle(deg, true,  coordFormat()); }
+inline QString formatLongitude(double deg) { return formatAngle(deg, false, coordFormat()); }
+
+// Tolerant parse of a coordinate string back to signed decimal degrees. Accepts
+// 1/2/3 numeric components (deg / deg+min / deg+min+sec), any separators, an
+// optional sign, and an N/S/E/W hemisphere letter. *ok reports validity (parsed
+// and within ±90 for lat / ±180 for lon). Handles every format formatAngle emits
+// plus plain decimal entry.
+inline double parseAngle(const QString& text, bool isLat, bool* ok = nullptr) {
+    const QChar negHem = isLat ? QLatin1Char('S') : QLatin1Char('W');
+    bool neg = text.contains(QLatin1Char('-'));
+    if (text.contains(negHem, Qt::CaseInsensitive)) neg = true;
+
+    QList<double> nums;
+    QString cur;
+    auto flush = [&] {
+        if (cur.isEmpty()) return;
+        bool k = false;
+        const double d = cur.toDouble(&k);
+        if (k) nums.append(d);
+        cur.clear();
+    };
+    for (const QChar c : text) {
+        if (c.isDigit() || c == QLatin1Char('.')) cur += c;
+        else flush();
+    }
+    flush();
+    if (nums.isEmpty()) { if (ok) *ok = false; return 0.0; }
+
+    double a = nums.value(0);
+    if (nums.size() >= 2) a += nums.value(1) / 60.0;
+    if (nums.size() >= 3) a += nums.value(2) / 3600.0;
+    double deg = neg ? -a : a;
+
+    const double lim = isLat ? 90.0 : 180.0;
+    if (ok) *ok = (deg >= -lim && deg <= lim);
+    return deg;
+}
+inline double parseLatitude(const QString& s, bool* ok = nullptr)  { return parseAngle(s, true,  ok); }
+inline double parseLongitude(const QString& s, bool* ok = nullptr) { return parseAngle(s, false, ok); }
 
 } // namespace units

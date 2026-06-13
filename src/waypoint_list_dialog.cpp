@@ -1,5 +1,6 @@
 #include "waypoint_list_dialog.hpp"
 #include "route_store.hpp"
+#include "units.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -22,8 +23,8 @@ QLabel* makeCell(int fixedWidth, Qt::Alignment align) {
 }
 
 QString fmtPos(double lat, double lon) {
-    return QString::number(lat, 'f', 4) + QStringLiteral("°, ")
-         + QString::number(lon, 'f', 4) + QStringLiteral("°");
+    return units::formatLatitude(lat) + QStringLiteral("  ")
+         + units::formatLongitude(lon);
 }
 }  // namespace
 
@@ -52,7 +53,7 @@ WaypointListDialog::WaypointListDialog(RouteStore* store, bool pickMode, QWidget
         auto* hName = new QLabel(QStringLiteral("Name"), hdr);
         hName->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         auto* hPos = new QLabel(QStringLiteral("Position"), hdr);
-        hPos->setFixedWidth(190);
+        hPos->setFixedWidth(250);
         hPos->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         auto* hVis = new QLabel(QStringLiteral("Visible"), hdr);
         hVis->setFixedWidth(64);
@@ -114,7 +115,7 @@ WaypointListDialog::Row WaypointListDialog::makeRow() {
     hl->setSpacing(0);
     r.name = makeCell(0,   Qt::AlignLeft  | Qt::AlignVCenter);
     r.name->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    r.pos  = makeCell(190, Qt::AlignRight | Qt::AlignVCenter);
+    r.pos  = makeCell(250, Qt::AlignRight | Qt::AlignVCenter);
     hl->addWidget(r.name, 1);
     hl->addWidget(r.pos);
 

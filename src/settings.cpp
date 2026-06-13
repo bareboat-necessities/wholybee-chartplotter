@@ -26,6 +26,7 @@ constexpr auto kAisLostS    = "nav/aisLostSeconds";
 constexpr auto kPredMin   = "ships/ownshipPredictionMinutes";
 constexpr auto kDepthUnit = "units/depth";
 constexpr auto kDistUnit  = "units/distance";
+constexpr auto kAngleFmt  = "units/angle";
 constexpr auto kSrcPrio   = "data/sourcePriority";
 constexpr auto kAutoHide  = "menu/autoHide";
 constexpr auto kDetailLvl = "display/chartDetailLevel";
@@ -78,6 +79,8 @@ Settings::Settings(QObject* parent) : QObject(parent) {
                                             DepthUnit::Feet);
     distanceUnit_ = units::distanceUnitFromKey(s.value(QLatin1String(kDistUnit)).toString(),
                                                DistanceUnit::NauticalMiles);
+    angleFormat_  = units::angleFormatFromKey(s.value(QLatin1String(kAngleFmt)).toString(),
+                                              AngleFormat::DecimalDegrees);
     // Raw saved order; reconciled against the runtime DataSourceRegistry (which
     // includes plugin sources) where it is consumed.
     dataSourcePriority_ = s.value(QLatin1String(kSrcPrio)).toStringList();
@@ -185,6 +188,13 @@ void Settings::setDepthUnit(DepthUnit u) {
     depthUnit_ = u;
     QSettings().setValue(QLatin1String(kDepthUnit), units::depthUnitKey(u));
     emit depthUnitChanged(u);
+}
+
+void Settings::setAngleFormat(AngleFormat u) {
+    if (u == angleFormat_) return;
+    angleFormat_ = u;
+    QSettings().setValue(QLatin1String(kAngleFmt), units::angleFormatKey(u));
+    emit angleFormatChanged(u);
 }
 
 void Settings::setDistanceUnit(DistanceUnit u) {

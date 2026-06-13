@@ -1,5 +1,6 @@
 #include "ais_target_info_window.hpp"
 #include "ais_target_store.hpp"
+#include "units.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -14,7 +15,8 @@
 
 namespace {
 QString fmtAngle(double v) { return QString::number(v, 'f', 1) + QStringLiteral("°"); }
-QString fmtCoord(double v) { return QString::number(v, 'f', 6) + QStringLiteral("°"); }
+QString fmtLat(double v) { return units::formatLatitude(v); }
+QString fmtLon(double v) { return units::formatLongitude(v); }
 QString fmtKnots(double v) { return QString::number(v, 'f', 1) + QStringLiteral(" kn"); }
 QString fmtMeters(double v) { return QString::number(v, 'f', 1) + QStringLiteral(" m"); }
 
@@ -140,8 +142,8 @@ void AisTargetInfoWindow::refresh() {
                             fmtMeters(t.dimensions.beamMeters()));
     }
 
-    if (t.latitudeDeg)    fields.emplace_back(QStringLiteral("Latitude"),  fmtCoord(*t.latitudeDeg));
-    if (t.longitudeDeg)   fields.emplace_back(QStringLiteral("Longitude"), fmtCoord(*t.longitudeDeg));
+    if (t.latitudeDeg)    fields.emplace_back(QStringLiteral("Latitude"),  fmtLat(*t.latitudeDeg));
+    if (t.longitudeDeg)   fields.emplace_back(QStringLiteral("Longitude"), fmtLon(*t.longitudeDeg));
     if (t.cogDegTrue)     fields.emplace_back(QStringLiteral("COG (true)"), fmtAngle(*t.cogDegTrue));
     if (t.sogKnots)       fields.emplace_back(QStringLiteral("SOG"),       fmtKnots(*t.sogKnots));
     if (t.headingDegTrue) fields.emplace_back(QStringLiteral("Heading"),   fmtAngle(*t.headingDegTrue));

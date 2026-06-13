@@ -25,6 +25,7 @@
 #include "name_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
+#include "units.hpp"
 #include "cpa_calculator.hpp"
 #include "ais_overlay.hpp"
 #include "ais_target_info_window.hpp"
@@ -61,6 +62,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     if (!geom.isEmpty()) restoreGeometry(geom);
 
     settings_ = new Settings(this);
+    // Seed the process-wide coordinate display format so every widget formats
+    // lat/lon consistently from the first paint.
+    units::setCoordFormat(settings_->angleFormat());
 
     view_ = new ChartView(this);
     setCentralWidget(view_);
@@ -99,6 +103,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::depthUnitChanged, view_, &ChartView::setDepthUnit);
     view_->setDistanceUnit(settings_->distanceUnit());
     connect(settings_, &Settings::distanceUnitChanged, view_, &ChartView::setDistanceUnit);
+
+    // Coordinate (lat/lon) display format: update the shared format and refresh
+    // the live displays (status-bar cursor + any open waypoint list). The AIS
+    // info and nav-data browser windows refresh on their own 1 Hz timers.
+    connect(settings_, &Settings::angleFormatChanged, this, [this](AngleFormat f) {
+        units::setCoordFormat(f);
+        onCursorMoved(lastCursorLon_, lastCursorLat_);
+        if (waypointListDlg_) waypointListDlg_->refresh();
+    });
 
     // Ownship course-prediction length (minutes), persisted via Settings.
     view_->setOwnshipPredictionMinutes(settings_->ownshipPredictionMinutes());
@@ -386,10 +399,12 @@ void MainWindow::chooseBasemapFolder() {
 }
 
 void MainWindow::editUnits() {
-    UnitsDialog dlg(settings_->depthUnit(), settings_->distanceUnit(), this);
+    UnitsDialog dlg(settings_->depthUnit(), settings_->distanceUnit(),
+                    settings_->angleFormat(), this);
     if (dlg.exec() == QDialog::Accepted) {
         settings_->setDepthUnit(dlg.depthUnit());
         settings_->setDistanceUnit(dlg.distanceUnit());
+        settings_->setAngleFormat(dlg.angleFormat());
     }
 }
 
@@ -878,10 +893,8 @@ void MainWindow::onViewStatus(const QString& text) {
 }
 
 void MainWindow::onCursorMoved(double lon, double lat) {
-    const QChar deg(0x00B0);
-    const QString ns = (lat >= 0.0) ? QStringLiteral("N") : QStringLiteral("S");
-    const QString ew = (lon >= 0.0) ? QStringLiteral("E") : QStringLiteral("W");
-    statusRight_->setText(QString::number(std::fabs(lat), 'f', 4) + deg + ns
-                          + QStringLiteral("   ")
-                          + QString::number(std::fabs(lon), 'f', 4) + deg + ew);
+    lastCursorLon_ = lon;
+    lastCursorLat_ = lat;
+    statusRight_->setText(units::formatLatitude(lat) + QStringLiteral("   ")
+                          + units::formatLongitude(lon));
 }

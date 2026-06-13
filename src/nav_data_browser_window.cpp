@@ -1,6 +1,7 @@
 #include "nav_data_browser_window.hpp"
 #include "nav_data_store.hpp"
 #include "theme.hpp"
+#include "units.hpp"
 
 #include <QVBoxLayout>
 #include <QTableWidget>
@@ -75,12 +76,13 @@ void NavDataBrowserWindow::refresh() {
                          v.stale() });
     };
     auto angle = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral("°"); };
-    auto coord = [](double v) { return QString::number(v, 'f', 6) + QStringLiteral("°"); };
+    auto latFmt = [](double v) { return units::formatLatitude(v); };
+    auto lonFmt = [](double v) { return units::formatLongitude(v); };
     auto knots = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral(" kn"); };
     auto metres = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral(" m"); };
 
-    add(QStringLiteral("Latitude"),         s.latitudeDeg,            coord);
-    add(QStringLiteral("Longitude"),        s.longitudeDeg,           coord);
+    add(QStringLiteral("Latitude"),         s.latitudeDeg,            latFmt);
+    add(QStringLiteral("Longitude"),        s.longitudeDeg,           lonFmt);
     add(QStringLiteral("COG (true)"),       s.cogDegTrue,             angle);
     add(QStringLiteral("SOG"),              s.sogKnots,               knots);
     add(QStringLiteral("Water speed"),      s.waterSpeedKnots,        knots);
