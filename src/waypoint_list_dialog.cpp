@@ -86,6 +86,14 @@ WaypointListDialog::WaypointListDialog(RouteStore* store, bool pickMode, QWidget
     deleteBtn_->setVisible(!pickMode_);
     connect(deleteBtn_, &QPushButton::clicked, this, &WaypointListDialog::deleteSelected);
     btnRow->addWidget(deleteBtn_);
+    propsBtn_ = new QPushButton(QStringLiteral("Properties"));
+    propsBtn_->setMinimumHeight(44);
+    propsBtn_->setEnabled(false);
+    propsBtn_->setVisible(!pickMode_);
+    connect(propsBtn_, &QPushButton::clicked, this, [this] {
+        if (selectedId_ >= 0) emit propertiesRequested(selectedId_);
+    });
+    btnRow->addWidget(propsBtn_);
     btnRow->addStretch(1);
     auto* closeBtn = new QPushButton(pickMode_ ? QStringLiteral("Cancel")
                                                : QStringLiteral("Close"));
@@ -171,13 +179,17 @@ void WaypointListDialog::refresh() {
     }
     if (!selectionStillExists) selectedId_ = -1;
     restyleRows();
-    deleteBtn_->setEnabled(selectedId_ >= 0);
+    const bool hasSel = selectedId_ >= 0;
+    deleteBtn_->setEnabled(hasSel);
+    propsBtn_->setEnabled(hasSel);
 }
 
 void WaypointListDialog::selectRow(qint64 id) {
     selectedId_ = (selectedId_ == id) ? -1 : id;
     restyleRows();
-    deleteBtn_->setEnabled(selectedId_ >= 0);
+    const bool hasSel = selectedId_ >= 0;
+    deleteBtn_->setEnabled(hasSel);
+    propsBtn_->setEnabled(hasSel);
 }
 
 void WaypointListDialog::restyleRows() {

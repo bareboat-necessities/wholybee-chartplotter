@@ -22,6 +22,7 @@
 #include "route_list_dialog.hpp"
 #include "waypoint_list_dialog.hpp"
 #include "route_properties_dialog.hpp"
+#include "waypoint_properties_dialog.hpp"
 #include "name_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
@@ -724,6 +725,8 @@ void MainWindow::showWaypointList() {
     if (!waypointListDlg_) {
         waypointListDlg_ = new WaypointListDialog(routeStore_, /*pickMode=*/false, this);
         waypointListDlg_->setAttribute(Qt::WA_DeleteOnClose);
+        connect(waypointListDlg_, &WaypointListDialog::propertiesRequested,
+                this, &MainWindow::openWaypointProperties);
     }
     waypointListDlg_->show();
     waypointListDlg_->raise();
@@ -748,6 +751,19 @@ void MainWindow::openRouteProperties(qint64 id) {
     propsDlg_->show();
     propsDlg_->raise();
     propsDlg_->activateWindow();
+}
+
+void MainWindow::openWaypointProperties(qint64 id) {
+    if (!routeStore_) return;
+    const Waypoint* found = nullptr;
+    for (const Waypoint& w : routeStore_->waypoints())
+        if (w.id == id) { found = &w; break; }
+    if (!found) return;
+    // Modal: a waypoint has no on-chart drag handoff here (use Edit Waypoint for
+    // that), so a simple OK/Cancel editor suffices.
+    WaypointPropertiesDialog dlg(*found, this);
+    if (dlg.exec() == QDialog::Accepted)
+        routeStore_->updateWaypoint(dlg.currentWaypoint());
 }
 
 void MainWindow::onPropsEditPoint(int index) {

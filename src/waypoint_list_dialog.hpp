@@ -19,7 +19,8 @@ public:
     WaypointListDialog(RouteStore* store, bool pickMode = false, QWidget* parent = nullptr);
 
 signals:
-    void waypointPicked(qint64 id);   // pick mode: user chose a waypoint
+    void waypointPicked(qint64 id);       // pick mode: user chose a waypoint
+    void propertiesRequested(qint64 id);  // open the Properties editor for a waypoint
 
 public slots:
     void refresh();
@@ -45,5 +46,6 @@ private:
     QVBoxLayout* rowLayout_   = nullptr;
     QLabel*      countLabel_  = nullptr;
     QPushButton* deleteBtn_   = nullptr;
+    QPushButton* propsBtn_    = nullptr;
     std::vector<Row> rows_;
 };
