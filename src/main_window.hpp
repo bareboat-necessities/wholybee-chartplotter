@@ -25,11 +25,14 @@ class RouteOverlay;
 class RouteListDialog;
 class WaypointListDialog;
 class RoutePropertiesDialog;
+class RouteQuickInfoWindow;
+struct ClickedRouteObject;
 class CoreApi;
 class PluginManager;
 class QLabel;
 class QPushButton;
 class QWidget;
+class QPointF;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -98,6 +101,23 @@ private:
     void onPropsEditPoint(int index); // dialog asked to drag point `index`
     void finishPropsDrag(bool apply); // return from chart drag to the dialog
 
+    // Chart-tap / create-affordance handlers ---------------------------------
+    void onRouteObjectClicked(const ClickedRouteObject& hit);  // chart tap on saved obj
+    void renameRoute(qint64 id);
+    void renameWaypoint(qint64 id);
+    void toggleRouteVisible(qint64 id);
+    void toggleWaypointVisible(qint64 id);
+    void confirmDeleteRoute(qint64 id);
+    void confirmDeleteWaypoint(qint64 id);
+    // Long-press on the chart and the floating "+" button both open a small
+    // popup at `globalPt`: "New waypoint here" / "Start route here". `screenPt`
+    // is the chart-space position used when the user picks "New waypoint here"
+    // so the waypoint lands where they tapped (for the "+" button it's the
+    // current viewport centre).
+    void onChartLongPressed(const QPointF& screenPt);
+    void showAddPopup(const QPointF& screenPt, const QPoint& globalPt);
+    void positionAddButton();
+
     ChartView*    view_ = nullptr;
     ChartCatalog* catalog_ = nullptr;
     Settings*     settings_ = nullptr;
@@ -141,6 +161,10 @@ private:
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins
     QPushButton*  menuButton_ = nullptr;
+    QPushButton*  addButton_  = nullptr;   // floating "+" next to menu button
+    // Quick-look popup for a tapped saved route/waypoint. One at a time; chart
+    // interaction dismisses it. QPointer clears when it self-deletes.
+    QPointer<RouteQuickInfoWindow> routeQuickInfo_;
     QLabel*       statusLeft_ = nullptr;   // root folder + scan summary
     QLabel*       statusMid_ = nullptr;    // band / cells shown
     QLabel*       statusRight_ = nullptr;  // cursor lat/lon

@@ -6,6 +6,15 @@
 
 class RouteStore;
 
+// Identifies a saved route or waypoint that the user tapped on the chart. Used
+// by the click callback so the host (MainWindow) can pop a quick-info window.
+struct ClickedRouteObject {
+    enum class Kind { Waypoint, Route };
+    Kind    kind  = Kind::Waypoint;
+    qint64  id    = -1;
+    QPointF screenPt;          // where the tap landed, for popup anchoring
+};
+
 // Draws saved routes and waypoints on the chart, and hosts the in-place editor
 // used to create/edit them. It is both an IChartOverlay (paint + tap pick) and an
 // IChartEditor (press/move/release for node dragging), so one object owns all the
@@ -32,6 +41,11 @@ public:
     // Invoked when the selected-node state changes (drives the Delete button).
     void setSelectionChangedCallback(std::function<void(bool hasSelection)> cb) {
         onSelectionChanged_ = std::move(cb);
+    }
+    // Invoked when the user taps a saved route or waypoint outside an edit
+    // session (the chart-quick-info entry point — mirrors AisOverlay's pattern).
+    void setObjectClickedCallback(std::function<void(const ClickedRouteObject&)> cb) {
+        onObjectClicked_ = std::move(cb);
     }
 
     // IChartOverlay ----------------------------------------------------------
@@ -76,4 +90,5 @@ private:
     std::function<void()>                     repaint_;
     std::function<void(double, double)>       onWaypointPlaced_;
     std::function<void(bool)>                 onSelectionChanged_;
+    std::function<void(const ClickedRouteObject&)> onObjectClicked_;
 };

@@ -94,7 +94,23 @@ WaypointListDialog::WaypointListDialog(RouteStore* store, bool pickMode, QWidget
         if (selectedId_ >= 0) emit propertiesRequested(selectedId_);
     });
     btnRow->addWidget(propsBtn_);
+    editBtn_ = new QPushButton(QStringLiteral("Move on Chart"));
+    editBtn_->setMinimumHeight(44);
+    editBtn_->setEnabled(false);
+    editBtn_->setVisible(!pickMode_);
+    connect(editBtn_, &QPushButton::clicked, this, [this] {
+        if (selectedId_ >= 0) { emit editRequested(selectedId_); accept(); }
+    });
+    btnRow->addWidget(editBtn_);
     btnRow->addStretch(1);
+    dropBtn_ = new QPushButton(QStringLiteral("Drop at Boat"));
+    dropBtn_->setMinimumHeight(44);
+    dropBtn_->setVisible(!pickMode_);
+    connect(dropBtn_, &QPushButton::clicked, this, [this] {
+        emit newWaypointAtOwnshipRequested();
+        accept();
+    });
+    btnRow->addWidget(dropBtn_);
     auto* closeBtn = new QPushButton(pickMode_ ? QStringLiteral("Cancel")
                                                : QStringLiteral("Close"));
     closeBtn->setMinimumHeight(44);
@@ -182,6 +198,7 @@ void WaypointListDialog::refresh() {
     const bool hasSel = selectedId_ >= 0;
     deleteBtn_->setEnabled(hasSel);
     propsBtn_->setEnabled(hasSel);
+    if (editBtn_) editBtn_->setEnabled(hasSel);
 }
 
 void WaypointListDialog::selectRow(qint64 id) {
@@ -190,6 +207,7 @@ void WaypointListDialog::selectRow(qint64 id) {
     const bool hasSel = selectedId_ >= 0;
     deleteBtn_->setEnabled(hasSel);
     propsBtn_->setEnabled(hasSel);
+    if (editBtn_) editBtn_->setEnabled(hasSel);
 }
 
 void WaypointListDialog::restyleRows() {

@@ -21,6 +21,8 @@ public:
 signals:
     void waypointPicked(qint64 id);       // pick mode: user chose a waypoint
     void propertiesRequested(qint64 id);  // open the Properties editor for a waypoint
+    void editRequested(qint64 id);        // start the chart-drag edit session
+    void newWaypointAtOwnshipRequested(); // "Drop at boat" button
 
 public slots:
     void refresh();
@@ -47,5 +49,7 @@ private:
     QLabel*      countLabel_  = nullptr;
     QPushButton* deleteBtn_   = nullptr;
     QPushButton* propsBtn_    = nullptr;
+    QPushButton* editBtn_     = nullptr;
+    QPushButton* dropBtn_     = nullptr;
     std::vector<Row> rows_;
 };

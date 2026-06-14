@@ -23,6 +23,7 @@
 #include "waypoint_list_dialog.hpp"
 #include "route_properties_dialog.hpp"
 #include "waypoint_properties_dialog.hpp"
+#include "route_quick_info_window.hpp"
 #include "name_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
@@ -42,7 +43,10 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QHBoxLayout>
+#include <QMenu>
+#include <QAction>
 #include <QMessageBox>
+#include <QScreen>
 #include <QFileDialog>
 #include <QDir>
 #include <QEvent>
@@ -173,6 +177,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(view_, &ChartView::chartInteracted, this, [this] {
         if (aisQuickInfo_) aisQuickInfo_->close();
         aisQuickInfoMmsi_ = 0;
+        if (routeQuickInfo_) routeQuickInfo_->close();
     });
     connect(settings_, &Settings::ownshipPredictionMinutesChanged,
             this, [this](double m) {
@@ -232,6 +237,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     routeOverlay_->setSelectionChangedCallback([this](bool has) {
         if (deletePointBtn_) deletePointBtn_->setEnabled(has);
+    });
+    routeOverlay_->setObjectClickedCallback([this](const ClickedRouteObject& hit) {
+        onRouteObjectClicked(hit);
     });
     view_->addOverlay(routeOverlay_.get());
     connect(routeStore_, &RouteStore::routesChanged,    this, [this] { if (view_) view_->update(); });
@@ -324,8 +332,33 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         .arg(ob.fg, ob.border, ob.bg, ob.pressed));
     connect(menuButton_, &QPushButton::clicked, sideMenu_, &SideMenu::openMenu);
     menuButton_->show();
-    view_->installEventFilter(this);   // reposition the button when the view resizes
+
+    // Floating "+" button: a visible affordance for creating routes/waypoints
+    // without diving into the menu. Same look as the menu button, sits just
+    // below it. Long-press on the chart opens the same popup at the tap site.
+    addButton_ = new QPushButton(QStringLiteral("+"), view_);
+    addButton_->setFixedSize(48, 48);
+    addButton_->setCursor(Qt::PointingHandCursor);
+    addButton_->setStyleSheet(QStringLiteral(
+        "QPushButton{ font-size:26px; font-weight:600; color:%1;"
+        " border:1px solid %2; border-radius:6px; background:%3; }"
+        "QPushButton:pressed{ background:%4; }")
+        .arg(ob.fg, ob.border, ob.bg, ob.pressed));
+    addButton_->setToolTip(QStringLiteral("Add a route or waypoint"));
+    connect(addButton_, &QPushButton::clicked, this, [this] {
+        // The "+" button has no chart-position context, so anchor at the
+        // viewport centre and let the user reposition by dragging later.
+        const QPointF centre(view_->width() / 2.0, view_->height() / 2.0);
+        showAddPopup(centre, addButton_->mapToGlobal(QPoint(addButton_->width(), 0)));
+    });
+    addButton_->show();
+
+    // Long-press on the chart opens the same popup at the tap.
+    connect(view_, &ChartView::longPressed, this, &MainWindow::onChartLongPressed);
+
+    view_->installEventFilter(this);   // reposition the buttons when the view resizes
     positionMenuButton();
+    positionAddButton();
 
     statusLeft_  = new QLabel(QStringLiteral("No chart folder selected"));
     statusMid_   = new QLabel(QString());
@@ -351,6 +384,7 @@ MainWindow::~MainWindow() = default;
 bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
     if (obj == view_ && e->type() == QEvent::Resize) {
         positionMenuButton();
+        positionAddButton();
         positionEditBar();
     }
     return QMainWindow::eventFilter(obj, e);
@@ -368,6 +402,13 @@ void MainWindow::positionMenuButton() {
     menuButton_->move(12, 12);
     if (!sideMenu_ || !sideMenu_->isOpen())
         menuButton_->raise();   // stay above the chart, but never above an open menu
+}
+
+void MainWindow::positionAddButton() {
+    if (!addButton_ || !menuButton_) return;
+    // Stack directly below the menu button, same left edge, small gap.
+    addButton_->move(12, 12 + menuButton_->height() + 8);
+    if (!sideMenu_ || !sideMenu_->isOpen()) addButton_->raise();
 }
 
 void MainWindow::onChartSetSelected(const QString& dir) {
@@ -584,6 +625,151 @@ void MainWindow::startCreateRoute() {
     showRouteEditBar(QStringLiteral("Tap the chart to add points · drag to move · tap a point to select"));
 }
 
+void MainWindow::onRouteObjectClicked(const ClickedRouteObject& hit) {
+    if (!routeStore_) return;
+    // Replace any existing popup; close any AIS popup that was up.
+    if (aisQuickInfo_) aisQuickInfo_->close();
+    if (routeQuickInfo_) routeQuickInfo_->close();
+
+    routeQuickInfo_ = new RouteQuickInfoWindow(hit.kind, hit.id, routeStore_, this);
+    const qint64 id = hit.id;
+    if (hit.kind == ClickedRouteObject::Kind::Waypoint) {
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::renameRequested,
+                this, [this, id] { renameWaypoint(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::editRequested,
+                this, [this, id] { beginEditWaypoint(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::propertiesRequested,
+                this, [this, id] { openWaypointProperties(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::visibilityToggleRequested,
+                this, [this, id] { toggleWaypointVisible(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::deleteRequested,
+                this, [this, id] { confirmDeleteWaypoint(id); });
+    } else {
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::renameRequested,
+                this, [this, id] { renameRoute(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::editRequested,
+                this, [this, id] { beginEditRoute(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::propertiesRequested,
+                this, [this, id] { openRouteProperties(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::visibilityToggleRequested,
+                this, [this, id] { toggleRouteVisible(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::deleteRequested,
+                this, [this, id] { confirmDeleteRoute(id); });
+    }
+    // Anchor near the tap, clamped inside the view so the popup is never
+    // off-screen on a small window.
+    routeQuickInfo_->adjustSize();
+    QPoint anchor = view_->mapToGlobal(hit.screenPt.toPoint()) + QPoint(12, 12);
+    const QRect screen = view_->screen()
+        ? view_->screen()->availableGeometry()
+        : QRect(0, 0, 1920, 1080);
+    anchor.setX(std::min(anchor.x(), screen.right() - routeQuickInfo_->width() - 12));
+    anchor.setY(std::min(anchor.y(), screen.bottom() - routeQuickInfo_->height() - 12));
+    routeQuickInfo_->move(anchor);
+    routeQuickInfo_->show();
+}
+
+void MainWindow::renameRoute(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    if (!r) return;
+    NameDialog dlg(QStringLiteral("Rename Route"), r->name, r->description, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    Route copy = *r;
+    copy.name = dlg.name();
+    copy.description = dlg.description();
+    routeStore_->updateRoute(copy);
+}
+
+void MainWindow::renameWaypoint(qint64 id) {
+    if (!routeStore_) return;
+    const Waypoint* w = nullptr;
+    for (const Waypoint& cand : routeStore_->waypoints())
+        if (cand.id == id) { w = &cand; break; }
+    if (!w) return;
+    NameDialog dlg(QStringLiteral("Rename Waypoint"), w->name, w->description, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    Waypoint copy = *w;
+    copy.name = dlg.name();
+    copy.description = dlg.description();
+    routeStore_->updateWaypoint(copy);
+}
+
+void MainWindow::toggleRouteVisible(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    if (r) routeStore_->setRouteVisible(id, !r->visible);
+}
+
+void MainWindow::toggleWaypointVisible(qint64 id) {
+    if (!routeStore_) return;
+    for (const Waypoint& w : routeStore_->waypoints())
+        if (w.id == id) { routeStore_->setWaypointVisible(id, !w.visible); return; }
+}
+
+void MainWindow::confirmDeleteRoute(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    const QString nm = (r && !r->name.isEmpty()) ? r->name : QStringLiteral("this route");
+    if (QMessageBox::question(this, QStringLiteral("Delete Route"),
+            QStringLiteral("Delete %1?").arg(nm)) != QMessageBox::Yes) return;
+    routeStore_->removeRoute(id);
+}
+
+void MainWindow::confirmDeleteWaypoint(qint64 id) {
+    if (!routeStore_) return;
+    QString nm = QStringLiteral("this waypoint");
+    for (const Waypoint& w : routeStore_->waypoints())
+        if (w.id == id) { if (!w.name.isEmpty()) nm = w.name; break; }
+    if (QMessageBox::question(this, QStringLiteral("Delete Waypoint"),
+            QStringLiteral("Delete %1?").arg(nm)) != QMessageBox::Yes) return;
+    routeStore_->removeWaypoint(id);
+}
+
+void MainWindow::onChartLongPressed(const QPointF& screenPt) {
+    // Long-press dismisses transient overlay popups (so a long-press on a saved
+    // object doesn't leave its quick-info popup hanging) and then offers the add
+    // menu at the press location.
+    if (aisQuickInfo_)   aisQuickInfo_->close();
+    if (routeQuickInfo_) routeQuickInfo_->close();
+    showAddPopup(screenPt, view_->mapToGlobal(screenPt.toPoint()));
+}
+
+void MainWindow::showAddPopup(const QPointF& screenPt, const QPoint& globalPt) {
+    QMenu menu(this);
+    QAction* aWpt   = menu.addAction(QStringLiteral("New waypoint here"));
+    QAction* aRoute = menu.addAction(QStringLiteral("Start route here"));
+    QAction* picked = menu.exec(globalPt);
+    if (!picked || !routeStore_ || !routeOverlay_) return;
+
+    // The viewport provides screenToGeo via the overlay's cached viewport (the
+    // overlay paints every frame, so `vp_` is current). We get the same result
+    // by going through the overlay's existing CreateWaypoint mode flow, which
+    // already calls onWaypointPlaced -- only here we don't need the user to tap
+    // again; we know where they pressed.
+    Waypoint w;
+    // Convert the press point to geo by running the overlay through a stub:
+    // begin CreateWaypoint, simulate a tap via hitTest at screenPt, which calls
+    // onWaypointPlaced via the existing callback and saves a waypoint there.
+    if (picked == aWpt) {
+        routeOverlay_->beginCreateWaypoint();
+        // Reuse the same path the chart-tap creation uses, which calls
+        // onWaypointPlaced -> auto-name save.
+        routeOverlay_->hitTest(screenPt);
+        // Mode is reset in onWaypointPlaced via endRouteMode().
+        return;
+    }
+    if (picked == aRoute) {
+        // Start a fresh route session with the first point already placed at
+        // the press location, then show the edit bar so the user can add more.
+        routeOverlay_->beginCreateRoute();
+        view_->setChartEditor(routeOverlay_.get());
+        routeOverlay_->hitTest(screenPt);   // appends the first point
+        showRouteEditBar(QStringLiteral("Tap the chart to add points · drag to move · tap a point to select"));
+        return;
+    }
+}
+
 void MainWindow::startEditRoute() {
     if (!routeStore_) return;
     // Modal picker. A row tap emits routePicked and accepts; we then begin edit.
@@ -635,10 +821,9 @@ void MainWindow::completeRoute() {
             QStringLiteral("A route needs at least two points."));
         return;
     }
-    NameDialog dlg(QStringLiteral("Name Route"), r.name, r.description, this);
-    if (dlg.exec() != QDialog::Accepted) return;   // keep editing on cancel
-    r.name = dlg.name();
-    r.description = dlg.description();
+    // Auto-name new routes; reachable via Rename in the chart popup or via the
+    // Properties dialog. Edits keep the existing name.
+    if (r.id < 0 && r.name.isEmpty()) r.name = routeStore_->nextRouteName();
     if (r.id < 0) routeStore_->addRoute(r);
     else          routeStore_->updateRoute(r);
     endRouteMode();
@@ -652,13 +837,11 @@ void MainWindow::startCreateWaypoint() {
 }
 
 void MainWindow::onWaypointPlaced(double lat, double lon) {
-    // Placing ends the create-waypoint mode; then name & save it.
+    // Placing ends the create-waypoint mode and saves immediately with an
+    // auto-name; rename from the chart popup or Properties.
     endRouteMode();
-    NameDialog dlg(QStringLiteral("Name Waypoint"), QString(), QString(), this);
-    if (dlg.exec() != QDialog::Accepted) return;   // cancel discards the point
     Waypoint w;
-    w.name = dlg.name();
-    w.description = dlg.description();
+    w.name = routeStore_->nextWaypointName();
     w.lat = lat; w.lon = lon;
     w.visible = true;
     routeStore_->addWaypoint(w);
@@ -698,11 +881,8 @@ void MainWindow::dropWaypoint() {
         statusLeft_->setText(QStringLiteral("Drop Waypoint: no ownship position available"));
         return;
     }
-    NameDialog dlg(QStringLiteral("Drop Waypoint"), QString(), QString(), this);
-    if (dlg.exec() != QDialog::Accepted) return;
     Waypoint w;
-    w.name = dlg.name();
-    w.description = dlg.description();
+    w.name = routeStore_->nextWaypointName();
     w.lat = s.latitudeDeg.value;
     w.lon = s.longitudeDeg.value;
     w.visible = true;
@@ -715,6 +895,10 @@ void MainWindow::showRouteList() {
         routeListDlg_->setAttribute(Qt::WA_DeleteOnClose);
         connect(routeListDlg_, &RouteListDialog::propertiesRequested,
                 this, &MainWindow::openRouteProperties);
+        connect(routeListDlg_, &RouteListDialog::editRequested,
+                this, &MainWindow::beginEditRoute);
+        connect(routeListDlg_, &RouteListDialog::newRouteRequested,
+                this, &MainWindow::startCreateRoute);
     }
     routeListDlg_->show();
     routeListDlg_->raise();
@@ -727,6 +911,10 @@ void MainWindow::showWaypointList() {
         waypointListDlg_->setAttribute(Qt::WA_DeleteOnClose);
         connect(waypointListDlg_, &WaypointListDialog::propertiesRequested,
                 this, &MainWindow::openWaypointProperties);
+        connect(waypointListDlg_, &WaypointListDialog::editRequested,
+                this, &MainWindow::beginEditWaypoint);
+        connect(waypointListDlg_, &WaypointListDialog::newWaypointAtOwnshipRequested,
+                this, &MainWindow::dropWaypoint);
     }
     waypointListDlg_->show();
     waypointListDlg_->raise();

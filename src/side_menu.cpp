@@ -365,28 +365,21 @@ QWidget* SideMenu::buildRoutesPage() {
     col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(0);
 
-    col->addWidget(makeHeader(QStringLiteral("Routes")));
-    auto* createRoute = makeIndentedAction(QStringLiteral("Create Route"));
+    // Lists are the management hub (visibility, properties, delete, edit on
+    // chart). "+" button on the chart and long-press on empty water cover most
+    // creates without a menu trip, so this page stays short: New Route, Drop
+    // Waypoint at Boat, and the two list dialogs. Tap a saved object on the
+    // chart to get rename / drag / properties / hide / delete.
+    auto* createRoute = makeIndentedAction(QStringLiteral("New Route"));
     connect(createRoute, &QPushButton::clicked, this, [this] { emit createRouteRequested(); });
     col->addWidget(createRoute);
-    auto* editRoute = makeIndentedAction(QStringLiteral("Edit Route"));
-    connect(editRoute, &QPushButton::clicked, this, [this] { emit editRouteRequested(); });
-    col->addWidget(editRoute);
-    auto* listRoutes = makeIndentedAction(QStringLiteral("List Routes"));
-    connect(listRoutes, &QPushButton::clicked, this, [this] { emit routeListRequested(); });
-    col->addWidget(listRoutes);
-
-    col->addWidget(makeHeader(QStringLiteral("Waypoints")));
-    auto* createWpt = makeIndentedAction(QStringLiteral("Create Waypoint"));
-    connect(createWpt, &QPushButton::clicked, this, [this] { emit createWaypointRequested(); });
-    col->addWidget(createWpt);
-    auto* editWpt = makeIndentedAction(QStringLiteral("Edit Waypoint"));
-    connect(editWpt, &QPushButton::clicked, this, [this] { emit editWaypointRequested(); });
-    col->addWidget(editWpt);
-    auto* dropWpt = makeIndentedAction(QStringLiteral("Drop Waypoint"));
+    auto* dropWpt = makeIndentedAction(QStringLiteral("Drop Waypoint at Boat"));
     connect(dropWpt, &QPushButton::clicked, this, [this] { emit dropWaypointRequested(); });
     col->addWidget(dropWpt);
-    auto* listWpts = makeIndentedAction(QStringLiteral("List Waypoints"));
+    auto* listRoutes = makeIndentedAction(QStringLiteral("Routes…"));
+    connect(listRoutes, &QPushButton::clicked, this, [this] { emit routeListRequested(); });
+    col->addWidget(listRoutes);
+    auto* listWpts = makeIndentedAction(QStringLiteral("Waypoints…"));
     connect(listWpts, &QPushButton::clicked, this, [this] { emit waypointListRequested(); });
     col->addWidget(listWpts);
 
