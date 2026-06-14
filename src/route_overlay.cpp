@@ -9,6 +9,7 @@
 #include <QPainterPath>
 #include <algorithm>
 #include <vector>
+#include <cmath>
 
 namespace {
 // Device-pixel sizes / colours. Routes are violet; waypoints orange; the route
@@ -191,6 +192,24 @@ int RouteOverlay::nodeAt(const QPointF& screenPt) const {
     return best;
 }
 
+// Square distance from a point to a line segment (in screen pixels). Used to
+// hit-test a tap against a route leg.
+namespace {
+double pointToSegmentSq(const QPointF& p, const QPointF& a, const QPointF& b) {
+    const double dx = b.x() - a.x(), dy = b.y() - a.y();
+    const double len2 = dx * dx + dy * dy;
+    if (len2 <= 1e-9) {
+        const double ex = p.x() - a.x(), ey = p.y() - a.y();
+        return ex * ex + ey * ey;
+    }
+    double t = ((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / len2;
+    if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
+    const double cx = a.x() + t * dx, cy = a.y() + t * dy;
+    const double ex = p.x() - cx, ey = p.y() - cy;
+    return ex * ex + ey * ey;
+}
+}  // namespace
+
 bool RouteOverlay::hitTest(const QPointF& screenPt) {
     if (!haveVp_) return false;
     if (mode_ == Mode::CreateRoute || mode_ == Mode::EditRoute) {
@@ -211,7 +230,66 @@ bool RouteOverlay::hitTest(const QPointF& screenPt) {
         if (onWaypointPlaced_) onWaypointPlaced_(lat, lon);
         return true;
     }
-    return false;   // not editing: let other overlays handle the click
+    // Idle mode: hit-test saved waypoints and route nodes/legs so the user can
+    // tap them to open a quick-info popup (mirrors the AIS overlay's click
+    // pattern). Waypoints win on tie because they're more specific. Hidden
+    // objects don't pick — out of sight, out of mind.
+    if (!store_ || !onObjectClicked_) return false;
+    constexpr double kPickPx     = 14.0;
+    constexpr double kLegPickPx  = 10.0;
+    const double pickSq    = kPickPx    * kPickPx;
+    const double legPickSq = kLegPickPx * kLegPickPx;
+
+    qint64 bestId   = -1;
+    double bestSq   = pickSq;
+    ClickedRouteObject::Kind bestKind = ClickedRouteObject::Kind::Waypoint;
+
+    for (const Waypoint& w : store_->waypoints()) {
+        if (!w.visible) continue;
+        const QPointF s = vp_.geoToScreen(w.lat, w.lon);
+        const double dx = s.x() - screenPt.x(), dy = s.y() - screenPt.y();
+        const double dSq = dx * dx + dy * dy;
+        if (dSq < bestSq) {
+            bestSq = dSq; bestId = w.id;
+            bestKind = ClickedRouteObject::Kind::Waypoint;
+        }
+    }
+    // Routes: nodes get the same tight radius, legs a slightly slacker one.
+    // Run the leg pass second so a node hit (already within pickSq) wins over
+    // an adjacent leg hit at the same tap.
+    for (const Route& r : store_->routes()) {
+        if (!r.visible || r.points.isEmpty()) continue;
+        for (const RoutePoint& rp : r.points) {
+            const QPointF s = vp_.geoToScreen(rp.lat, rp.lon);
+            const double dx = s.x() - screenPt.x(), dy = s.y() - screenPt.y();
+            const double dSq = dx * dx + dy * dy;
+            if (dSq < bestSq) {
+                bestSq = dSq; bestId = r.id;
+                bestKind = ClickedRouteObject::Kind::Route;
+            }
+        }
+    }
+    for (const Route& r : store_->routes()) {
+        if (!r.visible || r.points.size() < 2) continue;
+        // Only consider legs when nothing closer already won.
+        QPointF prev = vp_.geoToScreen(r.points.first().lat, r.points.first().lon);
+        for (int i = 1; i < r.points.size(); ++i) {
+            const QPointF cur = vp_.geoToScreen(r.points[i].lat, r.points[i].lon);
+            const double dSq = pointToSegmentSq(screenPt, prev, cur);
+            if (dSq < legPickSq && dSq < bestSq) {
+                bestSq = dSq; bestId = r.id;
+                bestKind = ClickedRouteObject::Kind::Route;
+            }
+            prev = cur;
+        }
+    }
+    if (bestId < 0) return false;       // nothing under the tap
+    ClickedRouteObject hit;
+    hit.kind = bestKind;
+    hit.id   = bestId;
+    hit.screenPt = screenPt;
+    onObjectClicked_(hit);
+    return true;
 }
 
 bool RouteOverlay::onPress(const QPointF& screenPt) {

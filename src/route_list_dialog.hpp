@@ -25,6 +25,8 @@ public:
 signals:
     void routePicked(qint64 id);          // pick mode: user chose a route
     void propertiesRequested(qint64 id);  // open the Properties editor for a route
+    void editRequested(qint64 id);        // start the chart-drag edit session
+    void newRouteRequested();             // "New" button: start a fresh route
 
 private slots:
     void refresh();
@@ -51,5 +53,7 @@ private:
     QLabel*      countLabel_  = nullptr;
     QPushButton* deleteBtn_   = nullptr;
     QPushButton* propsBtn_    = nullptr;
+    QPushButton* editBtn_     = nullptr;
+    QPushButton* newBtn_      = nullptr;
     std::vector<Row> rows_;
 };

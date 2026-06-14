@@ -365,6 +365,20 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     tierCache_.setLimits(192u * 1024u * 1024u, 8);
     tierCache_.setPinned([this](const QString& tier) { return tier == basemapTier_; });
 
+    // Long-press recognizer: started on press, cancelled if the user moves the
+    // finger more than a few pixels or releases before the timeout. 500 ms is
+    // the platform-conventional long-press threshold.
+    longPressTimer_ = new QTimer(this);
+    longPressTimer_->setSingleShot(true);
+    longPressTimer_->setInterval(500);
+    connect(longPressTimer_, &QTimer::timeout, this, [this] {
+        // Suppress when an editor is active so route-edit gestures aren't
+        // interrupted by a stray long-press.
+        if (editor_ || editorGrab_) return;
+        longPressFired_ = true;
+        emit longPressed(pressPos_);
+    });
+
     updateTimer_ = new QTimer(this);
     updateTimer_->setSingleShot(true);
     updateTimer_->setInterval(120);
@@ -1857,6 +1871,10 @@ void ChartView::mousePressEvent(QMouseEvent* e) {
         pressPos_   = e->position();          // for click vs drag at release
         userInteracted_ = true;
         setCursor(Qt::ClosedHandCursor);
+        // Arm the long-press timer; cancelled in mouseMove (large motion) or
+        // mouseRelease (early release). Editor sessions are exempt above.
+        longPressFired_ = false;
+        if (!editor_ && longPressTimer_) longPressTimer_->start();
     }
     QWidget::mousePressEvent(e);
 }
@@ -1881,6 +1899,11 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
                 panDismissEmitted_ = true;
                 emit chartInteracted();
             }
+            // A long-press needs the finger to stay (mostly) put. Cancel as soon
+            // as the gesture turns into a pan so a slow drag doesn't trigger it.
+            if (longPressTimer_ && longPressTimer_->isActive()
+                && (e->position() - pressPos_).manhattanLength() > 8.0)
+                longPressTimer_->stop();
             if (autoFollow_) setAutoFollow(false);   // a pan breaks the lock
             scx_ -= d.x() / ppm_;
             scy_ -= d.y() / ppm_;
@@ -1904,11 +1927,15 @@ void ChartView::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && dragging_) {
         dragging_ = false;
         setCursor(Qt::OpenHandCursor);
-        // Release with little movement is a click: offer it to the overlays in
-        // reverse z-order; the first to consume it (e.g. AIS hit) wins. A click
-        // that no overlay consumes is an empty-space click — dismiss transient
-        // popups (target clicks are handled by the overlay, not this signal).
-        if ((e->position() - pressPos_).manhattanLength() <= 4.0) {
+        if (longPressTimer_) longPressTimer_->stop();
+        // Release with little movement is a click — unless a long-press already
+        // fired, in which case the gesture is consumed and we suppress the click.
+        // Otherwise the click is offered to overlays in reverse z-order; the
+        // first to consume it (e.g. AIS / route hit) wins. A click that no
+        // overlay consumes is an empty-space click and dismisses transient popups.
+        if (longPressFired_) {
+            longPressFired_ = false;
+        } else if ((e->position() - pressPos_).manhattanLength() <= 4.0) {
             bool consumed = false;
             for (auto it = overlays_.rbegin(); it != overlays_.rend(); ++it) {
                 if ((*it)->hitTest(e->position())) { consumed = true; break; }

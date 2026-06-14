@@ -88,7 +88,23 @@ RouteListDialog::RouteListDialog(RouteStore* store, bool pickMode, QWidget* pare
         if (selectedId_ >= 0) emit propertiesRequested(selectedId_);
     });
     btnRow->addWidget(propsBtn_);
+    editBtn_ = new QPushButton(QStringLiteral("Edit on Chart"));
+    editBtn_->setMinimumHeight(44);
+    editBtn_->setEnabled(false);
+    editBtn_->setVisible(!pickMode_);
+    connect(editBtn_, &QPushButton::clicked, this, [this] {
+        if (selectedId_ >= 0) { emit editRequested(selectedId_); accept(); }
+    });
+    btnRow->addWidget(editBtn_);
     btnRow->addStretch(1);
+    newBtn_ = new QPushButton(QStringLiteral("New"));
+    newBtn_->setMinimumHeight(44);
+    newBtn_->setVisible(!pickMode_);
+    connect(newBtn_, &QPushButton::clicked, this, [this] {
+        emit newRouteRequested();
+        accept();   // close the list — the user is now drawing
+    });
+    btnRow->addWidget(newBtn_);
     auto* closeBtn = new QPushButton(pickMode_ ? QStringLiteral("Cancel")
                                                : QStringLiteral("Close"));
     closeBtn->setMinimumHeight(44);
@@ -179,6 +195,7 @@ void RouteListDialog::refresh() {
     const bool hasSel = selectedId_ >= 0;
     deleteBtn_->setEnabled(hasSel);
     propsBtn_->setEnabled(hasSel);
+    if (editBtn_) editBtn_->setEnabled(hasSel);
 }
 
 void RouteListDialog::selectRow(qint64 id) {
@@ -187,6 +204,7 @@ void RouteListDialog::selectRow(qint64 id) {
     const bool hasSel = selectedId_ >= 0;
     deleteBtn_->setEnabled(hasSel);
     propsBtn_->setEnabled(hasSel);
+    if (editBtn_) editBtn_->setEnabled(hasSel);
 }
 
 void RouteListDialog::restyleRows() {

@@ -206,6 +206,10 @@ public:
 signals:
     void cursorMoved(double lon, double lat);
     void statusChanged(const QString& text);
+    // Touch-friendly long-press (press-and-hold) on the chart. Fires after ~500 ms
+    // with the finger held within a few pixels of pressPos; suppressed when an
+    // IChartEditor is active so it doesn't fight with route-editing gestures.
+    void longPressed(const QPointF& screenPt);
     // Debounced after panning/zooming; carries the view center (degrees) + zoom.
     void viewChanged(double lon, double lat, double scale);
     // Auto-follow turned on/off (e.g. off when the user pans). Lets the menu
@@ -396,6 +400,8 @@ private:
     bool    panDismissEmitted_ = false;   // chartInteracted() fired once per drag
     QPointF lastDragPos_;
     QPointF pressPos_;     // for click vs drag (release with little movement = click)
+    QTimer* longPressTimer_ = nullptr;    // single-shot, fires longPressed()
+    bool    longPressFired_ = false;      // suppress click-on-release after long-press
 
     OwnshipState ownship_;
     NavFreshness ownshipFreshness_ = NavFreshness::Invalid;

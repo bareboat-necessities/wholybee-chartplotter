@@ -26,6 +26,12 @@ public:
     const QVector<Route>&    routes()    const { return routes_; }
     const Route* route(qint64 id) const;             // nullptr if absent
 
+    // Suggested default name for a new route/waypoint ("Route 3", "Waypoint 7").
+    // Numbers the next slot above any existing "{prefix} N" — so deleting and
+    // re-creating doesn't collide; names with custom text are ignored.
+    QString nextRouteName()    const;
+    QString nextWaypointName() const;
+
     // Waypoints ---------------------------------------------------------------
     qint64 addWaypoint(Waypoint w);                  // returns new id (-1 on fail)
     void   updateWaypoint(const Waypoint& w);        // by w.id

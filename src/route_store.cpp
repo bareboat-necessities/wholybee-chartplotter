@@ -132,6 +132,37 @@ const Route* RouteStore::route(qint64 id) const {
     return nullptr;
 }
 
+namespace {
+// Find the highest N from names matching exactly "{prefix} N" (case-insensitive,
+// optional surrounding whitespace). Returns 0 if none match.
+int highestNumberedSuffix(const QStringList& names, const QString& prefix) {
+    int best = 0;
+    for (const QString& n : names) {
+        const QString s = n.trimmed();
+        if (s.size() <= prefix.size() || !s.startsWith(prefix, Qt::CaseInsensitive))
+            continue;
+        bool ok = false;
+        const int v = s.mid(prefix.size()).trimmed().toInt(&ok);
+        if (ok && v > best) best = v;
+    }
+    return best;
+}
+}  // namespace
+
+QString RouteStore::nextRouteName() const {
+    QStringList names;
+    names.reserve(routes_.size());
+    for (const Route& r : routes_) names.push_back(r.name);
+    return QStringLiteral("Route %1").arg(highestNumberedSuffix(names, QStringLiteral("Route ")) + 1);
+}
+
+QString RouteStore::nextWaypointName() const {
+    QStringList names;
+    names.reserve(waypoints_.size());
+    for (const Waypoint& w : waypoints_) names.push_back(w.name);
+    return QStringLiteral("Waypoint %1").arg(highestNumberedSuffix(names, QStringLiteral("Waypoint ")) + 1);
+}
+
 // ---- waypoints -------------------------------------------------------------
 
 qint64 RouteStore::addWaypoint(Waypoint w) {
