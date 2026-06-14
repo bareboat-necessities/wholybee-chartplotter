@@ -9,7 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network Sql)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network Sql WebSockets)
 
 # Prefer GDAL's own CMake config; fall back to pkg-config (e.g. MSYS2).
 find_package(GDAL QUIET)
@@ -284,4 +284,5 @@ endforeach()
 # shared library (a separate target / VS project), and post-build copies itself
 # into plugins/ next to the host exe so QPluginLoader picks it up at runtime.
 add_subdirectory(plugins/test_plugin)
+add_subdirectory(plugins/signalk_plugin)
 
