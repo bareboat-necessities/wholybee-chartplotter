@@ -38,10 +38,11 @@ private:
 };
 } // namespace
 
-CoreApi::CoreApi(NavDataStore* store, AisTargetStore* ais, SideMenu* menu, ChartView* view,
+CoreApi::CoreApi(NavDataStore* store, AisTargetStore* ais, RouteStore* routes,
+                 SideMenu* menu, ChartView* view,
                  DataSourceRegistry* registry, QWidget* dialogParent)
-    : store_(store), ais_(ais), menu_(menu), view_(view), registry_(registry),
-      dialogParent_(dialogParent) {}
+    : store_(store), ais_(ais), routes_(routes), menu_(menu), view_(view),
+      registry_(registry), dialogParent_(dialogParent) {}
 
 CoreApi::~CoreApi() = default;
 

@@ -8,11 +8,11 @@ class IPlugin;
 // Plugin ABI version. Bumped whenever a virtual method on ICoreApi/IPlugin or
 // the layout of a type crossing the boundary changes. Plugins compiled against
 // a different version are rejected by the loader before any vtable touch.
-inline constexpr int kPluginAbiVersion = 1;
+inline constexpr int kPluginAbiVersion = 2;
 
 // Q_DECLARE_INTERFACE IID. Must match the IID in each plugin's
 // Q_PLUGIN_METADATA(); change in lock-step with kPluginAbiVersion.
-#define CHARTPLOTTER_PLUGIN_IID "com.chartplotter.IPluginFactory/1.0"
+#define CHARTPLOTTER_PLUGIN_IID "com.chartplotter.IPluginFactory/2.0"
 
 // The single symbol a dynamic plugin DLL exposes to the host. The plugin's
 // shared library contains exactly one QObject implementing this interface; the

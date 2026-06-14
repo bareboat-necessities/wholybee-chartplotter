@@ -302,7 +302,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
     // plugin would use later. NMEA 0183 is a plugin; the test plugin exercises
     // menus, overlays, and the nav data API. Plugins register their sources here.
-    coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, sideMenu_, view_, &registry_, this);
+    coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, routeStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
     plugins_->add(std::make_unique<Nmea2000Plugin>());

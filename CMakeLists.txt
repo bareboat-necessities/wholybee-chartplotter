@@ -286,4 +286,5 @@ endforeach()
 # into plugins/ next to the host exe so QPluginLoader picks it up at runtime.
 add_subdirectory(plugins/test_plugin)
 add_subdirectory(plugins/signalk_plugin)
+add_subdirectory(plugins/gpx_plugin)
 
