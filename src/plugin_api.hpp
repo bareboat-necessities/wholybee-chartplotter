@@ -14,6 +14,7 @@ class INavDataPublisher;
 class NavDataStore;
 class IAisPublisher;
 class AisTargetStore;
+class RouteStore;
 
 // Plugin API surface (Milestone 3 in ProjectSpec.md).
 //
@@ -113,6 +114,17 @@ public:
     virtual IAisPublisher* aisPublisher() = 0;
     // Read targets; connect to targetUpdated/targetExpired to subscribe.
     virtual const AisTargetStore* aisData() const = 0;
+
+    // Routes & waypoints -----------------------------------------------------
+    // Read, create, edit, and delete routes and standalone waypoints, backed by
+    // the same persistent store (routes.db) the core uses. Unlike nav/AIS there
+    // is no source arbitration, so reading and writing share one handle:
+    //   read   -> routes()->routes() / waypoints() / route(id) (cached snapshots)
+    //   write  -> addRoute/updateRoute/removeRoute, addWaypoint/... (DB + cache)
+    //   notify -> connect routesChanged()/waypointsChanged() to subscribe
+    // The core owns the store; the plugin holds a non-owning pointer. May be
+    // null if the store failed to open (check before use).
+    virtual RouteStore* routes() = 0;
 
     // Menu contributions -----------------------------------------------------
     // Append items to the main menu's Plugins section.

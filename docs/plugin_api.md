@@ -60,6 +60,13 @@ class ICoreApi {
     INavDataPublisher*  navPublisher();        // publish updates
     const NavDataStore* navData() const;       // read state; connect ownshipChanged()
 
+    // AIS targets
+    IAisPublisher*        aisPublisher();      // publish targets
+    const AisTargetStore* aisData() const;     // read; connect targetUpdated/Expired
+
+    // Routes & waypoints (read + write; one handle, no source arbitration)
+    RouteStore* routes();                      // CRUD + routesChanged/waypointsChanged
+
     // Menu contributions (main menu "Plugins" section)
     void addMenuAction(QString title, std::function<void()> onTriggered);
     void addMenuToggle(QString title, bool checked, std::function<void(bool)> onToggled);
@@ -106,6 +113,59 @@ connect(core->navData(), &NavDataStore::ownshipChanged, this, [this] {
     if (d.valid()) show(d.value, d.source);   // value + provenance + freshness
 });
 ```
+
+### Routes & waypoints
+
+`routes()` hands back the core's `RouteStore` — the same persistent store
+(`routes.db`) the chart overlay and list dialogs use — so a plugin can read,
+create, edit, and delete routes and standalone waypoints. Unlike nav/AIS there is
+no per-value source arbitration, so reading and writing share a single handle
+rather than a split read-store / write-publisher pair.
+
+The store keeps the whole collection in memory (loaded once at open); reads return
+cached snapshots by const-ref, and writes update both the cache and the DB and
+then emit a change signal. `routes()` may be `null` if the database failed to
+open — check before use.
+
+```cpp
+RouteStore* rs = core->routes();
+if (!rs) return;                                   // store unavailable
+
+// Read snapshots.
+for (const Route&    r : rs->routes())    use(r);
+for (const Waypoint& w : rs->waypoints()) use(w);
+const Route* r = rs->route(id);                    // nullptr if absent
+
+// Subscribe to changes (e.g. to re-sync or redraw).
+connect(rs, &RouteStore::routesChanged,    this, [this] { refresh(); });
+connect(rs, &RouteStore::waypointsChanged, this, [this] { refresh(); });
+
+// Create.
+Waypoint w; w.name = "Anchorage"; w.lat = 51.5; w.lon = -0.1;
+qint64 wid = rs->addWaypoint(w);                   // -1 on failure
+
+Route route; route.name = rs->nextRouteName();     // suggested "Route N"
+route.points = { {51.0, -1.0, "Start"}, {51.2, -0.8, "End"} };
+qint64 rid = rs->addRoute(route);                  // inserts route + points
+
+// Edit (by id) and delete.
+Route edited = *rs->route(rid);
+edited.points.push_back({51.3, -0.7, "Extra"});
+rs->updateRoute(edited);                           // replaces the point list
+rs->setWaypointVisible(wid, false);
+rs->removeWaypoint(wid);
+```
+
+`Route`, `RoutePoint`, and `Waypoint` are the plain-data types in
+`route_types.hpp`, shaped to map onto GPX (`<rte>`/`<rtept>`/`<wpt>`). `id == -1`
+marks a record not yet persisted; the store fills it in on `addRoute`/
+`addWaypoint`. `updateWaypoint`/`updateRoute` match on `id` and preserve the
+original `createdUtc`. Writes are GUI-thread only (same as the rest of the API).
+
+The **GPX Import / Export** plugin (`plugins/gpx_plugin`, a runtime-loaded DLL)
+is the worked example of this surface: it reads the store to write GPX 1.1 files
+and parses GPX back into `addRoute`/`addWaypoint`, all behind a touch-friendly
+dialog reached from the Plugins menu.
 
 ### Menu contributions
 
@@ -212,7 +272,7 @@ must `removeChartOverlay()` it in `shutdown()`.
 Wiring it up in the core is three lines (`MainWindow`):
 
 ```cpp
-coreApi_ = std::make_unique<CoreApi>(navStore_, sideMenu_, view_, &registry_, this);
+coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, routeStore_, sideMenu_, view_, &registry_, this);
 plugins_ = std::make_unique<PluginManager>(coreApi_.get());
 plugins_->add(std::make_unique<TestPlugin>());
 plugins_->initializeAll();
