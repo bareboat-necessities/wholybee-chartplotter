@@ -13,14 +13,16 @@ class UnitsDialog : public QDialog {
     Q_OBJECT
 public:
     UnitsDialog(DepthUnit depth, DistanceUnit distance, AngleFormat angle,
-                QWidget* parent = nullptr);
+                BearingMode bearing, QWidget* parent = nullptr);
 
     DepthUnit    depthUnit()    const;
     DistanceUnit distanceUnit() const;
     AngleFormat  angleFormat()  const;
+    BearingMode  bearingMode()  const;
 
 private:
-    QButtonGroup* depthGroup_ = nullptr;
-    QButtonGroup* distGroup_  = nullptr;
-    QButtonGroup* angleGroup_ = nullptr;
+    QButtonGroup* depthGroup_   = nullptr;
+    QButtonGroup* distGroup_    = nullptr;
+    QButtonGroup* angleGroup_   = nullptr;
+    QButtonGroup* bearingGroup_ = nullptr;
 };

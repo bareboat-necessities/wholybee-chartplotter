@@ -35,6 +35,20 @@ RouteQuickInfoWindow::RouteQuickInfoWindow(ClickedRouteObject::Kind kind, qint64
     subLabel_->setStyleSheet(QStringLiteral("font-size:13px;"));
     col->addWidget(subLabel_);
 
+    // "Navigate" is the headline action for a route, so it gets its own full-width
+    // accented button above the edit/manage grid. Waypoints can't be navigated.
+    if (kind_ == ClickedRouteObject::Kind::Route) {
+        auto* navBtn = new QPushButton(QStringLiteral("Navigate"), this);
+        navBtn->setStyleSheet(QStringLiteral(
+            "QPushButton{ min-height:34px; font-weight:600; color:white;"
+            " background:%1; border-radius:4px; }").arg(theme::menu().accent));
+        col->addWidget(navBtn);
+        connect(navBtn, &QPushButton::clicked, this, [this] {
+            emit navigateRequested();
+            close();
+        });
+    }
+
     // Action buttons. Two rows of two so the popup stays narrow on a tablet.
     auto* grid = new QGridLayout;
     grid->setHorizontalSpacing(6);

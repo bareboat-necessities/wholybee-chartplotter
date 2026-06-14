@@ -26,6 +26,17 @@ void NavDataStore::setSourcePriority(const QStringList& orderedSourceIds) {
     // Takes effect as sources next publish / age out; no immediate value change.
 }
 
+void NavDataStore::setNavigationData(const NavigationData& d) {
+    navigation_ = d;
+    emit navigationChanged();
+}
+
+void NavDataStore::clearNavigation() {
+    if (!navigation_.active) return;   // already inactive; nothing to notify
+    navigation_ = NavigationData{};
+    emit navigationChanged();
+}
+
 // ---- publishing ------------------------------------------------------------
 
 // Priority index of a source (0 = highest). Unknown sources rank below all

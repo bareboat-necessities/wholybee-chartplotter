@@ -82,6 +82,12 @@ public:
     DepthUnit    depthUnit()    const { return depthUnit_; }
     DistanceUnit distanceUnit() const { return distanceUnit_; }
     AngleFormat  angleFormat()  const { return angleFormat_; }
+    // Whether bearings/headings are shown relative to true or magnetic north.
+    BearingMode  bearingMode()  const { return bearingMode_; }
+
+    // Arrival radius: how close (nautical miles) the boat must come to a waypoint
+    // to count as "arrived". Default 0.1 nm.
+    double arrivalRadiusNm() const { return arrivalRadiusNm_; }
 
     // When true, tapping outside the side menu (or an action item) closes it
     // automatically. When false, the menu stays open until the user presses
@@ -142,6 +148,8 @@ public slots:
     void setDepthUnit(DepthUnit u);
     void setDistanceUnit(DistanceUnit u);
     void setAngleFormat(AngleFormat u);
+    void setBearingMode(BearingMode b);
+    void setArrivalRadiusNm(double nm);
     void setDataSourcePriority(const QStringList& orderedSourceIds);
     void setAutoHideMenu(bool on);
     void setChartDetailLevel(double level);
@@ -171,6 +179,8 @@ signals:
     void depthUnitChanged(DepthUnit u);
     void distanceUnitChanged(DistanceUnit u);
     void angleFormatChanged(AngleFormat u);
+    void bearingModeChanged(BearingMode b);
+    void arrivalRadiusNmChanged(double nm);
     void dataSourcePriorityChanged(const QStringList& orderedSourceIds);
     void autoHideMenuChanged(bool on);
     void chartDetailLevelChanged(double level);
@@ -207,6 +217,8 @@ private:
     DepthUnit    depthUnit_    = DepthUnit::Feet;
     DistanceUnit distanceUnit_ = DistanceUnit::NauticalMiles;
     AngleFormat  angleFormat_  = AngleFormat::DecimalDegrees;
+    BearingMode  bearingMode_  = BearingMode::True;
+    double       arrivalRadiusNm_ = 0.1;     // nautical miles
     QStringList   dataSourcePriority_;
     bool          autoHideMenu_ = true;   // legacy default = current behaviour
     double        chartDetailLevel_ = 0.0;   // -2.0 .. +2.0, 0 = nominal

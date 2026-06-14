@@ -21,6 +21,8 @@ class AisTargetInfoWindow;
 class AisQuickInfoWindow;
 class AisTargetListDialog;
 class RouteStore;
+class RouteNavigator;
+class NavDisplayWindow;
 class RouteOverlay;
 class RouteListDialog;
 class WaypointListDialog;
@@ -49,6 +51,7 @@ private slots:
     void manageChartSets();
     void chooseBasemapFolder();
     void editUnits();
+    void editNavigationOptions();
     void editStaleThresholds();
     void editOwnshipPrediction();
     void showNavDataBrowser();
@@ -109,6 +112,10 @@ private:
     void toggleWaypointVisible(qint64 id);
     void confirmDeleteRoute(qint64 id);
     void confirmDeleteWaypoint(qint64 id);
+    // Route navigation (APB/RMB). Navigate from a route popup starts it at the
+    // tapped waypoint; the "Navigating" menu checkbox mirrors and can stop/resume.
+    void startNavigation(qint64 routeId, int destIndex = -1);
+    void onNavigatingToggled(bool on);
     // Long-press on the chart and the floating "+" button both open a small
     // popup at `globalPt`: "New waypoint here" / "Start route here". `screenPt`
     // is the chart-space position used when the user picks "New waypoint here"
@@ -143,6 +150,8 @@ private:
 
     // Routes & Waypoints -----------------------------------------------------
     RouteStore* routeStore_ = nullptr;
+    RouteNavigator* navigator_ = nullptr;   // route-following engine (child QObject)
+    NavDisplayWindow* navDisplay_ = nullptr;  // floating readout over the chart
     std::unique_ptr<RouteOverlay> routeOverlay_;
     QPointer<RouteListDialog>     routeListDlg_;
     QPointer<WaypointListDialog>  waypointListDlg_;

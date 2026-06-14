@@ -376,6 +376,12 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
         // interrupted by a stray long-press.
         if (editor_ || editorGrab_) return;
         longPressFired_ = true;
+        // The gesture is now a long-press, not a pan. Its handler typically opens
+        // a popup menu that grabs the mouse, so this view will never receive the
+        // matching release — end the drag here so a later move doesn't keep
+        // panning the chart ("stuck in pan mode").
+        dragging_ = false;
+        setCursor(Qt::OpenHandCursor);
         emit longPressed(pressPos_);
     });
 
