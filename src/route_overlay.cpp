@@ -1,5 +1,6 @@
 #include "route_overlay.hpp"
 #include "route_store.hpp"
+#include "nav_data_store.hpp"
 
 #include <QPainter>
 #include <QPen>
@@ -18,6 +19,7 @@ namespace {
 constexpr double kNodeRadius   = 5.0;
 constexpr double kEditNode     = 6.0;
 constexpr double kPickRadiusPx = 18.0;
+constexpr double kActiveRing   = 11.0;   // red highlight around the next waypoint
 const QColor kRouteLine   (0xB0, 0x30, 0xD0);
 const QColor kRouteNode   (0x80, 0x10, 0xA0);
 const QColor kWptFill      (0xFF, 0x8C, 0x00);
@@ -169,6 +171,21 @@ void RouteOverlay::paint(QPainter& p, const ChartViewport& vp) {
         if (!editWpt_.name.isEmpty())
             drawLabel(p, s + QPointF(a + 6, 0), editWpt_.name);
     }
+
+    // Active (next) waypoint highlight ---------------------------------------
+    // While a route is being navigated, ring the destination the navigator is
+    // steering to. Drawn last so it sits above the route nodes/legs.
+    if (nav_) {
+        const NavigationData& n = nav_->navigation();
+        if (n.active) {
+            const QPointF s = vp.geoToScreen(n.destinationLatDeg, n.destinationLonDeg);
+            if (onScreen(s, cull)) {
+                p.setPen(QPen(kSelRing, 2.5));
+                p.setBrush(Qt::NoBrush);
+                p.drawEllipse(s, kActiveRing, kActiveRing);
+            }
+        }
+    }
 }
 
 // ---- picking / editing -----------------------------------------------------
@@ -242,6 +259,7 @@ bool RouteOverlay::hitTest(const QPointF& screenPt) {
 
     qint64 bestId   = -1;
     double bestSq   = pickSq;
+    int    bestPointIdx = -1;           // route point index of the winning hit
     ClickedRouteObject::Kind bestKind = ClickedRouteObject::Kind::Waypoint;
 
     for (const Waypoint& w : store_->waypoints()) {
@@ -252,20 +270,23 @@ bool RouteOverlay::hitTest(const QPointF& screenPt) {
         if (dSq < bestSq) {
             bestSq = dSq; bestId = w.id;
             bestKind = ClickedRouteObject::Kind::Waypoint;
+            bestPointIdx = -1;          // standalone waypoint, not a route point
         }
     }
     // Routes: nodes get the same tight radius, legs a slightly slacker one.
     // Run the leg pass second so a node hit (already within pickSq) wins over
-    // an adjacent leg hit at the same tap.
+    // an adjacent leg hit at the same tap. A node hit records its own index; a
+    // leg hit records the leg's end (destination) node.
     for (const Route& r : store_->routes()) {
         if (!r.visible || r.points.isEmpty()) continue;
-        for (const RoutePoint& rp : r.points) {
-            const QPointF s = vp_.geoToScreen(rp.lat, rp.lon);
+        for (int i = 0; i < r.points.size(); ++i) {
+            const QPointF s = vp_.geoToScreen(r.points[i].lat, r.points[i].lon);
             const double dx = s.x() - screenPt.x(), dy = s.y() - screenPt.y();
             const double dSq = dx * dx + dy * dy;
             if (dSq < bestSq) {
                 bestSq = dSq; bestId = r.id;
                 bestKind = ClickedRouteObject::Kind::Route;
+                bestPointIdx = i;
             }
         }
     }
@@ -279,6 +300,7 @@ bool RouteOverlay::hitTest(const QPointF& screenPt) {
             if (dSq < legPickSq && dSq < bestSq) {
                 bestSq = dSq; bestId = r.id;
                 bestKind = ClickedRouteObject::Kind::Route;
+                bestPointIdx = i;       // head toward the leg's end node
             }
             prev = cur;
         }
@@ -288,6 +310,7 @@ bool RouteOverlay::hitTest(const QPointF& screenPt) {
     hit.kind = bestKind;
     hit.id   = bestId;
     hit.screenPt = screenPt;
+    hit.pointIndex = bestPointIdx;
     onObjectClicked_(hit);
     return true;
 }

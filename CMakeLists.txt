@@ -71,6 +71,7 @@ qt_add_executable(chartviewer
     src/settings.cpp
     src/chart_sets_dialog.cpp
     src/units_dialog.cpp
+    src/navigation_options_dialog.cpp
     src/touch_spin_box.cpp
     src/stale_thresholds_dialog.cpp
     src/ownship_prediction_dialog.cpp
@@ -104,6 +105,8 @@ qt_add_executable(chartviewer
     src/ais_target_list_dialog.cpp
     src/ais_quick_info_window.cpp
     src/route_store.cpp
+    src/route_navigator.cpp
+    src/nav_display_window.cpp
     src/route_overlay.cpp
     src/route_list_dialog.cpp
     src/waypoint_list_dialog.cpp

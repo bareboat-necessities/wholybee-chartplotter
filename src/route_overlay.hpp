@@ -5,6 +5,7 @@
 #include "route_types.hpp"
 
 class RouteStore;
+class NavDataStore;
 
 // Identifies a saved route or waypoint that the user tapped on the chart. Used
 // by the click callback so the host (MainWindow) can pop a quick-info window.
@@ -13,6 +14,10 @@ struct ClickedRouteObject {
     Kind    kind  = Kind::Waypoint;
     qint64  id    = -1;
     QPointF screenPt;          // where the tap landed, for popup anchoring
+    // For a Route hit: index of the route point nearest the tap — the clicked
+    // node, or the end (destination) node of the clicked leg. -1 when N/A (a
+    // standalone-waypoint hit). Lets "Navigate" begin at the tapped waypoint.
+    int     pointIndex = -1;
 };
 
 // Draws saved routes and waypoints on the chart, and hosts the in-place editor
@@ -31,6 +36,10 @@ public:
     enum class Mode { None, CreateRoute, EditRoute, CreateWaypoint, EditWaypoint };
 
     explicit RouteOverlay(const RouteStore* store) : store_(store) {}
+
+    // Optional read-only nav source: when a route is being navigated, the active
+    // (next) waypoint from its NavigationData is highlighted with a red ring.
+    void setNavSource(const NavDataStore* nav) { nav_ = nav; }
 
     // Callbacks into the host (MainWindow). All optional.
     void setRepaintCallback(std::function<void()> cb) { repaint_ = std::move(cb); }
@@ -75,7 +84,8 @@ private:
     void notifySelection();
     void repaint();
 
-    const RouteStore* store_ = nullptr;
+    const RouteStore*   store_ = nullptr;
+    const NavDataStore* nav_   = nullptr;   // for the active-waypoint highlight
     ChartViewport     vp_;
     bool              haveVp_ = false;
 

@@ -6,6 +6,7 @@
 #include "side_menu.hpp"
 #include "chart_sets_dialog.hpp"
 #include "units_dialog.hpp"
+#include "navigation_options_dialog.hpp"
 #include "stale_thresholds_dialog.hpp"
 #include "ownship_prediction_dialog.hpp"
 #include "nav_data_browser_window.hpp"
@@ -18,6 +19,8 @@
 #include "dangerous_ships_dialog.hpp"
 #include "ais_target_list_dialog.hpp"
 #include "route_store.hpp"
+#include "route_navigator.hpp"
+#include "nav_display_window.hpp"
 #include "route_overlay.hpp"
 #include "route_list_dialog.hpp"
 #include "waypoint_list_dialog.hpp"
@@ -231,6 +234,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // route nodes even over an AIS target. Store changes repaint the chart.
     routeStore_ = new RouteStore(this);
     routeOverlay_ = std::make_unique<RouteOverlay>(routeStore_);
+    routeOverlay_->setNavSource(navStore_);   // for the active-waypoint highlight
     routeOverlay_->setRepaintCallback([this] { if (view_) view_->update(); });
     routeOverlay_->setWaypointPlacedCallback([this](double lat, double lon) {
         onWaypointPlaced(lat, lon);
@@ -244,6 +248,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->addOverlay(routeOverlay_.get());
     connect(routeStore_, &RouteStore::routesChanged,    this, [this] { if (view_) view_->update(); });
     connect(routeStore_, &RouteStore::waypointsChanged, this, [this] { if (view_) view_->update(); });
+    // Repaint when the active waypoint changes (advance / start / stop) so the
+    // route overlay's red highlight tracks it promptly.
+    connect(navStore_, &NavDataStore::navigationChanged, this, [this] { if (view_) view_->update(); });
 
     // Collision component: computes each target's CPA/TCPA against the ownship
     // and writes them back into the store (which the overlay and info windows
@@ -277,6 +284,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
     connect(sideMenu_, &SideMenu::basemapFolderRequested,   this,  &MainWindow::chooseBasemapFolder);
     connect(sideMenu_, &SideMenu::editUnitsRequested,       this,  &MainWindow::editUnits);
+    connect(sideMenu_, &SideMenu::navigationOptionsRequested, this, &MainWindow::editNavigationOptions);
     connect(sideMenu_, &SideMenu::editStaleThresholdsRequested,     this, &MainWindow::editStaleThresholds);
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
     connect(sideMenu_, &SideMenu::navDataBrowserRequested,          this, &MainWindow::showNavDataBrowser);
@@ -295,6 +303,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editWaypointRequested,   this, &MainWindow::startEditWaypoint);
     connect(sideMenu_, &SideMenu::dropWaypointRequested,   this, &MainWindow::dropWaypoint);
     connect(sideMenu_, &SideMenu::waypointListRequested,   this, &MainWindow::showWaypointList);
+
+    // Route navigation engine. Computes APB/RMB values into the nav store while
+    // active. Its active state and the menu's "Navigating" checkbox mirror each
+    // other (setNavigatingChecked guards against the toggle feedback loop).
+    navigator_ = new RouteNavigator(navStore_, routeStore_, settings_, this);
+    connect(navigator_, &RouteNavigator::activeChanged,
+            sideMenu_, &SideMenu::setNavigatingChecked);
+    connect(sideMenu_, &SideMenu::navigatingToggled,
+            this, &MainWindow::onNavigatingToggled);
+    // Floating readout over the chart; shows/hides itself with navigation state.
+    navDisplay_ = new NavDisplayWindow(navStore_, view_);
 
     buildEditBar();   // floating Complete/Delete/Cancel bar (hidden until editing)
 
@@ -442,12 +461,19 @@ void MainWindow::chooseBasemapFolder() {
 
 void MainWindow::editUnits() {
     UnitsDialog dlg(settings_->depthUnit(), settings_->distanceUnit(),
-                    settings_->angleFormat(), this);
+                    settings_->angleFormat(), settings_->bearingMode(), this);
     if (dlg.exec() == QDialog::Accepted) {
         settings_->setDepthUnit(dlg.depthUnit());
         settings_->setDistanceUnit(dlg.distanceUnit());
         settings_->setAngleFormat(dlg.angleFormat());
+        settings_->setBearingMode(dlg.bearingMode());
     }
+}
+
+void MainWindow::editNavigationOptions() {
+    NavigationOptionsDialog dlg(settings_->arrivalRadiusNm(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setArrivalRadiusNm(dlg.arrivalRadiusNm());
 }
 
 void MainWindow::editStaleThresholds() {
@@ -645,6 +671,9 @@ void MainWindow::onRouteObjectClicked(const ClickedRouteObject& hit) {
         connect(routeQuickInfo_, &RouteQuickInfoWindow::deleteRequested,
                 this, [this, id] { confirmDeleteWaypoint(id); });
     } else {
+        const int startIdx = hit.pointIndex;   // the tapped waypoint / leg-end
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::navigateRequested,
+                this, [this, id, startIdx] { startNavigation(id, startIdx); });
         connect(routeQuickInfo_, &RouteQuickInfoWindow::renameRequested,
                 this, [this, id] { renameRoute(id); });
         connect(routeQuickInfo_, &RouteQuickInfoWindow::editRequested,
@@ -724,6 +753,23 @@ void MainWindow::confirmDeleteWaypoint(qint64 id) {
     if (QMessageBox::question(this, QStringLiteral("Delete Waypoint"),
             QStringLiteral("Delete %1?").arg(nm)) != QMessageBox::Yes) return;
     routeStore_->removeWaypoint(id);
+}
+
+void MainWindow::startNavigation(qint64 routeId, int destIndex) {
+    if (navigator_) navigator_->startRoute(routeId, destIndex);
+}
+
+void MainWindow::onNavigatingToggled(bool on) {
+    if (!navigator_) return;
+    if (on) {
+        if (navigator_->isActive()) return;   // echo of a programmatic check; ignore
+        // User ticked "Navigating" by hand: resume the last route if one remains,
+        // otherwise there is nothing to navigate, so undo the tick.
+        if (navigator_->canResume()) navigator_->resume();
+        else if (sideMenu_)          sideMenu_->setNavigatingChecked(false);
+    } else {
+        navigator_->stop();
+    }
 }
 
 void MainWindow::onChartLongPressed(const QPointF& screenPt) {

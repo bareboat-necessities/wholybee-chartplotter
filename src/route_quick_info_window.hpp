@@ -25,6 +25,7 @@ public:
     qint64 id() const { return id_; }
 
 signals:
+    void navigateRequested();    // route only: begin navigating this route
     void renameRequested();
     void editRequested();        // route: "Edit on chart"; waypoint: "Drag on chart"
     void propertiesRequested();

@@ -14,6 +14,8 @@ enum class DepthUnit { Feet, Meters };
 enum class DistanceUnit { NauticalMiles, StatuteMiles, Kilometers };
 // How a latitude/longitude is displayed (and accepted as input).
 enum class AngleFormat { DecimalDegrees, DegMinutes, DegMinSec };
+// Whether bearings and headings are shown relative to true or magnetic north.
+enum class BearingMode { True, Magnetic };
 
 namespace units {
 
@@ -86,6 +88,23 @@ inline QString angleFormatLabel(AngleFormat u) {
         case AngleFormat::DecimalDegrees: break;
     }
     return QStringLiteral("Decimal degrees (12.34567°)");
+}
+
+// ---- bearings (true vs magnetic) -------------------------------------------
+
+inline QString bearingModeKey(BearingMode b) {
+    return b == BearingMode::Magnetic ? QStringLiteral("magnetic")
+                                      : QStringLiteral("true");
+}
+inline BearingMode bearingModeFromKey(const QString& s,
+                                      BearingMode fallback = BearingMode::True) {
+    if (s == QStringLiteral("magnetic")) return BearingMode::Magnetic;
+    if (s == QStringLiteral("true"))     return BearingMode::True;
+    return fallback;
+}
+inline QString bearingModeLabel(BearingMode b) {
+    return b == BearingMode::Magnetic ? QStringLiteral("Magnetic")
+                                      : QStringLiteral("True");
 }
 
 // Process-wide current coordinate format. An inline function-local static gives a

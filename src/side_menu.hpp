@@ -39,6 +39,11 @@ public:
     // pan turns it off). Does not re-emit autoFollowToggled.
     void setAutoFollowChecked(bool on);
 
+    // Reflect the current route-navigation state in the "Navigating" checkbox
+    // (e.g. when the user starts navigating from a route popup, or navigation
+    // stops on its own). Guards against re-emitting navigatingToggled.
+    void setNavigatingChecked(bool on);
+
     // Plugin contributions to the main menu's Plugins section.
     void addPluginAction(const QString& title, std::function<void()> onTriggered);
     void addPluginToggle(const QString& title, bool checked,
@@ -71,6 +76,8 @@ signals:
     void editHeadingSourceRequested();                 // open Heading Source dialog
     void editDangerousShipsRequested();                // open Dangerous Ships dialog
     void aisTargetListRequested();                     // open AIS Targets list dialog
+    void navigationOptionsRequested();                 // open Navigation Options dialog
+    void navigatingToggled(bool on);                   // user toggled route navigation
     // Routes & Waypoints sub-page actions.
     void createRouteRequested();
     void editRouteRequested();
@@ -115,6 +122,7 @@ private:
     QStackedWidget* stack_ = nullptr;
     QVBoxLayout* chartSetsBox_ = nullptr;   // container for the dynamic set buttons
     QPushButton* autoFollowBtn_ = nullptr;  // checkable Auto Follow item
+    QPushButton* navigatingBtn_ = nullptr;  // checkable Navigating item
     QLabel*      pluginHeader_ = nullptr;   // "Plugins" header (hidden until used)
     QVBoxLayout* pluginBox_ = nullptr;      // container for plugin-contributed items
     QVBoxLayout* dataSourceBox_ = nullptr;  // plugin data-source items (Data Connections)

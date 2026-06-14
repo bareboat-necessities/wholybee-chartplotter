@@ -186,6 +186,17 @@ QWidget* SideMenu::buildMainPage() {
     auto* routesBtn = makeIndentedAction(QStringLiteral("Routes and Waypoints"));
     connect(routesBtn, &QPushButton::clicked, this, &SideMenu::showRoutesPage);
     col->addWidget(routesBtn);
+    auto* navOptsBtn = makeIndentedAction(QStringLiteral("Navigation Options"));
+    connect(navOptsBtn, &QPushButton::clicked, this, [this] {
+        emit navigationOptionsRequested();
+        if (autoHide_) closeMenu();
+    });
+    col->addWidget(navOptsBtn);
+
+    navigatingBtn_ = makeCheckAction(QStringLiteral("Navigating"), false);
+    connect(navigatingBtn_, &QPushButton::toggled, this,
+            [this](bool on) { emit navigatingToggled(on); });
+    col->addWidget(navigatingBtn_);
 
     col->addWidget(makeHeader(QStringLiteral("Chart Detail")));
     auto* detailLvlBtn = makeIndentedAction(QStringLiteral("Detail Level"));
@@ -548,6 +559,13 @@ void SideMenu::setAutoFollowChecked(bool on) {
     // an unchanged state, but this avoids the redundant toggle/text churn).
     if (autoFollowBtn_ && autoFollowBtn_->isChecked() != on)
         autoFollowBtn_->setChecked(on);
+}
+
+void SideMenu::setNavigatingChecked(bool on) {
+    // Guard against the feedback loop: setChecked re-emits toggled, which the host
+    // routes back here as activeChanged. Only touch the button on a real change.
+    if (navigatingBtn_ && navigatingBtn_->isChecked() != on)
+        navigatingBtn_->setChecked(on);
 }
 
 void SideMenu::addPluginAction(const QString& title, std::function<void()> onTriggered) {

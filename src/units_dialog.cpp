@@ -22,10 +22,10 @@ QRadioButton* addChoice(QButtonGroup* group, QVBoxLayout* into,
 } // namespace
 
 UnitsDialog::UnitsDialog(DepthUnit depth, DistanceUnit distance, AngleFormat angle,
-                         QWidget* parent)
+                         BearingMode bearing, QWidget* parent)
     : QDialog(parent) {
     setWindowTitle(QStringLiteral("Units"));
-    resize(440, 480);
+    resize(440, 560);
 
     auto* col = new QVBoxLayout(this);
 
@@ -63,6 +63,16 @@ UnitsDialog::UnitsDialog(DepthUnit depth, DistanceUnit distance, AngleFormat ang
               int(AngleFormat::DegMinSec),      angle == AngleFormat::DegMinSec);
     col->addWidget(angleBox);
 
+    // ---- Bearings (true vs magnetic) ----
+    auto* bearingBox = new QGroupBox(QStringLiteral("Bearings"));
+    auto* bearingCol = new QVBoxLayout(bearingBox);
+    bearingGroup_ = new QButtonGroup(this);
+    addChoice(bearingGroup_, bearingCol, units::bearingModeLabel(BearingMode::True),
+              int(BearingMode::True),     bearing == BearingMode::True);
+    addChoice(bearingGroup_, bearingCol, units::bearingModeLabel(BearingMode::Magnetic),
+              int(BearingMode::Magnetic), bearing == BearingMode::Magnetic);
+    col->addWidget(bearingBox);
+
     col->addStretch(1);
 
     auto* row = new QHBoxLayout;
@@ -89,4 +99,8 @@ DistanceUnit UnitsDialog::distanceUnit() const {
 
 AngleFormat UnitsDialog::angleFormat() const {
     return AngleFormat(angleGroup_->checkedId());
+}
+
+BearingMode UnitsDialog::bearingMode() const {
+    return BearingMode(bearingGroup_->checkedId());
 }
