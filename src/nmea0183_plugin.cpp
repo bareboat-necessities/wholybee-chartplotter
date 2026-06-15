@@ -1,5 +1,6 @@
 #include "nmea0183_plugin.hpp"
 #include "nmea0183_debug_window.hpp"
+#include "nmea0183_nav_sender.hpp"
 #include "ais_decoder.hpp"
 #include "touch_spin_box.hpp"
 #include "theme.hpp"
@@ -40,12 +41,19 @@ void Nmea0183Plugin::initialize(ICoreApi* core) {
     QObject::connect(client_.get(), &Nmea0183Client::decodingChanged, client_.get(),
                      [this](bool on) { if (dataSource_) dataSource_->setActive(on); });
 
+    // While a route is being navigated, generate APB/RMB/RMC from the nav store
+    // and transmit them back out this connection (skipped if the navigation data
+    // itself originated from NMEA 0183, to prevent a feedback loop).
+    navSender_ = std::make_unique<Nmea0183NavSender>(core_->navData(), client_.get(),
+                                                     QStringLiteral("nmea0183"));
+
     loadConfig();
     client_->setConfig(transport_, host_, port_, enabled_);
 }
 
 void Nmea0183Plugin::shutdown() {
     if (dataSource_) dataSource_->setActive(false);
+    navSender_.reset();   // stop transmitting before the client goes away
     client_.reset();      // stops the socket; disconnects everything
     ais_.reset();
     if (debug_) debug_->deleteLater();
@@ -94,6 +102,9 @@ void Nmea0183Plugin::showDebugWindow() {
         debug_ = new Nmea0183DebugWindow(core_->dialogParent());
         QObject::connect(client_.get(), &Nmea0183Client::sentenceReceived,
                          debug_.data(), &Nmea0183DebugWindow::appendLine);
+        // Transmitted sentences render in a distinct colour (with a TX marker).
+        QObject::connect(client_.get(), &Nmea0183Client::sentenceTransmitted,
+                         debug_.data(), &Nmea0183DebugWindow::appendTxLine);
     }
     debug_->show();
     debug_->raise();

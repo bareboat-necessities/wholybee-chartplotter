@@ -38,11 +38,18 @@ public slots:
     void setConfig(NmeaTransport transport, const QString& host,
                    quint16 port, bool enabled);
 
+    // Send a fully-formed NMEA 0183 sentence (including the leading '$' and
+    // trailing CR/LF) out on the active connection. No-op when not connected.
+    // Used to transmit generated navigation sentences (APB/RMB/RMC).
+    void transmit(const QByteArray& sentence);
+
 signals:
     // True while valid position sentences are arriving (within the timeout).
     void decodingChanged(bool on);
     // Every raw line received (after CR/LF trimming), for the debug window.
     void sentenceReceived(const QString& line);
+    // A line we transmitted (trimmed), for the debug window.
+    void sentenceTransmitted(const QString& line);
     // A checksum-valid AIS sentence (!AIVDM / !AIVDO), forwarded for decoding.
     void aisSentence(const QString& line);
 

@@ -68,6 +68,13 @@ struct OwnshipState {
 struct NavigationData {
     bool    active = false;                       // navigating a route
 
+    // Who produced this navigation solution: "route-navigator" when computed
+    // internally, or a link id (e.g. "nmea0183") if the navigation data was
+    // instead received over that link and parsed into the store. An NMEA
+    // transmitter uses this to avoid echoing APB/RMB back out the same link they
+    // arrived on (loop guard).
+    QString source;
+
     double  xteNm = 0.0;                           // cross-track error magnitude
     QChar   steerDirection = QLatin1Char('L');     // 'L' or 'R' to regain track
     QChar   xteUnits = QLatin1Char('N');           // always 'N' (nautical miles)

@@ -77,6 +77,7 @@ qt_add_executable(chartviewer
     src/ownship_prediction_dialog.cpp
     src/nmea0183_debug_window.cpp
     src/nmea0183_plugin.cpp
+    src/nmea0183_nav_sender.cpp
     src/nmea2000_client.cpp
     src/nmea2000_plugin.cpp
     src/n2k_decoder.cpp

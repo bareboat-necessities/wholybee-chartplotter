@@ -5,6 +5,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QFontDatabase>
+#include <QTextDocument>   // Qt::convertFromPlainText (HTML-escape)
 
 Nmea0183DebugWindow::Nmea0183DebugWindow(QWidget* parent)
     : QDialog(parent) {
@@ -42,4 +43,13 @@ Nmea0183DebugWindow::Nmea0183DebugWindow(QWidget* parent)
 void Nmea0183DebugWindow::appendLine(const QString& line) {
     if (paused_) return;                             // freeze the scroll to read
     view_->appendPlainText(line);
+}
+
+void Nmea0183DebugWindow::appendTxLine(const QString& line) {
+    if (paused_) return;
+    // Transmitted sentences in green so they stand out from the received feed.
+    // Escape first (appendHtml interprets markup) and keep the monospace font.
+    const QString esc = line.toHtmlEscaped();
+    view_->appendHtml(QStringLiteral(
+        "<span style=\"color:#2e9e44; white-space:pre;\">TX&nbsp;&nbsp;%1</span>").arg(esc));
 }

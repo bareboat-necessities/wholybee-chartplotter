@@ -60,6 +60,15 @@ NavDisplayWindow::NavDisplayWindow(const NavDataStore* store, QWidget* parent)
     vmgLabel_ = valueLabel(this);
     grid->addWidget(vmgLabel_, 4, 1, 1, 2);
 
+    // Transmit indicator: a small dot (green = APB/RMB/RMC being transmitted on
+    // NMEA 0183, red = suppressed by the loop guard) plus a static label.
+    txDot_ = new QLabel(this);
+    txDot_->setFixedSize(12, 12);
+    txLabel_ = new QLabel(QStringLiteral("APB · RMB · RMC"), this);
+    txLabel_->setStyleSheet(QStringLiteral("font-size:11px; color: rgba(230,233,238,150);"));
+    grid->addWidget(txDot_, 5, 0, Qt::AlignCenter);
+    grid->addWidget(txLabel_, 5, 1, 1, 2);
+
     if (store_)
         connect(store_, &NavDataStore::navigationChanged, this, &NavDisplayWindow::refresh);
     if (parent) parent->installEventFilter(this);
@@ -81,6 +90,18 @@ void NavDisplayWindow::refresh() {
                            + QStringLiteral("° ") + QString(n.bearingUnits));
     rangeLabel_->setText(QString::number(n.rangeToDestNm, 'f', 2) + QStringLiteral(" nm"));
     vmgLabel_->setText(QString::number(n.closingVelocityKn, 'f', 1) + QStringLiteral(" kn"));
+
+    // Transmit state: suppressed when the navigation solution itself was sourced
+    // from the NMEA 0183 link (loop guard); otherwise it is transmitted.
+    const bool suppressed =
+        n.source.compare(QLatin1String("nmea0183"), Qt::CaseInsensitive) == 0;
+    txDot_->setStyleSheet(QStringLiteral("background:%1; border-radius:6px;")
+        .arg(suppressed ? QStringLiteral("#d23b3b") : QStringLiteral("#2e9e44")));
+    txDot_->setToolTip(suppressed
+        ? QStringLiteral("APB/RMB/RMC transmission suppressed: navigation data came "
+                         "from NMEA 0183 (loop guard)")
+        : QStringLiteral("Transmitting APB/RMB/RMC on the NMEA 0183 connection "
+                         "(when connected)"));
 
     const bool wasVisible = isVisible();
     adjustSize();
