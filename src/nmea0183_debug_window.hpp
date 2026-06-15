@@ -13,7 +13,8 @@ public:
     explicit Nmea0183DebugWindow(QWidget* parent = nullptr);
 
 public slots:
-    void appendLine(const QString& line);   // connect to client's sentenceReceived
+    void appendLine(const QString& line);     // received lines (default colour)
+    void appendTxLine(const QString& line);   // transmitted lines (distinct colour)
 
 private:
     QPlainTextEdit* view_ = nullptr;

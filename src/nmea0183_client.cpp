@@ -124,6 +124,30 @@ void Nmea0183Client::stop() {
     setDecoding(false);
 }
 
+void Nmea0183Client::transmit(const QByteArray& sentence) {
+    if (sentence.isEmpty()) return;
+    bool sent = false;
+    if (transport_ == NmeaTransport::Tcp) {
+        if (tcp_ && tcp_->state() == QAbstractSocket::ConnectedState) {
+            tcp_->write(sentence);
+            sent = true;
+        }
+    } else if (udp_) {
+        // UDP listener has no fixed peer: send to the configured host if it is a
+        // literal address, otherwise broadcast on the port.
+        QHostAddress dst;
+        if (host_.isEmpty() || !dst.setAddress(host_)) dst = QHostAddress::Broadcast;
+        udp_->writeDatagram(sentence, dst, port_);
+        sent = true;
+    }
+    if (sent) {
+        QByteArray trimmed = sentence;
+        while (!trimmed.isEmpty() &&
+               (trimmed.endsWith('\r') || trimmed.endsWith('\n'))) trimmed.chop(1);
+        emit sentenceTransmitted(QString::fromLatin1(trimmed));
+    }
+}
+
 void Nmea0183Client::tryReconnect() {
     if (!enabled_ || transport_ != NmeaTransport::Tcp || !tcp_) return;
     if (tcp_->state() == QAbstractSocket::UnconnectedState)

@@ -132,6 +132,10 @@ void RouteNavigator::recompute() {
 
     NavigationData d;
     d.active   = true;
+    // Who produced this navigation solution. We compute it internally, so it is
+    // always safe to transmit. The loop guard suppresses transmission only if the
+    // navigation data was instead sourced from the NMEA 0183 link itself.
+    d.source   = QStringLiteral("route-navigator");
     d.xteUnits = QLatin1Char('N');
     d.faaStatus = QLatin1Char('A');
     d.faaMode   = QLatin1Char('A');

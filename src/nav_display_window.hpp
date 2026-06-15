@@ -39,6 +39,8 @@ private:
     QLabel* bearingLabel_ = nullptr;
     QLabel* rangeLabel_   = nullptr;
     QLabel* vmgLabel_     = nullptr;
+    QLabel* txDot_        = nullptr;   // green = transmitting APB/RMB/RMC, red = suppressed
+    QLabel* txLabel_      = nullptr;
 
     QPoint dragOffset_;          // grab point within the widget while dragging
     bool   dragging_ = false;
