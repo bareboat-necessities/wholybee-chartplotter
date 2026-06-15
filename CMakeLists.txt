@@ -291,4 +291,5 @@ endforeach()
 add_subdirectory(plugins/test_plugin)
 add_subdirectory(plugins/signalk_plugin)
 add_subdirectory(plugins/gpx_plugin)
+add_subdirectory(plugins/wmm_plugin)
 
