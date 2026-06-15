@@ -3,9 +3,184 @@
 
 #include <QGridLayout>
 #include <QLabel>
+#include <QFrame>
 #include <QMouseEvent>
 #include <QEvent>
+#include <QPainter>
+#include <QPolygonF>
+#include <QtMath>
 #include <algorithm>
+
+// ---- CDI graphic -----------------------------------------------------------
+//
+// A heading-up course-deviation indicator drawn from the live NavigationData +
+// ownship state. The compass ring rotates so the boat heading sits under the
+// fixed lubber line at the top (with the numeric heading); a magenta marker on
+// the ring shows the course-to-steer; a green vertical needle slides left/right
+// with cross-track error (deflecting toward the side you must steer), against a
+// row of deviation dots. Transparent to mouse events so the parent window stays
+// draggable when grabbed here.
+class CdiWidget : public QWidget {
+public:
+    CdiWidget(const NavDataStore* store, QWidget* parent)
+        : QWidget(parent), store_(store) {
+        setFixedSize(186, 192);
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+
+private:
+    const NavDataStore* store_ = nullptr;
+};
+
+namespace {
+constexpr double kCdiD2R = 3.14159265358979323846 / 180.0;
+constexpr double kCdiFullScaleNm = 0.20;   // cross-track error at full needle deflection
+
+double normalize360(double d) {
+    d = std::fmod(d, 360.0);
+    if (d < 0.0) d += 360.0;
+    return d;
+}
+}  // namespace
+
+void CdiWidget::paintEvent(QPaintEvent*) {
+    if (!store_) return;
+    const NavigationData& n = store_->navigation();
+    const OwnshipState&   os = store_->ownship();
+    const bool magMode = (n.bearingUnits == QLatin1Char('M'));
+    const bool haveFix = os.latitudeDeg.valid() && os.longitudeDeg.valid();
+
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    // Reserve a band above the ring so the numeric heading (and lubber) clear the
+    // top edge, and use a slightly smaller ring radius. Fonts are unchanged.
+    constexpr double kTopReserve = 30.0;     // heading readout above the ring
+    constexpr double kBottomReserve = 20.0;  // full-scale label below the ring
+    const double R = (height() - kTopReserve - kBottomReserve) / 2.0;   // compass ring radius
+    const QPointF C(width() / 2.0, kTopReserve + R);
+
+    // Boat heading, in the same reference (true/magnetic) as the course-to-steer
+    // so their relative angle is exact. Prefer a real heading, then COG, then
+    // north-up as a last resort.
+    double heading = 0.0;
+    bool haveHeading = false;
+    const double var = os.variationDeg.valid() ? os.variationDeg.value : 0.0;
+    const bool haveVar = os.variationDeg.valid();
+    if (magMode) {
+        if (os.headingDegMag.valid())            { heading = os.headingDegMag.value; haveHeading = true; }
+        else if (os.headingDegTrue.valid() && haveVar) { heading = normalize360(os.headingDegTrue.value - var); haveHeading = true; }
+    } else {
+        if (os.headingDegTrue.valid())           { heading = os.headingDegTrue.value; haveHeading = true; }
+        else if (os.headingDegMag.valid() && haveVar)  { heading = normalize360(os.headingDegMag.value + var); haveHeading = true; }
+    }
+    if (!haveHeading && os.cogDegTrue.valid()) {
+        heading = os.cogDegTrue.value;
+        if (magMode && haveVar) heading = normalize360(heading - var);
+        haveHeading = true;
+    }
+
+    // Screen point for a compass bearing, in the heading-up frame.
+    auto pt = [&](double bearing, double r) -> QPointF {
+        const double a = (bearing - heading) * kCdiD2R;   // clockwise from the top
+        return QPointF(C.x() + r * std::sin(a), C.y() - r * std::cos(a));
+    };
+
+    const QColor ringCol(210, 214, 220);
+    const QColor dimCol(150, 155, 163);
+    const QColor courseCol(224, 64, 251);   // magenta course-to-steer
+    const QColor needleCol(57, 211, 83);     // green deviation needle
+    const QColor lubberCol(255, 210, 74);    // yellow heading/lubber
+
+    // Compass ring.
+    p.setPen(QPen(ringCol, 1.5));
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(C, R, R);
+
+    // Ticks every 15 degrees (longer/brighter at the cardinals).
+    for (int b = 0; b < 360; b += 15) {
+        const bool major = (b % 90 == 0);
+        const bool mid   = (b % 45 == 0);
+        const double inset = major ? 11.0 : (mid ? 8.0 : 5.0);
+        p.setPen(QPen(major ? ringCol : dimCol, major ? 2.0 : 1.0));
+        p.drawLine(pt(b, R), pt(b, R - inset));
+    }
+
+    // Cardinal letters.
+    QFont f = p.font();
+    f.setPixelSize(11);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(QColor(235, 238, 244));
+    const char* card[4] = {"N", "E", "S", "W"};
+    for (int i = 0; i < 4; ++i) {
+        const QPointF lp = pt(i * 90.0, R - 22);
+        p.drawText(QRectF(lp.x() - 9, lp.y() - 9, 18, 18), Qt::AlignCenter,
+                   QString::fromLatin1(card[i]));
+    }
+
+    // Fixed lubber line at the top + numeric heading: this is the boat heading.
+    p.setPen(Qt::NoPen);
+    p.setBrush(lubberCol);
+    QPolygonF lub;
+    lub << QPointF(C.x(), C.y() - R + 3)
+        << QPointF(C.x() - 6, C.y() - R - 7)
+        << QPointF(C.x() + 6, C.y() - R - 7);
+    p.drawPolygon(lub);
+    if (haveHeading) {
+        f.setPixelSize(13);
+        p.setFont(f);
+        p.setPen(lubberCol);
+        p.drawText(QRectF(C.x() - 26, C.y() - R - 26, 52, 15), Qt::AlignCenter,
+                   QString::number(qRound(normalize360(heading))) + QChar(0x00B0));
+    }
+
+    // Course-to-steer marker: a magenta triangle on the ring pointing inward.
+    if (haveFix) {
+        const double crs = n.bearingPresentToDestDeg;
+        const QPointF tip = pt(crs, R - 13);
+        const QPointF b1  = pt(crs - 4.0, R - 1);
+        const QPointF b2  = pt(crs + 4.0, R - 1);
+        p.setPen(Qt::NoPen);
+        p.setBrush(courseCol);
+        QPolygonF tri;
+        tri << tip << b1 << b2;
+        p.drawPolygon(tri);
+    }
+
+    // Deviation dots along the horizontal centreline (±2 = full scale).
+    const double half = R * 0.62;
+    p.setPen(Qt::NoPen);
+    p.setBrush(dimCol);
+    for (int k = -2; k <= 2; ++k) {
+        if (k == 0) continue;
+        p.drawEllipse(QPointF(C.x() + k * half / 2.0, C.y()), 2.2, 2.2);
+    }
+    // Centre index.
+    p.setPen(QPen(dimCol, 1.5));
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(C, 3.0, 3.0);
+
+    // Cross-track needle: vertical line that slides toward the side to steer.
+    if (haveFix) {
+        const double mag = std::min(n.xteNm / kCdiFullScaleNm, 1.0) * half;
+        const double dir = (n.steerDirection == QLatin1Char('L')) ? -1.0 : 1.0;
+        const double nx  = C.x() + dir * mag;
+        const double nh  = R * 0.58;
+        p.setPen(QPen(needleCol, 3.0, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(nx, C.y() - nh), QPointF(nx, C.y() + nh));
+    }
+
+    // Full-scale note, below the ring (same size as the readout's small labels).
+    f.setPixelSize(11);
+    f.setBold(false);
+    p.setFont(f);
+    p.setPen(dimCol);
+    p.drawText(QRectF(C.x() - 60, C.y() + R + 4, 120, 15), Qt::AlignCenter,
+               QStringLiteral("±%1 nm FS").arg(kCdiFullScaleNm, 0, 'f', 2));
+}
 
 namespace {
 // Right-aligned bold value label.
@@ -64,10 +239,18 @@ NavDisplayWindow::NavDisplayWindow(const NavDataStore* store, QWidget* parent)
     // NMEA 0183, red = suppressed by the loop guard) plus a static label.
     txDot_ = new QLabel(this);
     txDot_->setFixedSize(12, 12);
-    txLabel_ = new QLabel(QStringLiteral("APB · RMB · RMC"), this);
+    txLabel_ = new QLabel(QStringLiteral("APB · XTE · RMB · RMC"), this);
     txLabel_->setStyleSheet(QStringLiteral("font-size:11px; color: rgba(230,233,238,150);"));
     grid->addWidget(txDot_, 5, 0, Qt::AlignCenter);
     grid->addWidget(txLabel_, 5, 1, 1, 2);
+
+    // CDI graphic, below the numeric readout, separated by a thin divider.
+    auto* sep = new QFrame(this);
+    sep->setFrameShape(QFrame::HLine);
+    sep->setStyleSheet(QStringLiteral("color: rgba(255,255,255,40);"));
+    grid->addWidget(sep, 6, 0, 1, 3);
+    cdi_ = new CdiWidget(store_, this);
+    grid->addWidget(cdi_, 7, 0, 1, 3, Qt::AlignHCenter);
 
     if (store_)
         connect(store_, &NavDataStore::navigationChanged, this, &NavDisplayWindow::refresh);
@@ -98,10 +281,12 @@ void NavDisplayWindow::refresh() {
     txDot_->setStyleSheet(QStringLiteral("background:%1; border-radius:6px;")
         .arg(suppressed ? QStringLiteral("#d23b3b") : QStringLiteral("#2e9e44")));
     txDot_->setToolTip(suppressed
-        ? QStringLiteral("APB/RMB/RMC transmission suppressed: navigation data came "
+        ? QStringLiteral("APB/XTE/RMB/RMC transmission suppressed: navigation data came "
                          "from NMEA 0183 (loop guard)")
-        : QStringLiteral("Transmitting APB/RMB/RMC on the NMEA 0183 connection "
+        : QStringLiteral("Transmitting APB/XTE/RMB/RMC on the NMEA 0183 connection "
                          "(when connected)"));
+
+    if (cdi_) cdi_->update();   // repaint the course-deviation graphic
 
     const bool wasVisible = isVisible();
     adjustSize();

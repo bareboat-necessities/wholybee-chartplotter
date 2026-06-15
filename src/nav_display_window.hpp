@@ -4,11 +4,14 @@
 
 class NavDataStore;
 class QLabel;
+class CdiWidget;
 
 // Small floating readout shown over the chart while navigating a route. Displays
 // the values a helmsman steers by — cross-track error (+ which way to steer),
 // bearing to the next waypoint, range, and VMG — and updates live from the
-// NavDataStore's NavigationData (the APB/RMB output of RouteNavigator).
+// NavDataStore's NavigationData (the APB/RMB output of RouteNavigator). Below the
+// numbers is a CDI-style graphic: a heading-up compass ring marking heading and
+// course-to-steer, with a vertical needle that deflects with cross-track error.
 //
 // A child of the chart view so it floats on the chart. The user can drag it
 // anywhere within the view to reposition it; it clamps itself inside the view on
@@ -39,8 +42,9 @@ private:
     QLabel* bearingLabel_ = nullptr;
     QLabel* rangeLabel_   = nullptr;
     QLabel* vmgLabel_     = nullptr;
-    QLabel* txDot_        = nullptr;   // green = transmitting APB/RMB/RMC, red = suppressed
+    QLabel* txDot_        = nullptr;   // green = transmitting APB/XTE/RMB/RMC, red = suppressed
     QLabel* txLabel_      = nullptr;
+    CdiWidget* cdi_       = nullptr;   // course-deviation graphic
 
     QPoint dragOffset_;          // grab point within the widget while dragging
     bool   dragging_ = false;
