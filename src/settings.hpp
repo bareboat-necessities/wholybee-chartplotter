@@ -28,6 +28,8 @@ public:
     QString chartDirectory() const { return chartDir_; }
     bool showSoundings() const { return showSoundings_; }
     bool showSymbols() const { return showSymbols_; }
+    // Object text labels (S-57 OBJNAM) drawn next to point objects.
+    bool showText() const { return showText_; }
     bool showDepthContours() const { return showDepthContours_; }
     // AIS targets drawn on the chart. When off, the overlay paints nothing and
     // ignores clicks, but the store and CpaCalculator keep tracking and the
@@ -99,6 +101,12 @@ public:
     // lower-detail. Range -2.0 .. +2.0, in steps of 1.0 from the dialog.
     double chartDetailLevel() const { return chartDetailLevel_; }
 
+    // SCAMIN declutter bias for point objects (symbols + soundings), in
+    // [-1.0, +1.0]. 0 = honour each object's SCAMIN at the current zoom;
+    // positive reveals more; negative hides more; the extremes show all / hide
+    // all point objects. Consumed by ChartView::setChartScaminLevel.
+    double chartScaminLevel() const { return chartScaminLevel_; }
+
     // Symbol scale factor. 1.0 = nominal (baked) size; range 0.5 .. 3.0 in
     // steps of 0.25 from the dialog (50 % .. 300 %).
     double symbolScale() const { return symbolScale_; }
@@ -133,6 +141,7 @@ public slots:
     void setChartDirectory(const QString& dir);
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
+    void setShowText(bool on);
     void setShowDepthContours(bool on);
     void setShowAisTargets(bool on);
     void setShowRasterCharts(bool on);
@@ -153,6 +162,7 @@ public slots:
     void setDataSourcePriority(const QStringList& orderedSourceIds);
     void setAutoHideMenu(bool on);
     void setChartDetailLevel(double level);
+    void setChartScaminLevel(double level);
     void setSymbolScale(double scale);
     void setVesselScale(double scale);
     void setOwnshipMmsi(const QString& mmsi);
@@ -166,6 +176,7 @@ signals:
     void chartDirectoryChanged(const QString& dir);
     void showSoundingsChanged(bool on);
     void showSymbolsChanged(bool on);
+    void showTextChanged(bool on);
     void showDepthContoursChanged(bool on);
     void showAisTargetsChanged(bool on);
     void showRasterChartsChanged(bool on);
@@ -184,6 +195,7 @@ signals:
     void dataSourcePriorityChanged(const QStringList& orderedSourceIds);
     void autoHideMenuChanged(bool on);
     void chartDetailLevelChanged(double level);
+    void chartScaminLevelChanged(double level);
     void symbolScaleChanged(double scale);
     void vesselScaleChanged(double scale);
     void ownshipMmsiChanged(const QString& mmsi);
@@ -197,6 +209,7 @@ private:
     QString chartDir_;
     bool showSoundings_ = true;
     bool showSymbols_ = true;
+    bool showText_ = true;
     bool showDepthContours_ = true;
     bool showAisTargets_ = true;
     bool showRasterCharts_ = true;
@@ -222,6 +235,7 @@ private:
     QStringList   dataSourcePriority_;
     bool          autoHideMenu_ = true;   // legacy default = current behaviour
     double        chartDetailLevel_ = 0.0;   // -2.0 .. +2.0, 0 = nominal
+    double        chartScaminLevel_ = 0.0;   // -1.0 .. +1.0, 0 = nominal SCAMIN
     double        symbolScale_      = 1.0;   // 0.5 .. 3.0, 1.0 = nominal
     double        vesselScale_      = 1.0;   // 0.5 .. 3.0, 1.0 = nominal
     QString       ownshipMmsi_;              // 9-digit string or empty

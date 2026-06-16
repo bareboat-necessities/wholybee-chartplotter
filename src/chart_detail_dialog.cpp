@@ -9,12 +9,13 @@
 #include <cmath>
 
 namespace {
-// The slider runs in integer half-band steps so the tick marks land exactly on
-// the requested stops. Range -2..+2 maps to -1.0, -0.5, 0.0, +0.5, +1.0.
+// The detail slider runs in integer half-band steps so the tick marks land
+// exactly on the requested stops. Range -2..+2 maps to -1.0, -0.5, 0.0, +0.5,
+// +1.0.
 constexpr int kSliderMin = -2;
 constexpr int kSliderMax =  2;
 
-int   levelToStep(double level) { return static_cast<int>(std::lround(level)); }
+int    levelToStep(double level) { return static_cast<int>(std::lround(level)); }
 double stepToLevel(int step)     { return static_cast<double>(step); }
 
 QString formatLevel(double level) {
@@ -22,16 +23,37 @@ QString formatLevel(double level) {
     return (level > 0.0 ? QStringLiteral("+") : QString())
          + QString::number(level, 'f', 1);
 }
+
+// The SCAMIN slider has 9 integer stops; each maps to one quarter, so the range
+// -4..+4 covers -1.0 .. +1.0 (the level Settings/ChartView expect). The end
+// stops are the hard "hide all" / "show all" cases.
+constexpr int kScaminStepMin = -4;
+constexpr int kScaminStepMax =  4;
+
+int    scaminLevelToStep(double level) {
+    return static_cast<int>(std::lround(level * 4.0));
+}
+double scaminStepToLevel(int step) { return step / 4.0; }
+
+QString formatScamin(int step) {
+    if (step <= kScaminStepMin) return QStringLiteral("Hide all objects");
+    if (step >= kScaminStepMax) return QStringLiteral("Show all objects");
+    if (step == 0)              return QStringLiteral("Auto — by zoom");
+    return step > 0 ? QStringLiteral("More objects (+%1)").arg(step)
+                    : QStringLiteral("Fewer objects (%1)").arg(step);  // step is negative
+}
 } // namespace
 
-ChartDetailDialog::ChartDetailDialog(double detailLevel, QWidget* parent)
+ChartDetailDialog::ChartDetailDialog(double detailLevel, double scaminLevel,
+                                     QWidget* parent)
     : QDialog(parent) {
-    setWindowTitle(QStringLiteral("Chart Detail Level"));
-    resize(480, 280);
+    setWindowTitle(QStringLiteral("Chart Detail"));
+    resize(480, 440);
 
     auto* col = new QVBoxLayout(this);
-    col->setSpacing(14);
+    col->setSpacing(12);
 
+    // --- Detail bias (chart-band selection) --------------------------------
     auto* intro = new QLabel(QStringLiteral(
         "Adjust how much chart detail is shown at the current zoom. Higher "
         "values pull in higher-detail charts; lower values back off to less "
@@ -61,8 +83,42 @@ ChartDetailDialog::ChartDetailDialog(double detailLevel, QWidget* parent)
     valueLabel_->setAlignment(Qt::AlignCenter);
     valueLabel_->setStyleSheet(QStringLiteral("font-size:14px; font-weight:600;"));
     col->addWidget(valueLabel_);
-    updateValueLabel();
-    connect(slider_, &QSlider::valueChanged, this, [this] { updateValueLabel(); });
+    updateDetailLabel();
+    connect(slider_, &QSlider::valueChanged, this, [this] { updateDetailLabel(); });
+
+    // --- Object detail (SCAMIN declutter) ----------------------------------
+    auto* scaminIntro = new QLabel(QStringLiteral(
+        "Control how soon individual objects (buoys, beacons, soundings, …) "
+        "drop off as you zoom out, using each object's built-in SCAMIN scale. "
+        "Left of centre declutters; right of centre keeps more on screen. The "
+        "ends hide or show all objects regardless of zoom."));
+    scaminIntro->setWordWrap(true);
+    col->addWidget(scaminIntro);
+
+    auto* scaminCaption = new QLabel(QStringLiteral("Object detail:"));
+    scaminCaption->setStyleSheet(QStringLiteral("font-size:13px; color:%1;").arg(theme::textMuted()));
+    col->addWidget(scaminCaption);
+
+    scaminSlider_ = new QSlider(Qt::Horizontal);
+    scaminSlider_->setMinimum(kScaminStepMin);
+    scaminSlider_->setMaximum(kScaminStepMax);
+    scaminSlider_->setSingleStep(1);
+    scaminSlider_->setPageStep(1);
+    scaminSlider_->setTickPosition(QSlider::TicksBelow);
+    scaminSlider_->setTickInterval(1);
+    scaminSlider_->setMinimumHeight(44);
+    int sStep = scaminLevelToStep(scaminLevel);
+    if (sStep < kScaminStepMin) sStep = kScaminStepMin;
+    if (sStep > kScaminStepMax) sStep = kScaminStepMax;
+    scaminSlider_->setValue(sStep);
+    col->addWidget(scaminSlider_);
+
+    scaminValueLabel_ = new QLabel;
+    scaminValueLabel_->setAlignment(Qt::AlignCenter);
+    scaminValueLabel_->setStyleSheet(QStringLiteral("font-size:14px; font-weight:600;"));
+    col->addWidget(scaminValueLabel_);
+    updateScaminLabel();
+    connect(scaminSlider_, &QSlider::valueChanged, this, [this] { updateScaminLabel(); });
 
     col->addStretch(1);
 
@@ -84,6 +140,14 @@ double ChartDetailDialog::detailLevel() const {
     return stepToLevel(slider_->value());
 }
 
-void ChartDetailDialog::updateValueLabel() {
+double ChartDetailDialog::scaminLevel() const {
+    return scaminStepToLevel(scaminSlider_->value());
+}
+
+void ChartDetailDialog::updateDetailLabel() {
     valueLabel_->setText(formatLevel(stepToLevel(slider_->value())));
+}
+
+void ChartDetailDialog::updateScaminLabel() {
+    scaminValueLabel_->setText(formatScamin(scaminSlider_->value()));
 }

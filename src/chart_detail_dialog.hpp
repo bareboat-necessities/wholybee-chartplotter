@@ -4,22 +4,34 @@
 class QSlider;
 class QLabel;
 
-// Touch-friendly editor for the chart detail bias. The slider has 5 discrete
-// stops (-1, -0.5, 0, 0.5, +1); each step shifts the visible-width-to-band
-// mapping by half a band. 0 is the nominal mapping (current behaviour).
+// Touch-friendly editor for the two chart-detail controls.
 //
-// Edits a working copy; the caller reads detailLevel() after acceptance and
-// persists through Settings.
+// Detail bias: 5 discrete stops (-1, -0.5, 0, 0.5, +1); each step shifts the
+// visible-width-to-band mapping by half a band. 0 is the nominal mapping. This
+// chooses how high-detail a chart cell is pulled in for the current zoom.
+//
+// Object detail (SCAMIN): 9 discrete stops mapping to -1.0 .. +1.0. This biases
+// the S-57 SCAMIN test that hides point objects (symbols + soundings) as you
+// zoom out. Far left hides all such objects; far right shows them all; the
+// centre honours each object's SCAMIN at the current zoom.
+//
+// Edits a working copy; the caller reads detailLevel() / scaminLevel() after
+// acceptance and persists through Settings.
 class ChartDetailDialog : public QDialog {
     Q_OBJECT
 public:
-    explicit ChartDetailDialog(double detailLevel, QWidget* parent = nullptr);
+    ChartDetailDialog(double detailLevel, double scaminLevel,
+                      QWidget* parent = nullptr);
 
     double detailLevel() const;
+    double scaminLevel() const;
 
 private:
-    void updateValueLabel();
+    void updateDetailLabel();
+    void updateScaminLabel();
 
-    QSlider* slider_ = nullptr;
+    QSlider* slider_ = nullptr;            // detail bias
     QLabel*  valueLabel_ = nullptr;
+    QSlider* scaminSlider_ = nullptr;      // object detail (SCAMIN)
+    QLabel*  scaminValueLabel_ = nullptr;
 };

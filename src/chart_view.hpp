@@ -17,6 +17,7 @@
 #include <utility>
 #include <memory>
 #include "chart_loader.hpp"
+#include "chart_object.hpp"
 #include "feature_cache.hpp"
 #include "nav_data_store.hpp"   // OwnshipState, NavFreshness
 #include "units.hpp"            // DepthUnit
@@ -96,6 +97,7 @@ struct Sounding {
     QPointF pos;            // scene position (Y already flipped north-up)
     double  depthM = 0.0;   // raw depth, metres
     bool    hasDepth = false;
+    int     scaleMin = 0;   // S-57 SCAMIN (0 = none); paint-time declutter floor
 };
 
 // A resolved symbol: scene position + atlas index + optional rotation.
@@ -107,6 +109,16 @@ struct BuiltSymbol {
     QPointF  pos;
     uint16_t symIdx = SymAtlas::kNoSymbol;
     float    rotationDeg = 0.0f;
+    int      scaleMin = 0;   // S-57 SCAMIN (0 = none); paint-time declutter floor
+};
+
+// A text label (S-57 OBJNAM) drawn at constant on-screen size next to its
+// object. Resolved at cell-build time; SCAMIN-declutter and the Text toggle are
+// applied at paint time, like symbols.
+struct BuiltText {
+    QPointF pos;             // scene position of the object the label annotates
+    QString text;
+    int     scaleMin = 0;    // S-57 SCAMIN (0 = none)
 };
 
 struct BuiltCell {
@@ -117,6 +129,7 @@ struct BuiltCell {
     std::vector<BuiltPath>   paths;                        // sorted by z
     std::vector<Sounding>    soundings;                    // scene pos + depth
     std::vector<BuiltSymbol> symbols;                      // scene pos + sym idx
+    std::vector<BuiltText>   texts;                        // scene pos + label
 };
 
 // Chart canvas with a camera-based renderer.
@@ -146,6 +159,7 @@ public:
     // Chart display settings (driven by the core Settings object).
     void setShowSoundings(bool on);
     void setShowSymbols(bool on);
+    void setShowText(bool on);   // object name (OBJNAM) labels
     void setShowDepthContours(bool on);
     // When true, soundings/symbols are skipped during a pan/zoom gesture (faster
     // moving frame); when false they stay visible while interacting.
@@ -161,6 +175,11 @@ public:
     // width to band; positive pulls in higher-detail cells (more detail on
     // screen); negative backs off. Range -2.0..+2.0.
     void setChartDetailLevel(double level);
+    // SCAMIN bias for point-object decluttering, in [-1, +1]. 0 = honour each
+    // object's SCAMIN at the current zoom; positive reveals more objects (as if
+    // zoomed in further); negative hides more; -1 hides all point objects and
+    // +1 shows them all regardless of SCAMIN. Repaints (no rebuild).
+    void setChartScaminLevel(double level);
     // Symbol scale factor. 1.0 = nominal (baked) size; range 0.5 .. 3.0.
     void setSymbolScale(double scale);
     // Vessel glyph scale factor (ownship + AIS). 1.0 = nominal; range 0.5..3.0.
@@ -223,6 +242,10 @@ signals:
     // How many raster (MBTiles) charts were found in the active folder. Lets the
     // main window report folders that hold raster charts but no ENC cells.
     void rasterChartsChanged(int count);
+    // An empty-space click (one not consumed by a route/AIS overlay) landed on
+    // one or more chart objects. The main window shows a chooser (if several) or
+    // a detail window (if one). globalPos anchors the window near the click.
+    void objectsPicked(const QList<ChartObjectInfo>& objects, const QPoint& globalPos);
 
     // To the MBTiles worker thread (queued). Not for external use.
     void rasterSetFolder(const QString& dir, quint64 gen);
@@ -266,6 +289,11 @@ private:
     void maybeBuildBasemap();      // rebuild clipped/simplified copies if needed
     void onBasemapBuilt(std::vector<BuiltCell> cells, FeatureCache::FeaturesPtr feats);
 
+    // Identify chart objects within ~30 px of a click, nearest/most-specific
+    // first (points, then lines, then areas). Scans the parsed features of the
+    // on-screen (active) cells; excludes the base depth/land area canvas.
+    QList<ChartObjectInfo> pickObjects(const QPointF& screenPt);
+
     bool computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& target) const;
     static int  bandForVisibleWidth(double metres);
     static BBox expandBox(const BBox& b, double frac);
@@ -292,6 +320,7 @@ private:
 
     bool soundingVisible() const { return showSoundings_ && pointLodVisible_; }
     bool symbolVisible()   const { return showSymbols_   && pointLodVisible_; }
+    bool textVisible()     const { return showText_      && pointLodVisible_; }
     bool contourVisible()  const { return showDepthContours_; }
 
     // Format a sounding label from raw metres using the current depth unit.
@@ -302,6 +331,19 @@ private:
     // pulled in at higher detail don't pile up; returns 0 (no thinning) at or
     // below nominal detail, keeping level 0 identical to before.
     double soundingMinSpacing(double lineHeightPx) const;
+
+    // Approximate display-scale denominator (e.g. 45000 for ~1:45000) for the
+    // current zoom, derived from ground metres per pixel and the screen's
+    // physical pixel pitch. Used as the reference scale for SCAMIN tests.
+    double displayScaleDenominator() const;
+    // SCAMIN visibility test for one point object, given the precomputed
+    // effective denominator from scaminEffectiveDenominator(). True => draw it.
+    // scaleMin == 0 (no SCAMIN) is always eligible except when fully hidden.
+    bool   scaminPasses(int scaleMin, double effectiveDenom) const;
+    // The denominator a point object's SCAMIN must meet or exceed to be drawn,
+    // folding the user's scaminLevel_ bias into displayScaleDenominator().
+    // Returns a sentinel for the hard-off / hard-on slider extremes (see .cpp).
+    double scaminEffectiveDenominator() const;
 
     void drawOwnship(QPainter& p, const QTransform& cam);
     void drawScaleBar(QPainter& p);   // lower-right scale bar, in device pixels
@@ -383,9 +425,11 @@ private:
     bool pointLodVisible_ = true;     // soundings/symbols shown at this zoom (LOD)
     bool showSoundings_ = true;
     bool showSymbols_ = true;
+    bool showText_ = true;
     bool showDepthContours_ = true;
     bool hideSymbolsWhilePanning_ = false;   // skip point overlays during a gesture
     double chartDetailLevel_ = 0.0;   // -2.0..+2.0, biases target band
+    double scaminLevel_      = 0.0;   // -1.0..+1.0, biases SCAMIN declutter
     double symbolScale_      = 1.0;   // 0.5..3.0, uniform symbol scale
     double vesselScale_      = 1.0;   // 0.5..3.0, ownship + AIS glyph scale
     DepthUnit depthUnit_ = DepthUnit::Feet;   // how soundings are labelled

@@ -6,6 +6,7 @@
 #include <memory>
 #include "data_sources.hpp"   // DataSourceRegistry (value member)
 #include "route_types.hpp"    // Route (value member for the props working copy)
+#include "chart_object.hpp"   // ChartObjectInfo (signal/slot parameter)
 
 class ChartView;
 class ChartCatalog;
@@ -28,6 +29,7 @@ class RouteListDialog;
 class WaypointListDialog;
 class RoutePropertiesDialog;
 class RouteQuickInfoWindow;
+class ChartObjectInfoWindow;
 struct ClickedRouteObject;
 class CoreApi;
 class PluginManager;
@@ -106,6 +108,10 @@ private:
 
     // Chart-tap / create-affordance handlers ---------------------------------
     void onRouteObjectClicked(const ClickedRouteObject& hit);  // chart tap on saved obj
+    // Chart-object query: a click that no route/AIS overlay claimed landed on
+    // chart object(s). Shows a chooser when several, else the detail window.
+    void onObjectsPicked(const QList<ChartObjectInfo>& objects, const QPoint& globalPos);
+    void showObjectInfo(const ChartObjectInfo& obj, const QPoint& globalPos);
     void renameRoute(qint64 id);
     void renameWaypoint(qint64 id);
     void toggleRouteVisible(qint64 id);
@@ -175,6 +181,9 @@ private:
     // Quick-look popup for a tapped saved route/waypoint. One at a time; chart
     // interaction dismisses it. QPointer clears when it self-deletes.
     QPointer<RouteQuickInfoWindow> routeQuickInfo_;
+    // Detail window for a clicked chart object. One at a time; chart interaction
+    // dismisses it. QPointer clears when it self-deletes.
+    QPointer<ChartObjectInfoWindow> objectInfo_;
     QLabel*       statusLeft_ = nullptr;   // root folder + scan summary
     QLabel*       statusMid_ = nullptr;    // band / cells shown
     QLabel*       statusRight_ = nullptr;  // cursor lat/lon

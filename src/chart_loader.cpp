@@ -265,13 +265,19 @@ bool loadCellFeatures(const std::string& path,
         // attribute that this layer's schema actually carries. Per-feature
         // reads then index directly instead of searching by name each time.
         std::vector<std::pair<std::string, int>> attrFields;
+        OGRFeatureDefnH layerDefn = OGR_L_GetLayerDefn(layer);
         if (!g_symAttrs.empty()) {
-            OGRFeatureDefnH defn = OGR_L_GetLayerDefn(layer);
             for (const std::string& a : g_symAttrs) {
-                int fi = OGR_FD_GetFieldIndex(defn, a.c_str());
+                int fi = OGR_FD_GetFieldIndex(layerDefn, a.c_str());
                 if (fi >= 0) attrFields.emplace_back(a, fi);
             }
         }
+        // SCAMIN governs at what zoom point objects declutter; resolve its field
+        // index once per layer (it carries on most S-57 layers).
+        const int scaminIdx = layerDefn ? OGR_FD_GetFieldIndex(layerDefn, "SCAMIN") : -1;
+        // OBJNAM is the object's name, drawn as a text label. Resolved once per
+        // layer like SCAMIN.
+        const int objnamIdx = layerDefn ? OGR_FD_GetFieldIndex(layerDefn, "OBJNAM") : -1;
 
         OGR_L_ResetReading(layer);
         OGRFeatureH feat;
@@ -298,7 +304,13 @@ bool loadCellFeatures(const std::string& path,
                             f.attrs.emplace_back(af.first,
                                                  normalizedFieldValue(feat, af.second));
                     }
+                    if (objnamIdx >= 0 && OGR_F_IsFieldSetAndNotNull(feat, objnamIdx)) {
+                        const char* nm = OGR_F_GetFieldAsString(feat, objnamIdx);
+                        if (nm) f.name = nm;
+                    }
                 }
+                if (scaminIdx >= 0 && OGR_F_IsFieldSetAndNotNull(feat, scaminIdx))
+                    f.scaleMin = OGR_F_GetFieldAsInteger(feat, scaminIdx);
                 extractGeometry(geom, f);
                 if (!f.rings.empty()) {
                     if (f.kind == FeatureKind::DepthArea) {

@@ -8,6 +8,7 @@ constexpr auto kChartDir  = "charts/directory";
 constexpr auto kChartSets = "charts/sets";
 constexpr auto kSoundings = "display/showSoundings";
 constexpr auto kSymbols   = "display/showSymbols";
+constexpr auto kText      = "display/showText";
 constexpr auto kContours  = "display/showDepthContours";
 constexpr auto kAisShow   = "display/showAisTargets";
 constexpr auto kRasterShow = "display/showRasterCharts";
@@ -32,6 +33,7 @@ constexpr auto kArrivalNm = "nav/arrivalRadiusNm";
 constexpr auto kSrcPrio   = "data/sourcePriority";
 constexpr auto kAutoHide  = "menu/autoHide";
 constexpr auto kDetailLvl = "display/chartDetailLevel";
+constexpr auto kScaminLvl = "display/chartScaminLevel";
 constexpr auto kSymScale    = "display/symbolScale";
 constexpr auto kVesselScale = "display/vesselScale";
 constexpr auto kOwnMmsi     = "nav/ownshipMmsi";
@@ -51,6 +53,7 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     chartDir_          = s.value(QLatin1String(kChartDir)).toString();
     showSoundings_     = s.value(QLatin1String(kSoundings), true).toBool();
     showSymbols_       = s.value(QLatin1String(kSymbols),   true).toBool();
+    showText_          = s.value(QLatin1String(kText),      true).toBool();
     showDepthContours_ = s.value(QLatin1String(kContours),  true).toBool();
     showAisTargets_    = s.value(QLatin1String(kAisShow),   true).toBool();
     showRasterCharts_  = s.value(QLatin1String(kRasterShow), true).toBool();
@@ -94,6 +97,9 @@ Settings::Settings(QObject* parent) : QObject(parent) {
     chartDetailLevel_ = s.value(QLatin1String(kDetailLvl), 0.0).toDouble();
     if (chartDetailLevel_ < -2.0) chartDetailLevel_ = -2.0;
     if (chartDetailLevel_ >  2.0) chartDetailLevel_ =  2.0;
+    chartScaminLevel_ = s.value(QLatin1String(kScaminLvl), 0.0).toDouble();
+    if (chartScaminLevel_ < -1.0) chartScaminLevel_ = -1.0;
+    if (chartScaminLevel_ >  1.0) chartScaminLevel_ =  1.0;
     symbolScale_ = s.value(QLatin1String(kSymScale), 1.0).toDouble();
     if (symbolScale_ < 0.5) symbolScale_ = 0.5;
     if (symbolScale_ > 3.0) symbolScale_ = 3.0;
@@ -301,6 +307,15 @@ void Settings::setChartDetailLevel(double level) {
     emit chartDetailLevelChanged(level);
 }
 
+void Settings::setChartScaminLevel(double level) {
+    if (level < -1.0) level = -1.0;
+    if (level >  1.0) level =  1.0;
+    if (level == chartScaminLevel_) return;
+    chartScaminLevel_ = level;
+    QSettings().setValue(QLatin1String(kScaminLvl), level);
+    emit chartScaminLevelChanged(level);
+}
+
 void Settings::setSymbolScale(double scale) {
     if (scale < 0.5) scale = 0.5;
     if (scale > 3.0) scale = 3.0;
@@ -356,6 +371,13 @@ void Settings::setShowSymbols(bool on) {
     showSymbols_ = on;
     QSettings().setValue(QLatin1String(kSymbols), on);
     emit showSymbolsChanged(on);
+}
+
+void Settings::setShowText(bool on) {
+    if (on == showText_) return;
+    showText_ = on;
+    QSettings().setValue(QLatin1String(kText), on);
+    emit showTextChanged(on);
 }
 
 void Settings::setShowDepthContours(bool on) {

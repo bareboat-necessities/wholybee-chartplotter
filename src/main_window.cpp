@@ -27,6 +27,7 @@
 #include "route_properties_dialog.hpp"
 #include "waypoint_properties_dialog.hpp"
 #include "route_quick_info_window.hpp"
+#include "chart_object_info_window.hpp"
 #include "name_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
@@ -49,6 +50,11 @@
 #include <QMenu>
 #include <QAction>
 #include <QMessageBox>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QScrollArea>
+#include <QScroller>
+#include <QFrame>
 #include <QScreen>
 #include <QFileDialog>
 #include <QDir>
@@ -82,11 +88,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Apply persisted display settings, then keep the view in sync with changes.
     view_->setShowSoundings(settings_->showSoundings());
     view_->setShowSymbols(settings_->showSymbols());
+    view_->setShowText(settings_->showText());
     view_->setShowDepthContours(settings_->showDepthContours());
     view_->setShowRasterCharts(settings_->showRasterCharts());
     view_->setHideSymbolsWhilePanning(settings_->hideSymbolsWhilePanning());
     connect(settings_, &Settings::showSoundingsChanged,     view_, &ChartView::setShowSoundings);
     connect(settings_, &Settings::showSymbolsChanged,       view_, &ChartView::setShowSymbols);
+    connect(settings_, &Settings::showTextChanged,          view_, &ChartView::setShowText);
     connect(settings_, &Settings::showDepthContoursChanged, view_, &ChartView::setShowDepthContours);
     connect(settings_, &Settings::showRasterChartsChanged,  view_, &ChartView::setShowRasterCharts);
     connect(settings_, &Settings::hideSymbolsWhilePanningChanged,
@@ -95,6 +103,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     view_->setChartDetailLevel(settings_->chartDetailLevel());
     connect(settings_, &Settings::chartDetailLevelChanged,
             view_, &ChartView::setChartDetailLevel);
+    view_->setChartScaminLevel(settings_->chartScaminLevel());
+    connect(settings_, &Settings::chartScaminLevelChanged,
+            view_, &ChartView::setChartScaminLevel);
     view_->setSymbolScale(settings_->symbolScale());
     connect(settings_, &Settings::symbolScaleChanged,
             view_, &ChartView::setSymbolScale);
@@ -181,7 +192,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (aisQuickInfo_) aisQuickInfo_->close();
         aisQuickInfoMmsi_ = 0;
         if (routeQuickInfo_) routeQuickInfo_->close();
+        if (objectInfo_) objectInfo_->close();
     });
+    connect(view_, &ChartView::objectsPicked, this, &MainWindow::onObjectsPicked);
     connect(settings_, &Settings::ownshipPredictionMinutesChanged,
             this, [this](double m) {
         if (aisOverlay_) aisOverlay_->setPredictionMinutes(m);
@@ -507,9 +520,12 @@ void MainWindow::editDataPriority() {
 }
 
 void MainWindow::editChartDetailLevel() {
-    ChartDetailDialog dlg(settings_->chartDetailLevel(), this);
-    if (dlg.exec() == QDialog::Accepted)
+    ChartDetailDialog dlg(settings_->chartDetailLevel(),
+                          settings_->chartScaminLevel(), this);
+    if (dlg.exec() == QDialog::Accepted) {
         settings_->setChartDetailLevel(dlg.detailLevel());
+        settings_->setChartScaminLevel(dlg.scaminLevel());
+    }
 }
 
 void MainWindow::editSymbolSize() {
@@ -695,6 +711,78 @@ void MainWindow::onRouteObjectClicked(const ClickedRouteObject& hit) {
     anchor.setY(std::min(anchor.y(), screen.bottom() - routeQuickInfo_->height() - 12));
     routeQuickInfo_->move(anchor);
     routeQuickInfo_->show();
+}
+
+void MainWindow::onObjectsPicked(const QList<ChartObjectInfo>& objects,
+                                 const QPoint& globalPos) {
+    if (objects.isEmpty()) return;
+    if (objects.size() == 1) { showObjectInfo(objects.front(), globalPos); return; }
+
+    // Several objects under the click: tap one to inspect it. Touch-friendly —
+    // rows are large flat buttons and the list drag-scrolls via QScroller, like
+    // the AIS target list; a single tap selects (no OK button).
+    QDialog dlg(this);
+    dlg.setWindowTitle(QStringLiteral("Chart objects here"));
+    dlg.resize(320, 360);
+    auto* col = new QVBoxLayout(&dlg);
+    col->setContentsMargins(0, 0, 0, 0);
+    col->setSpacing(0);
+
+    auto* scroll = new QScrollArea(&dlg);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setWidgetResizable(true);
+    auto* rows = new QWidget;
+    auto* rowCol = new QVBoxLayout(rows);
+    rowCol->setContentsMargins(0, 0, 0, 0);
+    rowCol->setSpacing(0);
+
+    int chosen = -1;
+    for (int i = 0; i < objects.size(); ++i) {
+        const ChartObjectInfo& o = objects.at(i);
+        const QString cls = chartObjectClassName(o.objClass);
+        auto* btn = new QPushButton(o.name.isEmpty() ? cls
+                                    : QStringLiteral("%1 — %2").arg(cls, o.name));
+        btn->setFlat(true);
+        btn->setMinimumHeight(48);
+        btn->setStyleSheet(QStringLiteral(
+            "QPushButton { text-align:left; border:none; padding:0 12px;"
+            " border-bottom:1px solid palette(mid); }"
+            "QPushButton:pressed { background:palette(highlight);"
+            " color:palette(highlighted-text); }"));
+        connect(btn, &QPushButton::clicked, &dlg, [&dlg, &chosen, i] {
+            chosen = i;
+            dlg.accept();
+        });
+        rowCol->addWidget(btn);
+    }
+    rowCol->addStretch(1);
+    scroll->setWidget(rows);
+    QScroller::grabGesture(scroll->viewport(), QScroller::LeftMouseButtonGesture);
+    col->addWidget(scroll, 1);
+
+    dlg.move(globalPos + QPoint(12, 12));
+    if (dlg.exec() == QDialog::Accepted && chosen >= 0)
+        showObjectInfo(objects.at(chosen), globalPos);
+}
+
+void MainWindow::showObjectInfo(const ChartObjectInfo& obj, const QPoint& globalPos) {
+    // A chart-object click supersedes any open quick-look / object popup.
+    if (aisQuickInfo_)   aisQuickInfo_->close();
+    if (routeQuickInfo_) routeQuickInfo_->close();
+    if (objectInfo_)     objectInfo_->close();
+
+    objectInfo_ = new ChartObjectInfoWindow(obj, settings_->depthUnit(), this);
+    objectInfo_->setAttribute(Qt::WA_DeleteOnClose);
+    objectInfo_->adjustSize();
+    QPoint anchor = globalPos + QPoint(12, 12);
+    const QRect screen = view_->screen() ? view_->screen()->availableGeometry()
+                                         : QRect(0, 0, 1920, 1080);
+    anchor.setX(std::min(anchor.x(), screen.right()  - objectInfo_->width()  - 12));
+    anchor.setY(std::min(anchor.y(), screen.bottom() - objectInfo_->height() - 12));
+    objectInfo_->move(anchor);
+    objectInfo_->show();
 }
 
 void MainWindow::renameRoute(qint64 id) {
