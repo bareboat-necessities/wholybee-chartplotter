@@ -365,10 +365,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         .arg(ob.fg, ob.border, ob.bg, ob.pressed));
     addButton_->setToolTip(QStringLiteral("Add a route or waypoint"));
     connect(addButton_, &QPushButton::clicked, this, [this] {
-        // The "+" button has no chart-position context, so anchor at the
-        // viewport centre and let the user reposition by dragging later.
-        const QPointF centre(view_->width() / 2.0, view_->height() / 2.0);
-        showAddPopup(centre, addButton_->mapToGlobal(QPoint(addButton_->width(), 0)));
+        // The "+" button has no chart-position context, so the next chart tap
+        // places the first point (screenPt is unused in this path).
+        showAddPopup(QPointF(), addButton_->mapToGlobal(QPoint(addButton_->width(), 0)), /*atPoint=*/false);
     });
     addButton_->show();
 
@@ -778,39 +777,41 @@ void MainWindow::onChartLongPressed(const QPointF& screenPt) {
     // menu at the press location.
     if (aisQuickInfo_)   aisQuickInfo_->close();
     if (routeQuickInfo_) routeQuickInfo_->close();
-    showAddPopup(screenPt, view_->mapToGlobal(screenPt.toPoint()));
+    showAddPopup(screenPt, view_->mapToGlobal(screenPt.toPoint()), /*atPoint=*/true);
 }
 
-void MainWindow::showAddPopup(const QPointF& screenPt, const QPoint& globalPt) {
+void MainWindow::showAddPopup(const QPointF& screenPt, const QPoint& globalPt, bool atPoint) {
     QMenu menu(this);
-    QAction* aWpt   = menu.addAction(QStringLiteral("New waypoint here"));
-    QAction* aRoute = menu.addAction(QStringLiteral("Start route here"));
+    // The long-press knows where the user pressed, so it places "here"; the "+"
+    // button has no position, so it arms creation and the next chart tap places.
+    QAction* aWpt   = menu.addAction(atPoint ? QStringLiteral("New waypoint here")
+                                             : QStringLiteral("New waypoint"));
+    QAction* aRoute = menu.addAction(atPoint ? QStringLiteral("Start route here")
+                                             : QStringLiteral("New route"));
     QAction* picked = menu.exec(globalPt);
     if (!picked || !routeStore_ || !routeOverlay_) return;
 
-    // The viewport provides screenToGeo via the overlay's cached viewport (the
-    // overlay paints every frame, so `vp_` is current). We get the same result
-    // by going through the overlay's existing CreateWaypoint mode flow, which
-    // already calls onWaypointPlaced -- only here we don't need the user to tap
-    // again; we know where they pressed.
-    Waypoint w;
-    // Convert the press point to geo by running the overlay through a stub:
-    // begin CreateWaypoint, simulate a tap via hitTest at screenPt, which calls
-    // onWaypointPlaced via the existing callback and saves a waypoint there.
     if (picked == aWpt) {
-        routeOverlay_->beginCreateWaypoint();
-        // Reuse the same path the chart-tap creation uses, which calls
-        // onWaypointPlaced -> auto-name save.
-        routeOverlay_->hitTest(screenPt);
-        // Mode is reset in onWaypointPlaced via endRouteMode().
+        if (atPoint) {
+            // Convert the press point to geo by running the overlay through the
+            // chart-tap path: begin CreateWaypoint, then hitTest at screenPt,
+            // which calls onWaypointPlaced -> auto-name save. Mode is reset in
+            // onWaypointPlaced via endRouteMode().
+            routeOverlay_->beginCreateWaypoint();
+            routeOverlay_->hitTest(screenPt);
+        } else {
+            // Arm create-waypoint mode; the next chart tap places it.
+            startCreateWaypoint();
+        }
         return;
     }
     if (picked == aRoute) {
-        // Start a fresh route session with the first point already placed at
-        // the press location, then show the edit bar so the user can add more.
+        // Start a fresh route session. For a long-press the first point is
+        // placed at the press location; for the "+" button the route starts
+        // empty and the first chart tap appends the first point.
         routeOverlay_->beginCreateRoute();
         view_->setChartEditor(routeOverlay_.get());
-        routeOverlay_->hitTest(screenPt);   // appends the first point
+        if (atPoint) routeOverlay_->hitTest(screenPt);   // appends the first point
         showRouteEditBar(QStringLiteral("Tap the chart to add points · drag to move · tap a point to select"));
         return;
     }
