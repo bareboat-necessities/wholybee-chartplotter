@@ -117,12 +117,13 @@ private:
     void startNavigation(qint64 routeId, int destIndex = -1);
     void onNavigatingToggled(bool on);
     // Long-press on the chart and the floating "+" button both open a small
-    // popup at `globalPt`: "New waypoint here" / "Start route here". `screenPt`
-    // is the chart-space position used when the user picks "New waypoint here"
-    // so the waypoint lands where they tapped (for the "+" button it's the
-    // current viewport centre).
+    // popup at `globalPt`. When `atPoint` is true (long-press) the menu reads
+    // "New waypoint here" / "Start route here" and the object is placed at
+    // `screenPt` immediately. When false (the "+" button, which has no chart
+    // position) it reads "New waypoint" / "New route" and the next chart tap
+    // places the first point.
     void onChartLongPressed(const QPointF& screenPt);
-    void showAddPopup(const QPointF& screenPt, const QPoint& globalPt);
+    void showAddPopup(const QPointF& screenPt, const QPoint& globalPt, bool atPoint);
     void positionAddButton();
 
     ChartView*    view_ = nullptr;
