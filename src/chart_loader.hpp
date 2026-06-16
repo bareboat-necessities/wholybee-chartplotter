@@ -52,6 +52,11 @@ struct Feature {
     std::vector<std::vector<Pt>> rings;
     double depth = 0.0;
     bool hasDepth = false;
+    // S-57 SCAMIN: the smallest display scale (largest denominator) at which the
+    // object should be drawn. 0 = attribute absent (object has no scale floor and
+    // is always eligible). Used at paint time to declutter point objects as the
+    // view zooms out. See ChartView::scaminPasses.
+    int scaleMin = 0;
     BBox bbox;
     // S-57 object-class name (e.g. "BOYLAT", "ACHARE"). Populated for Point and
     // OtherArea features (the symbol-bearing kinds); empty otherwise. Used at
@@ -62,6 +67,10 @@ struct Feature {
     // actually test are read (see chart::setSymbologyAttrs). Drives best-match
     // symbol selection. Empty for non-symbol features.
     std::vector<std::pair<std::string, std::string>> attrs;
+    // S-57 OBJNAM (object name), UTF-8. Populated for symbol-bearing features
+    // when present; drawn as a text label next to the object. Empty when the
+    // object has no name.
+    std::string name;
 };
 
 namespace chart {

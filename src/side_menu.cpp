@@ -210,6 +210,9 @@ QWidget* SideMenu::buildMainPage() {
     auto* sym = makeCheckAction(QStringLiteral("Symbols"), settings_->showSymbols());
     connect(sym, &QPushButton::toggled, settings_, &Settings::setShowSymbols);
     col->addWidget(sym);
+    auto* txt = makeCheckAction(QStringLiteral("Text"), settings_->showText());
+    connect(txt, &QPushButton::toggled, settings_, &Settings::setShowText);
+    col->addWidget(txt);
     auto* con = makeCheckAction(QStringLiteral("Depth Contours"), settings_->showDepthContours());
     connect(con, &QPushButton::toggled, settings_, &Settings::setShowDepthContours);
     col->addWidget(con);

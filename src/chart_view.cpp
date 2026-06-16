@@ -16,6 +16,7 @@
 #include <QFontMetricsF>
 #include <QTimer>
 #include <QPushButton>
+#include <QScreen>
 #include <QPen>
 #include <QBrush>
 #include <QPolygonF>
@@ -305,14 +306,21 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
                 // stays put as the viewport pans; paint-time culling handles
                 // off-screen cases. Computed from the unclipped outer ring.
                 if (f.kind == FeatureKind::OtherArea &&
-                    hit.symIdx != SymAtlas::kNoSymbol &&
                     !f.rings.empty() && !f.rings[0].empty()) {
                     const Pt c = ringCentroid(f.rings[0]);
-                    BuiltSymbol bs;
-                    bs.pos         = QPointF(c.x, -c.y);
-                    bs.symIdx      = hit.symIdx;
-                    bs.rotationDeg = hit.rotationDeg;
-                    bc.symbols.push_back(bs);
+                    if (hit.symIdx != SymAtlas::kNoSymbol) {
+                        BuiltSymbol bs;
+                        bs.pos         = QPointF(c.x, -c.y);
+                        bs.symIdx      = hit.symIdx;
+                        bs.rotationDeg = hit.rotationDeg;
+                        bs.scaleMin    = f.scaleMin;
+                        bc.symbols.push_back(bs);
+                    }
+                    // Named areas get their OBJNAM at the centroid, whether or
+                    // not the class also resolves to a centred symbol.
+                    if (!f.name.empty())
+                        bc.texts.push_back(
+                            { QPointF(c.x, -c.y), QString::fromStdString(f.name), f.scaleMin });
                 }
                 break;
             }
@@ -322,14 +330,17 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
                 // Keep the raw depth (metres); the label is formatted at paint
                 // time so the depth-unit preference is a repaint, not a rebuild.
                 bc.soundings.push_back(
-                    { QPointF(f.rings[0][0].x, -f.rings[0][0].y), f.depth, f.hasDepth });
+                    { QPointF(f.rings[0][0].x, -f.rings[0][0].y), f.depth, f.hasDepth,
+                      f.scaleMin });
                 break;
             }
             case FeatureKind::Point: {
                 if (f.rings.empty() || f.rings[0].empty()) break;
                 if (doClip && !pointInRect(f.rings[0][0], clipBox)) break;
+                const QPointF pos(f.rings[0][0].x, -f.rings[0][0].y);
                 BuiltSymbol bs;
-                bs.pos = QPointF(f.rings[0][0].x, -f.rings[0][0].y);
+                bs.pos = pos;
+                bs.scaleMin = f.scaleMin;
                 if (atlas) {
                     const SymHit hit = atlas->symbolForFeature(
                         QByteArray::fromStdString(f.objClass),
@@ -338,6 +349,8 @@ BuiltCell buildCell(const QString& path, const std::vector<Feature>& feats,
                     bs.rotationDeg = hit.rotationDeg;
                 }
                 bc.symbols.push_back(bs);
+                if (!f.name.empty())
+                    bc.texts.push_back({ pos, QString::fromStdString(f.name), f.scaleMin });
                 break;
             }
         }
@@ -538,6 +551,125 @@ void ChartView::normalizeCenter() {
 double ChartView::wrapOffsetFor(double cellCenterX) const {
     const double ww = worldWidthM();
     return std::round((scx_ - cellCenterX) / ww) * ww;
+}
+
+QList<ChartObjectInfo> ChartView::pickObjects(const QPointF& screenPt) {
+    QList<ChartObjectInfo> out;
+    if (ppm_ <= 0.0) return out;
+
+    const QPointF clickScene = screenToScene(screenPt);
+    const double radius = 10.0 / ppm_;          // scene metres ≈ 10 device px
+    const double radiusSq = radius * radius;
+
+    // Distance² from (px,py) to segment (ax,ay)-(bx,by).
+    auto segDistSq = [](double px, double py, double ax, double ay,
+                        double bx, double by) -> double {
+        const double dx = bx - ax, dy = by - ay;
+        const double len2 = dx * dx + dy * dy;
+        double t = (len2 > 0.0) ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0.0;
+        t = std::clamp(t, 0.0, 1.0);
+        const double qx = ax + t * dx, qy = ay + t * dy;
+        const double ex = px - qx, ey = py - qy;
+        return ex * ex + ey * ey;
+    };
+    // Even-odd point-in-polygon test against one ring.
+    auto pointInRing = [](double px, double py, const std::vector<Pt>& r) -> bool {
+        bool in = false;
+        for (std::size_t i = 0, j = r.size() - 1; i < r.size(); j = i++) {
+            const bool between = (r[i].y > py) != (r[j].y > py);
+            if (between &&
+                px < (r[j].x - r[i].x) * (py - r[i].y) / (r[j].y - r[i].y) + r[i].x)
+                in = !in;
+        }
+        return in;
+    };
+    // Fallback object-class acronym for kinds the loader doesn't tag with one.
+    auto classFor = [](FeatureKind k) -> const char* {
+        switch (k) {
+            case FeatureKind::Sounding:     return "SOUNDG";
+            case FeatureKind::DepthContour: return "DEPCNT";
+            case FeatureKind::Coastline:    return "COALNE";
+            default:                        return "";
+        }
+    };
+
+    struct Cand { ChartObjectInfo info; int prio; double distSq; };
+    std::vector<Cand> cands;
+
+    for (const QString& path : active_) {
+        FeatureCache::FeaturesPtr feats = cache_.get(path);
+        if (!feats) continue;
+        const BBox bb = bboxByPath_.value(path);
+        const double off = bb.valid() ? wrapOffsetFor((bb.minx + bb.maxx) / 2.0) : 0.0;
+        const double cx = clickScene.x() - off;   // click in this cell's projected X
+        const double cy = -clickScene.y();         // projected Y (north up)
+
+        for (const Feature& f : *feats) {
+            int prio = -1; double distSq = 0.0, repX = 0.0, repY = 0.0;
+            switch (f.kind) {
+                case FeatureKind::DepthArea:
+                case FeatureKind::LandArea:
+                    continue;                      // base canvas, not a query target
+                case FeatureKind::Point:
+                case FeatureKind::Sounding: {
+                    if (f.rings.empty() || f.rings[0].empty()) continue;
+                    const Pt& p = f.rings[0][0];
+                    const double d = (p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy);
+                    if (d > radiusSq) continue;
+                    prio = 0; distSq = d; repX = p.x; repY = p.y;
+                    break;
+                }
+                case FeatureKind::DepthContour:
+                case FeatureKind::Coastline:
+                case FeatureKind::OtherLine: {
+                    double best = radiusSq; bool hit = false;
+                    for (const auto& ring : f.rings)
+                        for (std::size_t i = 1; i < ring.size(); ++i) {
+                            const double d = segDistSq(cx, cy, ring[i - 1].x, ring[i - 1].y,
+                                                       ring[i].x, ring[i].y);
+                            if (d < best) { best = d; hit = true; repX = ring[i].x; repY = ring[i].y; }
+                        }
+                    if (!hit) continue;
+                    prio = 1; distSq = best;
+                    break;
+                }
+                case FeatureKind::OtherArea: {
+                    if (f.rings.empty() || f.rings[0].size() < 3) continue;
+                    if (!pointInRing(cx, cy, f.rings[0])) continue;
+                    prio = 2; distSq = 0.0;
+                    repX = f.rings[0][0].x; repY = f.rings[0][0].y;
+                    break;
+                }
+            }
+            if (prio < 0) continue;
+
+            ChartObjectInfo info;
+            info.objClass = f.objClass.empty() ? QString::fromLatin1(classFor(f.kind))
+                                               : QString::fromStdString(f.objClass);
+            info.name     = QString::fromStdString(f.name);
+            info.kind     = f.kind;
+            info.hasDepth = f.hasDepth;
+            info.depthM   = f.depth;
+            info.scaleMin = f.scaleMin;
+            info.lon      = proj::xToLon(repX);
+            info.lat      = proj::yToLat(repY);
+            for (const auto& a : f.attrs)
+                info.attrs.push_back({ QString::fromStdString(a.first),
+                                       QString::fromStdString(a.second) });
+            cands.push_back({ std::move(info), prio, distSq });
+        }
+    }
+
+    std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) {
+        if (a.prio != b.prio) return a.prio < b.prio;
+        return a.distSq < b.distSq;
+    });
+    constexpr int kMaxObjects = 10;
+    for (const Cand& c : cands) {
+        out.push_back(c.info);
+        if (out.size() >= kMaxObjects) break;
+    }
+    return out;
 }
 
 void ChartView::restoreView(double lon, double lat, double s) {
@@ -1125,6 +1257,10 @@ void ChartView::setShowSymbols(bool on) {
     if (on == showSymbols_) return;
     showSymbols_ = on; update();
 }
+void ChartView::setShowText(bool on) {
+    if (on == showText_) return;
+    showText_ = on; update();
+}
 void ChartView::setShowDepthContours(bool on) {
     if (on == showDepthContours_) return;
     showDepthContours_ = on; update();
@@ -1342,6 +1478,65 @@ void ChartView::setChartDetailLevel(double level) {
     update();           // re-thin soundings now, before the debounced rebuild
 }
 
+void ChartView::setChartScaminLevel(double level) {
+    if (level < -1.0) level = -1.0;
+    if (level >  1.0) level =  1.0;
+    if (level == scaminLevel_) return;
+    scaminLevel_ = level;
+    // SCAMIN is filtered entirely at paint time, so a bias change is a repaint —
+    // no cell rebuild or band/LOD recompute needed.
+    update();
+}
+
+double ChartView::displayScaleDenominator() const {
+    if (ppm_ <= 0.0) return 0.0;
+    // Ground metres per pixel at the view-centre latitude: scene metres are true
+    // ground metres at the equator and Mercator scales them by 1/cos(lat).
+    const double latC = proj::yToLat(-scy_);
+    const double cosLat = std::cos(latC * proj::kDeg2Rad);
+    if (cosLat <= 1e-6) return 0.0;
+    const double groundMPerPx = cosLat / ppm_;
+
+    // Physical size of one (logical) screen pixel, in metres. physicalDotsPerInch
+    // can be unreliable, so clamp to a sane window and fall back to 96 DPI; the
+    // user's slider compensates for any residual error in the absolute scale.
+    double dpi = 96.0;
+    if (const QScreen* s = screen()) {
+        const double d = s->physicalDotsPerInch();
+        if (d > 30.0 && d < 1000.0) dpi = d;
+    }
+    const double dpr = devicePixelRatioF() > 0.0 ? devicePixelRatioF() : 1.0;
+    const double screenMPerPx = (0.0254 / dpi) * dpr;   // metres per logical px
+    if (screenMPerPx <= 0.0) return 0.0;
+    return groundMPerPx / screenMPerPx;
+}
+
+// Sentinels for the slider extremes: hide every point object / show every point
+// object regardless of SCAMIN. Finite values are real denominators to compare.
+namespace { constexpr double kScaminHideAll = -1.0; constexpr double kScaminShowAll = -2.0; }
+
+double ChartView::scaminEffectiveDenominator() const {
+    // Hard endpoints: -1 hides all point objects, +1 shows them all.
+    if (scaminLevel_ <= -0.999) return kScaminHideAll;
+    if (scaminLevel_ >=  0.999) return kScaminShowAll;
+    const double denom = displayScaleDenominator();
+    if (denom <= 0.0) return kScaminShowAll;   // no usable zoom: don't hide
+    // Bias the reference denominator by up to ±4 octaves across the interior of
+    // the slider. Positive bias lowers the threshold (reveals objects with a
+    // smaller SCAMIN, i.e. more detail); negative raises it (declutters).
+    constexpr double kMaxOctaves = 4.0;
+    return denom * std::pow(2.0, -kMaxOctaves * scaminLevel_);
+}
+
+bool ChartView::scaminPasses(int scaleMin, double effectiveDenom) const {
+    if (effectiveDenom == kScaminShowAll) return true;    // +1: everything
+    if (effectiveDenom == kScaminHideAll) return false;   // -1: nothing
+    if (scaleMin <= 0) return true;                       // no SCAMIN: always show
+    // S-57 rule: draw while the display scale is no smaller than SCAMIN, i.e.
+    // the display denominator does not exceed SCAMIN.
+    return static_cast<double>(scaleMin) >= effectiveDenom;
+}
+
 void ChartView::setSymbolScale(double scale) {
     if (scale < 0.5) scale = 0.5;
     if (scale > 3.0) scale = 3.0;
@@ -1496,6 +1691,11 @@ void ChartView::paintEvent(QPaintEvent*) {
     if (pointLodVisible_ && (!interacting_ || !hideSymbolsWhilePanning_)) {
         const QRectF screen = rect().adjusted(-24, -24, 24, 24);
 
+        // SCAMIN declutter threshold for this frame: point objects (soundings
+        // and symbols) whose SCAMIN is smaller than this are dropped. Computed
+        // once here from the current zoom and the user's bias slider.
+        const double scaminDenom = scaminEffectiveDenominator();
+
         // Quilt clips mapped into device space, so soundings and symbols from a
         // partially-covered cell are suppressed where a finer band overlays it
         // (the finer cell draws its own there). Computed once, reused by both
@@ -1557,6 +1757,7 @@ void ChartView::paintEvent(QPaintEvent*) {
                 if (clipped) { p.save(); p.setClipPath(*dcIt); }
                 const double off = c->drawOffsetX;
                 for (const Sounding& s : c->soundings) {
+                    if (!scaminPasses(s.scaleMin, scaminDenom)) continue;
                     const QPointF d = cam.map(QPointF(s.pos.x() + off, s.pos.y()));
                     if (!screen.contains(d)) continue;
                     if (!farEnough(d)) continue;
@@ -1581,6 +1782,7 @@ void ChartView::paintEvent(QPaintEvent*) {
                 if (clipped) { p.save(); p.setClipPath(*dcIt); }
                 const double off = c->drawOffsetX;
                 for (const BuiltSymbol& sym : c->symbols) {
+                    if (!scaminPasses(sym.scaleMin, scaminDenom)) continue;
                     const QPointF d = cam.map(
                         QPointF(sym.pos.x() + off, sym.pos.y()));
                     if (!screen.contains(d)) continue;
@@ -1593,6 +1795,38 @@ void ChartView::paintEvent(QPaintEvent*) {
                         const double r = 3.0 * symbolScale_;
                         p.drawEllipse(d, r, r);
                     }
+                }
+                if (clipped) p.restore();
+            }
+        }
+        if (showText_) {
+            // Object-name labels (OBJNAM), constant on-screen size. Offset to the
+            // upper-right of the object and drawn with a light halo so they stay
+            // legible over busy chart fill. SCAMIN-declutter and the quilt clip
+            // apply exactly as for symbols.
+            QFont f = p.font(); f.setPointSizeF(8.0); p.setFont(f);
+            const QFontMetricsF fm(f);
+            const double asc = fm.ascent();
+            const QColor halo(255, 255, 255, 230);
+            const QColor ink(40, 40, 40);
+            for (const BuiltCell* c : order) {
+                const auto dcIt = deviceClip.constFind(c->path);
+                const bool clipped = (dcIt != deviceClip.constEnd());
+                if (clipped) { p.save(); p.setClipPath(*dcIt); }
+                const double off = c->drawOffsetX;
+                for (const BuiltText& t : c->texts) {
+                    if (!scaminPasses(t.scaleMin, scaminDenom)) continue;
+                    const QPointF d = cam.map(QPointF(t.pos.x() + off, t.pos.y()));
+                    if (!screen.contains(d)) continue;
+                    const QPointF at(d.x() + 5.0, d.y() - 4.0 + asc);
+                    // Cheap halo: white at the four neighbours, then ink on top.
+                    p.setPen(halo);
+                    p.drawText(at + QPointF(-1, 0), t.text);
+                    p.drawText(at + QPointF( 1, 0), t.text);
+                    p.drawText(at + QPointF( 0,-1), t.text);
+                    p.drawText(at + QPointF( 0, 1), t.text);
+                    p.setPen(ink);
+                    p.drawText(at, t.text);
                 }
                 if (clipped) p.restore();
             }
@@ -1946,7 +2180,16 @@ void ChartView::mouseReleaseEvent(QMouseEvent* e) {
             for (auto it = overlays_.rbegin(); it != overlays_.rend(); ++it) {
                 if ((*it)->hitTest(e->position())) { consumed = true; break; }
             }
-            if (!consumed) emit chartInteracted();
+            // Route/AIS overlays get first refusal (above). If none claimed the
+            // click, query the chart objects under it; objects found open an info
+            // window, otherwise it's an empty-space click that dismisses popups.
+            if (!consumed) {
+                QList<ChartObjectInfo> objs = pickObjects(e->position());
+                if (!objs.isEmpty())
+                    emit objectsPicked(objs, e->globalPosition().toPoint());
+                else
+                    emit chartInteracted();
+            }
         }
     }
     QWidget::mouseReleaseEvent(e);
