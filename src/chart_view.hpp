@@ -31,6 +31,20 @@ class QPushButton;
 class QThread;
 class MbtilesService;
 
+// A chart-editing controller (e.g. the route/waypoint editor). When one is set,
+// ChartView consults it on the raw press/move/release before its own panning, so
+// the editor can grab a node and drag it without the gesture turning into a pan.
+// onPress returns true to claim the gesture (suppressing the pan); the subsequent
+// move/release for that gesture are then delivered to the editor instead. Points
+// are device pixels; the editor converts via the viewport it caches as an overlay.
+class IChartEditor {
+public:
+    virtual ~IChartEditor() = default;
+    virtual bool onPress(const QPointF& screenPt)   = 0;   // true => claim gesture
+    virtual void onMove(const QPointF& screenPt)    = 0;
+    virtual void onRelease(const QPointF& screenPt) = 0;
+};
+
 // Identity of one raster tile in the cache: which chart (index into the
 // discovered list), the pyramid zoom level, and the XYZ tile column/row.
 struct RasterTileKey {
@@ -171,15 +185,31 @@ public:
     void addOverlay(IChartOverlay* overlay);
     void removeOverlay(IChartOverlay* overlay);
 
+    // Active chart editor (nullptr = none). While set, press/move/release are
+    // offered to it before panning, so it can drag chart nodes. Not owned.
+    void setChartEditor(IChartEditor* editor) { editor_ = editor; }
+
+    // Pan/zoom the view to frame a geographic box (degrees), with a little
+    // padding. Used to jump to a route when editing it.
+    void fitToGeoBox(double latMin, double lonMin, double latMax, double lonMax);
+
     // Restore the view (center in degrees + zoom) on the next catalog load
     // instead of fitting. One-shot: consumed on the next load.
     void setInitialView(double lon, double lat, double scale);
+    // Capture the current pan/zoom and restore it on the next catalog load
+    // instead of fitting — used when switching chart sets so the view doesn't
+    // snap to the new set's extent. No-op if there is no view yet.
+    void keepCurrentViewOnNextLoad();
     // Emit viewChanged immediately with the current view (e.g. on app close).
     void persistViewNow();
 
 signals:
     void cursorMoved(double lon, double lat);
     void statusChanged(const QString& text);
+    // Touch-friendly long-press (press-and-hold) on the chart. Fires after ~500 ms
+    // with the finger held within a few pixels of pressPos; suppressed when an
+    // IChartEditor is active so it doesn't fight with route-editing gestures.
+    void longPressed(const QPointF& screenPt);
     // Debounced after panning/zooming; carries the view center (degrees) + zoom.
     void viewChanged(double lon, double lat, double scale);
     // Auto-follow turned on/off (e.g. off when the user pans). Lets the menu
@@ -363,11 +393,15 @@ private:
     bool userInteracted_ = false;
     bool autoFollow_ = false;                 // keep view centered on ownship
     std::vector<IChartOverlay*> overlays_;    // plugin overlays (not owned)
+    IChartEditor* editor_ = nullptr;          // active chart editor (not owned)
+    bool    editorGrab_ = false;              // editor claimed the current gesture
 
     bool    dragging_ = false;
     bool    panDismissEmitted_ = false;   // chartInteracted() fired once per drag
     QPointF lastDragPos_;
     QPointF pressPos_;     // for click vs drag (release with little movement = click)
+    QTimer* longPressTimer_ = nullptr;    // single-shot, fires longPressed()
+    bool    longPressFired_ = false;      // suppress click-on-release after long-press
 
     OwnshipState ownship_;
     NavFreshness ownshipFreshness_ = NavFreshness::Invalid;

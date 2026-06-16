@@ -9,7 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network Sql)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Network Sql WebSockets)
 
 # Prefer GDAL's own CMake config; fall back to pkg-config (e.g. MSYS2).
 find_package(GDAL QUIET)
@@ -71,11 +71,13 @@ qt_add_executable(chartviewer
     src/settings.cpp
     src/chart_sets_dialog.cpp
     src/units_dialog.cpp
+    src/navigation_options_dialog.cpp
     src/touch_spin_box.cpp
     src/stale_thresholds_dialog.cpp
     src/ownship_prediction_dialog.cpp
     src/nmea0183_debug_window.cpp
     src/nmea0183_plugin.cpp
+    src/nmea0183_nav_sender.cpp
     src/nmea2000_client.cpp
     src/nmea2000_plugin.cpp
     src/n2k_decoder.cpp
@@ -103,6 +105,16 @@ qt_add_executable(chartviewer
     src/ais_target_info_window.cpp
     src/ais_target_list_dialog.cpp
     src/ais_quick_info_window.cpp
+    src/route_store.cpp
+    src/route_navigator.cpp
+    src/nav_display_window.cpp
+    src/route_overlay.cpp
+    src/route_list_dialog.cpp
+    src/waypoint_list_dialog.cpp
+    src/route_properties_dialog.cpp
+    src/waypoint_properties_dialog.cpp
+    src/route_quick_info_window.cpp
+    src/name_dialog.cpp
     src/vessel_symbol.cpp
     src/sym_atlas.cpp
     src/theme.cpp
@@ -277,4 +289,7 @@ endforeach()
 # shared library (a separate target / VS project), and post-build copies itself
 # into plugins/ next to the host exe so QPluginLoader picks it up at runtime.
 add_subdirectory(plugins/test_plugin)
+add_subdirectory(plugins/signalk_plugin)
+add_subdirectory(plugins/gpx_plugin)
+add_subdirectory(plugins/wmm_plugin)
 

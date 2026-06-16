@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QChar>
 #include <QDateTime>
 #include <optional>
 #include "host_export.hpp"
@@ -56,6 +57,48 @@ struct OwnshipState {
     NavValue trueWindDirectionDeg;   // geographic (relative to true north)
 };
 
+// Computed route-following output, mirroring the fields of the NMEA 0183 APB and
+// RMB sentences. Produced by RouteNavigator while the user is navigating a route
+// and stored here for consumers. These are derived values (not arbitrated sensor
+// inputs), so they live outside OwnshipState and update via setNavigationData().
+//
+// When `active` is false the struct is at its defaults and no route is being
+// followed. Bearings are in the user-selected reference (true or magnetic), with
+// `bearingUnits` recording which. All distances are nautical miles.
+struct NavigationData {
+    bool    active = false;                       // navigating a route
+
+    // Who produced this navigation solution: "route-navigator" when computed
+    // internally, or a link id (e.g. "nmea0183") if the navigation data was
+    // instead received over that link and parsed into the store. An NMEA
+    // transmitter uses this to avoid echoing APB/RMB back out the same link they
+    // arrived on (loop guard).
+    QString source;
+
+    double  xteNm = 0.0;                           // cross-track error magnitude
+    QChar   steerDirection = QLatin1Char('L');     // 'L' or 'R' to regain track
+    QChar   xteUnits = QLatin1Char('N');           // always 'N' (nautical miles)
+
+    bool    arrivalCircleEntered = false;          // within arrival radius of dest
+    bool    perpendicularPassed  = false;          // crossed the perpendicular at dest
+
+    double  bearingOriginToDestDeg = 0.0;          // previous -> next waypoint
+    QChar   bearingUnits = QLatin1Char('T');       // 'T' (true) or 'M' (magnetic)
+
+    QString destinationWaypointId;                 // name or number of next waypoint
+    double  bearingPresentToDestDeg = 0.0;         // present position -> next waypoint
+    double  headingToSteerDeg = 0.0;               // == bearingPresentToDest (for now)
+    QString originWaypointId;                      // name or number of previous waypoint
+
+    double  destinationLatDeg = 0.0;
+    double  destinationLonDeg = 0.0;
+    double  rangeToDestNm = 0.0;                    // distance to next waypoint
+    double  closingVelocityKn = 0.0;                // VMG toward next waypoint
+
+    QChar   faaStatus = QLatin1Char('A');          // 'A' while active
+    QChar   faaMode   = QLatin1Char('A');          // 'A' while active
+};
+
 // Stable API publishers (built-in or future dynamic plugins) call to publish
 // navigation updates. Each call carries its own meta, so different fields can
 // originate from different sources and age independently. The core owns the
@@ -104,6 +147,10 @@ public:
     const OwnshipState& ownship() const { return ownship_; }
     // Freshness of the position fix (drives the ownship symbol).
     NavFreshness positionFreshness() const { return ownship_.latitudeDeg.freshness; }
+
+    // Route-following output (APB/RMB). Read current state and connect to
+    // navigationChanged() to subscribe. Updated by RouteNavigator.
+    const NavigationData& navigation() const { return navigation_; }
     double staleSeconds()   const { return staleSeconds_; }
     double invalidSeconds() const { return invalidSeconds_; }
 
@@ -132,8 +179,14 @@ public slots:
     // publishes (values switch as sources refresh / age out).
     void setSourcePriority(const QStringList& orderedSourceIds);
 
+    // Route-following output. setNavigationData replaces the whole struct and
+    // emits navigationChanged(); clearNavigation resets it to inactive defaults.
+    void setNavigationData(const NavigationData& d);
+    void clearNavigation();
+
 signals:
     void ownshipChanged();            // a value or a freshness transitioned
+    void navigationChanged();         // route-following output updated
 
 private slots:
     void tick();
@@ -146,6 +199,7 @@ private:
     bool recompute();                                   // age all; true if any changed
 
     OwnshipState ownship_;
+    NavigationData navigation_;
     double staleSeconds_   = 5.0;
     double invalidSeconds_ = 30.0;
     QStringList sourcePriority_;     // highest priority first

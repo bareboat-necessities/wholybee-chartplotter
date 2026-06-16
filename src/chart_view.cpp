@@ -365,6 +365,26 @@ ChartView::ChartView(QWidget* parent) : QWidget(parent) {
     tierCache_.setLimits(192u * 1024u * 1024u, 8);
     tierCache_.setPinned([this](const QString& tier) { return tier == basemapTier_; });
 
+    // Long-press recognizer: started on press, cancelled if the user moves the
+    // finger more than a few pixels or releases before the timeout. 500 ms is
+    // the platform-conventional long-press threshold.
+    longPressTimer_ = new QTimer(this);
+    longPressTimer_->setSingleShot(true);
+    longPressTimer_->setInterval(500);
+    connect(longPressTimer_, &QTimer::timeout, this, [this] {
+        // Suppress when an editor is active so route-edit gestures aren't
+        // interrupted by a stray long-press.
+        if (editor_ || editorGrab_) return;
+        longPressFired_ = true;
+        // The gesture is now a long-press, not a pan. Its handler typically opens
+        // a popup menu that grabs the mouse, so this view will never receive the
+        // matching release — end the drag here so a later move doesn't keep
+        // panning the chart ("stuck in pan mode").
+        dragging_ = false;
+        setCursor(Qt::OpenHandCursor);
+        emit longPressed(pressPos_);
+    });
+
     updateTimer_ = new QTimer(this);
     updateTimer_->setSingleShot(true);
     updateTimer_->setInterval(120);
@@ -1200,6 +1220,26 @@ void ChartView::fitToSceneBox(const BBox& b) {
     update();
 }
 
+// Pan/zoom to frame a geographic box (degrees). Builds the scene-frame box
+// (x = lonToX, y = -latToY) with ~25% padding and defers to fitToSceneBox. A
+// degenerate box (single point / zero span) is padded to a small minimum so a
+// one-point route still lands on screen at a sensible zoom.
+void ChartView::fitToGeoBox(double latMin, double lonMin, double latMax, double lonMax) {
+    BBox b;
+    b.expand(proj::lonToX(lonMin), -proj::latToY(latMin));
+    b.expand(proj::lonToX(lonMax), -proj::latToY(latMax));
+    if (!b.valid()) return;
+    double wM = b.maxx - b.minx, hM = b.maxy - b.miny;
+    // Pad so the route isn't jammed against the edges; floor the span so a
+    // single-point box (or a perfectly N-S / E-W line) still has area to frame.
+    const double padX = std::max(wM * 0.25, 500.0);
+    const double padY = std::max(hM * 0.25, 500.0);
+    b.minx -= padX; b.maxx += padX;
+    b.miny -= padY; b.maxy += padY;
+    userInteracted_ = true;        // an explicit jump; don't auto-refit on resize
+    fitToSceneBox(b);
+}
+
 // Draw the raster charts in device space: choose each chart's native pyramid
 // zoom from the current scale, blit cached tiles, request missing ones, and fall
 // back to the nearest cached coarser ancestor so zoom/pan never flashes blank.
@@ -1352,6 +1392,11 @@ double ChartView::soundingMinSpacing(double lineHeightPx) const {
 void ChartView::setInitialView(double lon, double lat, double scale) {
     pendingLon_ = lon; pendingLat_ = lat; pendingScale_ = scale;
     havePendingView_ = (scale > 0.0);
+}
+
+void ChartView::keepCurrentViewOnNextLoad() {
+    double lon, lat, scale;
+    if (currentView(lon, lat, scale)) setInitialView(lon, lat, scale);
 }
 
 void ChartView::persistViewNow() {
@@ -1628,19 +1673,22 @@ void ChartView::drawOwnship(QPainter& p, const QTransform& cam) {
         else if (ownship_.cogDegTrue.valid()) headingDeg = ownship_.cogDegTrue.value;
     }
 
-    // Red ownship glyph: filled triangle.
+    // Red ownship glyph: a simplified boat hull (distinct from the AIS wedges).
     static const vessel::SymbolStyle kOwnship{
-        vessel::SymbolStyle::Shape::FilledTriangle,
+        vessel::SymbolStyle::Shape::BoatHull,
         QColor(220, 30, 30),        // fill
         QColor(200, 110, 110, 200), // stale fill
         QColor(40, 0, 0),           // edge
         QColor(40, 0, 0),           // stale edge
         QColor(20, 20, 20, 220)     // pred line
     };
+    // Draw the ownship a touch larger than the AIS targets (which use the same
+    // vesselScale_) so the boat stands out as the vessel you're on.
+    constexpr double kOwnshipScale = 1.15;
     vessel::drawSymbol(p, d, headingDeg, ownship_.sogKnots.valueOr(0.0),
                        ownshipPredMin_, ppm_,
                        ownshipFreshness_ == NavFreshness::Stale, kOwnship,
-                       vesselScale_);
+                       vesselScale_ * kOwnshipScale);
 }
 
 // A vertical scale bar in the lower-right corner. Five segments alternating
@@ -1814,12 +1862,25 @@ void ChartView::wheelEvent(QWheelEvent* e) {
 
 void ChartView::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && ppm_ > 0.0) {
+        // Offer the gesture to the active editor first. If it grabs (e.g. the
+        // press landed on a draggable route node), we drag the node instead of
+        // panning the chart.
+        if (editor_ && editor_->onPress(e->position())) {
+            editorGrab_ = true;
+            userInteracted_ = true;
+            QWidget::mousePressEvent(e);
+            return;
+        }
         dragging_ = true;
         panDismissEmitted_ = false;           // re-arm pan dismissal for this gesture
         lastDragPos_ = e->position();
         pressPos_   = e->position();          // for click vs drag at release
         userInteracted_ = true;
         setCursor(Qt::ClosedHandCursor);
+        // Arm the long-press timer; cancelled in mouseMove (large motion) or
+        // mouseRelease (early release). Editor sessions are exempt above.
+        longPressFired_ = false;
+        if (!editor_ && longPressTimer_) longPressTimer_->start();
     }
     QWidget::mousePressEvent(e);
 }
@@ -1828,6 +1889,12 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
     if (ppm_ > 0.0) {
         const QPointF s = screenToScene(e->position());
         emit cursorMoved(proj::xToLon(s.x()), proj::yToLat(-s.y()));
+        if (editorGrab_) {                    // dragging a node, not panning
+            editor_->onMove(e->position());
+            update();
+            QWidget::mouseMoveEvent(e);
+            return;
+        }
         if (dragging_) {
             const QPointF d = e->position() - lastDragPos_;
             lastDragPos_ = e->position();
@@ -1838,6 +1905,11 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
                 panDismissEmitted_ = true;
                 emit chartInteracted();
             }
+            // A long-press needs the finger to stay (mostly) put. Cancel as soon
+            // as the gesture turns into a pan so a slow drag doesn't trigger it.
+            if (longPressTimer_ && longPressTimer_->isActive()
+                && (e->position() - pressPos_).manhattanLength() > 8.0)
+                longPressTimer_->stop();
             if (autoFollow_) setAutoFollow(false);   // a pan breaks the lock
             scx_ -= d.x() / ppm_;
             scy_ -= d.y() / ppm_;
@@ -1851,14 +1923,25 @@ void ChartView::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void ChartView::mouseReleaseEvent(QMouseEvent* e) {
+    if (e->button() == Qt::LeftButton && editorGrab_) {
+        editorGrab_ = false;
+        editor_->onRelease(e->position());
+        update();
+        QWidget::mouseReleaseEvent(e);
+        return;
+    }
     if (e->button() == Qt::LeftButton && dragging_) {
         dragging_ = false;
         setCursor(Qt::OpenHandCursor);
-        // Release with little movement is a click: offer it to the overlays in
-        // reverse z-order; the first to consume it (e.g. AIS hit) wins. A click
-        // that no overlay consumes is an empty-space click — dismiss transient
-        // popups (target clicks are handled by the overlay, not this signal).
-        if ((e->position() - pressPos_).manhattanLength() <= 4.0) {
+        if (longPressTimer_) longPressTimer_->stop();
+        // Release with little movement is a click — unless a long-press already
+        // fired, in which case the gesture is consumed and we suppress the click.
+        // Otherwise the click is offered to overlays in reverse z-order; the
+        // first to consume it (e.g. AIS / route hit) wins. A click that no
+        // overlay consumes is an empty-space click and dismisses transient popups.
+        if (longPressFired_) {
+            longPressFired_ = false;
+        } else if ((e->position() - pressPos_).manhattanLength() <= 4.0) {
             bool consumed = false;
             for (auto it = overlays_.rbegin(); it != overlays_.rend(); ++it) {
                 if ((*it)->hitTest(e->position())) { consumed = true; break; }

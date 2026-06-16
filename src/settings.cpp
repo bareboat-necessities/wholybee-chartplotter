@@ -26,6 +26,9 @@ constexpr auto kAisLostS    = "nav/aisLostSeconds";
 constexpr auto kPredMin   = "ships/ownshipPredictionMinutes";
 constexpr auto kDepthUnit = "units/depth";
 constexpr auto kDistUnit  = "units/distance";
+constexpr auto kAngleFmt  = "units/angle";
+constexpr auto kBearing   = "units/bearing";
+constexpr auto kArrivalNm = "nav/arrivalRadiusNm";
 constexpr auto kSrcPrio   = "data/sourcePriority";
 constexpr auto kAutoHide  = "menu/autoHide";
 constexpr auto kDetailLvl = "display/chartDetailLevel";
@@ -78,6 +81,12 @@ Settings::Settings(QObject* parent) : QObject(parent) {
                                             DepthUnit::Feet);
     distanceUnit_ = units::distanceUnitFromKey(s.value(QLatin1String(kDistUnit)).toString(),
                                                DistanceUnit::NauticalMiles);
+    angleFormat_  = units::angleFormatFromKey(s.value(QLatin1String(kAngleFmt)).toString(),
+                                              AngleFormat::DecimalDegrees);
+    bearingMode_  = units::bearingModeFromKey(s.value(QLatin1String(kBearing)).toString(),
+                                              BearingMode::True);
+    arrivalRadiusNm_ = s.value(QLatin1String(kArrivalNm), 0.1).toDouble();
+    if (arrivalRadiusNm_ < 0.001) arrivalRadiusNm_ = 0.001;
     // Raw saved order; reconciled against the runtime DataSourceRegistry (which
     // includes plugin sources) where it is consumed.
     dataSourcePriority_ = s.value(QLatin1String(kSrcPrio)).toStringList();
@@ -187,11 +196,33 @@ void Settings::setDepthUnit(DepthUnit u) {
     emit depthUnitChanged(u);
 }
 
+void Settings::setAngleFormat(AngleFormat u) {
+    if (u == angleFormat_) return;
+    angleFormat_ = u;
+    QSettings().setValue(QLatin1String(kAngleFmt), units::angleFormatKey(u));
+    emit angleFormatChanged(u);
+}
+
 void Settings::setDistanceUnit(DistanceUnit u) {
     if (u == distanceUnit_) return;
     distanceUnit_ = u;
     QSettings().setValue(QLatin1String(kDistUnit), units::distanceUnitKey(u));
     emit distanceUnitChanged(u);
+}
+
+void Settings::setBearingMode(BearingMode b) {
+    if (b == bearingMode_) return;
+    bearingMode_ = b;
+    QSettings().setValue(QLatin1String(kBearing), units::bearingModeKey(b));
+    emit bearingModeChanged(b);
+}
+
+void Settings::setArrivalRadiusNm(double nm) {
+    if (nm < 0.001) nm = 0.001;
+    if (nm == arrivalRadiusNm_) return;
+    arrivalRadiusNm_ = nm;
+    QSettings().setValue(QLatin1String(kArrivalNm), nm);
+    emit arrivalRadiusNmChanged(nm);
 }
 
 void Settings::setDataSourcePriority(const QStringList& orderedSourceIds) {

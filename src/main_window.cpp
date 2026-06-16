@@ -6,6 +6,7 @@
 #include "side_menu.hpp"
 #include "chart_sets_dialog.hpp"
 #include "units_dialog.hpp"
+#include "navigation_options_dialog.hpp"
 #include "stale_thresholds_dialog.hpp"
 #include "ownship_prediction_dialog.hpp"
 #include "nav_data_browser_window.hpp"
@@ -17,8 +18,19 @@
 #include "heading_source_dialog.hpp"
 #include "dangerous_ships_dialog.hpp"
 #include "ais_target_list_dialog.hpp"
+#include "route_store.hpp"
+#include "route_navigator.hpp"
+#include "nav_display_window.hpp"
+#include "route_overlay.hpp"
+#include "route_list_dialog.hpp"
+#include "waypoint_list_dialog.hpp"
+#include "route_properties_dialog.hpp"
+#include "waypoint_properties_dialog.hpp"
+#include "route_quick_info_window.hpp"
+#include "name_dialog.hpp"
 #include "nav_data_store.hpp"
 #include "ais_target_store.hpp"
+#include "units.hpp"
 #include "cpa_calculator.hpp"
 #include "ais_overlay.hpp"
 #include "ais_target_info_window.hpp"
@@ -33,13 +45,18 @@
 #include <QStatusBar>
 #include <QLabel>
 #include <QPushButton>
+#include <QHBoxLayout>
+#include <QMenu>
+#include <QAction>
 #include <QMessageBox>
+#include <QScreen>
 #include <QFileDialog>
 #include <QDir>
 #include <QEvent>
 #include <QCloseEvent>
 #include <QSettings>
 #include <QCursor>
+#include <algorithm>
 #include <cmath>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -53,6 +70,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     if (!geom.isEmpty()) restoreGeometry(geom);
 
     settings_ = new Settings(this);
+    // Seed the process-wide coordinate display format so every widget formats
+    // lat/lon consistently from the first paint.
+    units::setCoordFormat(settings_->angleFormat());
 
     view_ = new ChartView(this);
     setCentralWidget(view_);
@@ -91,6 +111,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_, &Settings::depthUnitChanged, view_, &ChartView::setDepthUnit);
     view_->setDistanceUnit(settings_->distanceUnit());
     connect(settings_, &Settings::distanceUnitChanged, view_, &ChartView::setDistanceUnit);
+
+    // Coordinate (lat/lon) display format: update the shared format and refresh
+    // the live displays (status-bar cursor + any open waypoint list). The AIS
+    // info and nav-data browser windows refresh on their own 1 Hz timers.
+    connect(settings_, &Settings::angleFormatChanged, this, [this](AngleFormat f) {
+        units::setCoordFormat(f);
+        onCursorMoved(lastCursorLon_, lastCursorLat_);
+        if (waypointListDlg_) waypointListDlg_->refresh();
+    });
 
     // Ownship course-prediction length (minutes), persisted via Settings.
     view_->setOwnshipPredictionMinutes(settings_->ownshipPredictionMinutes());
@@ -151,6 +180,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(view_, &ChartView::chartInteracted, this, [this] {
         if (aisQuickInfo_) aisQuickInfo_->close();
         aisQuickInfoMmsi_ = 0;
+        if (routeQuickInfo_) routeQuickInfo_->close();
     });
     connect(settings_, &Settings::ownshipPredictionMinutesChanged,
             this, [this](double m) {
@@ -198,6 +228,30 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (view_) view_->update();
     });
 
+    // Routes & waypoints: SQLite-backed store + chart overlay/editor. The overlay
+    // is added after the AIS overlay so that, during an edit session, its
+    // hitTest gets first refusal on a tap (reverse z-order) and can add/select
+    // route nodes even over an AIS target. Store changes repaint the chart.
+    routeStore_ = new RouteStore(this);
+    routeOverlay_ = std::make_unique<RouteOverlay>(routeStore_);
+    routeOverlay_->setNavSource(navStore_);   // for the active-waypoint highlight
+    routeOverlay_->setRepaintCallback([this] { if (view_) view_->update(); });
+    routeOverlay_->setWaypointPlacedCallback([this](double lat, double lon) {
+        onWaypointPlaced(lat, lon);
+    });
+    routeOverlay_->setSelectionChangedCallback([this](bool has) {
+        if (deletePointBtn_) deletePointBtn_->setEnabled(has);
+    });
+    routeOverlay_->setObjectClickedCallback([this](const ClickedRouteObject& hit) {
+        onRouteObjectClicked(hit);
+    });
+    view_->addOverlay(routeOverlay_.get());
+    connect(routeStore_, &RouteStore::routesChanged,    this, [this] { if (view_) view_->update(); });
+    connect(routeStore_, &RouteStore::waypointsChanged, this, [this] { if (view_) view_->update(); });
+    // Repaint when the active waypoint changes (advance / start / stop) so the
+    // route overlay's red highlight tracks it promptly.
+    connect(navStore_, &NavDataStore::navigationChanged, this, [this] { if (view_) view_->update(); });
+
     // Collision component: computes each target's CPA/TCPA against the ownship
     // and writes them back into the store (which the overlay and info windows
     // read). Skips the boat's own MMSI so its AIS echo never alarms on itself.
@@ -223,7 +277,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     sideMenu_->setAutoHide(settings_->autoHideMenu());
     connect(settings_, &Settings::autoHideMenuChanged,
             sideMenu_, &SideMenu::setAutoHide);
-    connect(sideMenu_, &SideMenu::fitRequested,             view_, &ChartView::fitToCatalog);
     connect(sideMenu_, &SideMenu::centerOnOwnshipRequested, view_, &ChartView::centerOnOwnship);
     connect(sideMenu_, &SideMenu::autoFollowToggled,        view_, &ChartView::setAutoFollow);
     connect(view_, &ChartView::autoFollowChanged,           sideMenu_, &SideMenu::setAutoFollowChecked);
@@ -231,6 +284,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::manageChartSetsRequested, this,  &MainWindow::manageChartSets);
     connect(sideMenu_, &SideMenu::basemapFolderRequested,   this,  &MainWindow::chooseBasemapFolder);
     connect(sideMenu_, &SideMenu::editUnitsRequested,       this,  &MainWindow::editUnits);
+    connect(sideMenu_, &SideMenu::navigationOptionsRequested, this, &MainWindow::editNavigationOptions);
     connect(sideMenu_, &SideMenu::editStaleThresholdsRequested,     this, &MainWindow::editStaleThresholds);
     connect(sideMenu_, &SideMenu::editOwnshipPredictionRequested,   this, &MainWindow::editOwnshipPrediction);
     connect(sideMenu_, &SideMenu::navDataBrowserRequested,          this, &MainWindow::showNavDataBrowser);
@@ -242,12 +296,32 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editHeadingSourceRequested,       this, &MainWindow::editHeadingSource);
     connect(sideMenu_, &SideMenu::editDangerousShipsRequested,      this, &MainWindow::editDangerousShips);
     connect(sideMenu_, &SideMenu::aisTargetListRequested,           this, &MainWindow::showAisTargetList);
+    connect(sideMenu_, &SideMenu::createRouteRequested,    this, &MainWindow::startCreateRoute);
+    connect(sideMenu_, &SideMenu::editRouteRequested,      this, &MainWindow::startEditRoute);
+    connect(sideMenu_, &SideMenu::routeListRequested,      this, &MainWindow::showRouteList);
+    connect(sideMenu_, &SideMenu::createWaypointRequested, this, &MainWindow::startCreateWaypoint);
+    connect(sideMenu_, &SideMenu::editWaypointRequested,   this, &MainWindow::startEditWaypoint);
+    connect(sideMenu_, &SideMenu::dropWaypointRequested,   this, &MainWindow::dropWaypoint);
+    connect(sideMenu_, &SideMenu::waypointListRequested,   this, &MainWindow::showWaypointList);
+
+    // Route navigation engine. Computes APB/RMB values into the nav store while
+    // active. Its active state and the menu's "Navigating" checkbox mirror each
+    // other (setNavigatingChecked guards against the toggle feedback loop).
+    navigator_ = new RouteNavigator(navStore_, routeStore_, settings_, this);
+    connect(navigator_, &RouteNavigator::activeChanged,
+            sideMenu_, &SideMenu::setNavigatingChecked);
+    connect(sideMenu_, &SideMenu::navigatingToggled,
+            this, &MainWindow::onNavigatingToggled);
+    // Floating readout over the chart; shows/hides itself with navigation state.
+    navDisplay_ = new NavDisplayWindow(navStore_, view_);
+
+    buildEditBar();   // floating Complete/Delete/Cancel bar (hidden until editing)
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
     // plugin would use later. NMEA 0183 is a plugin; the test plugin exercises
     // menus, overlays, and the nav data API. Plugins register their sources here.
-    coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, sideMenu_, view_, &registry_, this);
+    coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, routeStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
     plugins_->add(std::make_unique<Nmea2000Plugin>());
@@ -277,8 +351,32 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         .arg(ob.fg, ob.border, ob.bg, ob.pressed));
     connect(menuButton_, &QPushButton::clicked, sideMenu_, &SideMenu::openMenu);
     menuButton_->show();
-    view_->installEventFilter(this);   // reposition the button when the view resizes
+
+    // Floating "+" button: a visible affordance for creating routes/waypoints
+    // without diving into the menu. Same look as the menu button, sits just
+    // below it. Long-press on the chart opens the same popup at the tap site.
+    addButton_ = new QPushButton(QStringLiteral("+"), view_);
+    addButton_->setFixedSize(48, 48);
+    addButton_->setCursor(Qt::PointingHandCursor);
+    addButton_->setStyleSheet(QStringLiteral(
+        "QPushButton{ font-size:26px; font-weight:600; color:%1;"
+        " border:1px solid %2; border-radius:6px; background:%3; }"
+        "QPushButton:pressed{ background:%4; }")
+        .arg(ob.fg, ob.border, ob.bg, ob.pressed));
+    addButton_->setToolTip(QStringLiteral("Add a route or waypoint"));
+    connect(addButton_, &QPushButton::clicked, this, [this] {
+        // The "+" button has no chart-position context, so the next chart tap
+        // places the first point (screenPt is unused in this path).
+        showAddPopup(QPointF(), addButton_->mapToGlobal(QPoint(addButton_->width(), 0)), /*atPoint=*/false);
+    });
+    addButton_->show();
+
+    // Long-press on the chart opens the same popup at the tap.
+    connect(view_, &ChartView::longPressed, this, &MainWindow::onChartLongPressed);
+
+    view_->installEventFilter(this);   // reposition the buttons when the view resizes
     positionMenuButton();
+    positionAddButton();
 
     statusLeft_  = new QLabel(QStringLiteral("No chart folder selected"));
     statusMid_   = new QLabel(QString());
@@ -302,8 +400,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 MainWindow::~MainWindow() = default;
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
-    if (obj == view_ && e->type() == QEvent::Resize)
+    if (obj == view_ && e->type() == QEvent::Resize) {
         positionMenuButton();
+        positionAddButton();
+        positionEditBar();
+    }
     return QMainWindow::eventFilter(obj, e);
 }
 
@@ -321,8 +422,17 @@ void MainWindow::positionMenuButton() {
         menuButton_->raise();   // stay above the chart, but never above an open menu
 }
 
+void MainWindow::positionAddButton() {
+    if (!addButton_ || !menuButton_) return;
+    // Stack directly below the menu button, same left edge, small gap.
+    addButton_->move(12, 12 + menuButton_->height() + 8);
+    if (!sideMenu_ || !sideMenu_->isOpen()) addButton_->raise();
+}
+
 void MainWindow::onChartSetSelected(const QString& dir) {
-    // Tapping a set loads it; tapping the active set again re-scans it.
+    // Tapping a set loads it; tapping the active set again re-scans it. Keep the
+    // current pan/zoom across the switch rather than fitting to the new set.
+    view_->keepCurrentViewOnNextLoad();
     settings_->setChartDirectory(dir);
     startScan(dir);
 }
@@ -349,11 +459,20 @@ void MainWindow::chooseBasemapFolder() {
 }
 
 void MainWindow::editUnits() {
-    UnitsDialog dlg(settings_->depthUnit(), settings_->distanceUnit(), this);
+    UnitsDialog dlg(settings_->depthUnit(), settings_->distanceUnit(),
+                    settings_->angleFormat(), settings_->bearingMode(), this);
     if (dlg.exec() == QDialog::Accepted) {
         settings_->setDepthUnit(dlg.depthUnit());
         settings_->setDistanceUnit(dlg.distanceUnit());
+        settings_->setAngleFormat(dlg.angleFormat());
+        settings_->setBearingMode(dlg.bearingMode());
     }
+}
+
+void MainWindow::editNavigationOptions() {
+    NavigationOptionsDialog dlg(settings_->arrivalRadiusNm(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        settings_->setArrivalRadiusNm(dlg.arrivalRadiusNm());
 }
 
 void MainWindow::editStaleThresholds() {
@@ -428,6 +547,493 @@ void MainWindow::editDangerousShips() {
                                      dlg.cpaEnabled(), dlg.cpaNm(),
                                      dlg.tcpaEnabled(), dlg.tcpaMin(),
                                      dlg.anchoredSafeEnabled(), dlg.anchoredSogKn());
+}
+
+// ---- Routes & Waypoints ----------------------------------------------------
+
+void MainWindow::buildEditBar() {
+    // A compact floating toolbar over the chart, used while creating/editing a
+    // route or placing a waypoint. Child of the view so it overlays the chart.
+    editBar_ = new QWidget(view_);
+    editBar_->setStyleSheet(QStringLiteral(
+        "QWidget{ background: rgba(30,34,40,235); border:1px solid rgba(255,255,255,40);"
+        " border-radius:8px; }"
+        "QLabel{ color:#e6e9ee; font-size:13px; background:transparent; border:none; }"
+        "QPushButton{ font-size:14px; min-height:38px; padding:0 14px;"
+        " color:#ffffff; border:1px solid rgba(255,255,255,60); border-radius:6px;"
+        " background: rgba(255,255,255,16); }"
+        "QPushButton:disabled{ color: rgba(255,255,255,90); }"
+        "QPushButton:pressed{ background: rgba(255,255,255,40); }"));
+    auto* row = new QHBoxLayout(editBar_);
+    row->setContentsMargins(12, 8, 12, 8);
+    row->setSpacing(8);
+
+    editHint_ = new QLabel(editBar_);
+    row->addWidget(editHint_);
+    row->addSpacing(4);
+
+    deletePointBtn_ = new QPushButton(QStringLiteral("Delete Point"), editBar_);
+    deletePointBtn_->setEnabled(false);
+    connect(deletePointBtn_, &QPushButton::clicked, this, [this] {
+        if (routeOverlay_) routeOverlay_->deleteSelectedNode();
+    });
+    row->addWidget(deletePointBtn_);
+
+    completeBtn_ = new QPushButton(QStringLiteral("Complete Route"), editBar_);
+    connect(completeBtn_, &QPushButton::clicked, this, &MainWindow::completeEdit);
+    row->addWidget(completeBtn_);
+
+    cancelEditBtn_ = new QPushButton(QStringLiteral("Cancel"), editBar_);
+    connect(cancelEditBtn_, &QPushButton::clicked, this, &MainWindow::cancelEdit);
+    row->addWidget(cancelEditBtn_);
+
+    editBar_->hide();
+}
+
+void MainWindow::positionEditBar() {
+    if (!editBar_ || !editBar_->isVisible() || !view_) return;
+    editBar_->adjustSize();
+    const int x = (view_->width() - editBar_->width()) / 2;
+    editBar_->move(std::max(8, x), 12);
+    editBar_->raise();
+}
+
+void MainWindow::showRouteEditBar(const QString& hint) {
+    editHint_->setText(hint);
+    completeBtn_->setText(QStringLiteral("Complete Route"));
+    deletePointBtn_->show();
+    completeBtn_->show();
+    deletePointBtn_->setEnabled(false);
+    editBar_->show();
+    positionEditBar();
+}
+
+void MainWindow::showWaypointPlaceBar(const QString& hint) {
+    editHint_->setText(hint);
+    deletePointBtn_->hide();
+    completeBtn_->hide();
+    editBar_->show();
+    positionEditBar();
+}
+
+void MainWindow::showWaypointEditBar(const QString& hint) {
+    editHint_->setText(hint);
+    completeBtn_->setText(QStringLiteral("Done"));
+    deletePointBtn_->hide();
+    completeBtn_->show();
+    editBar_->show();
+    positionEditBar();
+}
+
+void MainWindow::showPointDragBar(const QString& hint) {
+    // Done/Cancel only — deletion of route points is handled in the Properties
+    // dialog, so no Delete Point button here.
+    editHint_->setText(hint);
+    completeBtn_->setText(QStringLiteral("Done"));
+    deletePointBtn_->hide();
+    completeBtn_->show();
+    editBar_->show();
+    positionEditBar();
+}
+
+void MainWindow::endRouteMode() {
+    if (routeOverlay_) routeOverlay_->endEditing();
+    if (view_) view_->setChartEditor(nullptr);
+    if (editBar_) editBar_->hide();
+    if (view_) view_->update();
+}
+
+void MainWindow::startCreateRoute() {
+    if (sideMenu_) sideMenu_->closeMenu();
+    routeOverlay_->beginCreateRoute();
+    view_->setChartEditor(routeOverlay_.get());
+    showRouteEditBar(QStringLiteral("Tap the chart to add points · drag to move · tap a point to select"));
+}
+
+void MainWindow::onRouteObjectClicked(const ClickedRouteObject& hit) {
+    if (!routeStore_) return;
+    // Replace any existing popup; close any AIS popup that was up.
+    if (aisQuickInfo_) aisQuickInfo_->close();
+    if (routeQuickInfo_) routeQuickInfo_->close();
+
+    routeQuickInfo_ = new RouteQuickInfoWindow(hit.kind, hit.id, routeStore_, this);
+    const qint64 id = hit.id;
+    if (hit.kind == ClickedRouteObject::Kind::Waypoint) {
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::renameRequested,
+                this, [this, id] { renameWaypoint(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::editRequested,
+                this, [this, id] { beginEditWaypoint(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::propertiesRequested,
+                this, [this, id] { openWaypointProperties(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::visibilityToggleRequested,
+                this, [this, id] { toggleWaypointVisible(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::deleteRequested,
+                this, [this, id] { confirmDeleteWaypoint(id); });
+    } else {
+        const int startIdx = hit.pointIndex;   // the tapped waypoint / leg-end
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::navigateRequested,
+                this, [this, id, startIdx] { startNavigation(id, startIdx); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::renameRequested,
+                this, [this, id] { renameRoute(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::editRequested,
+                this, [this, id] { beginEditRoute(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::propertiesRequested,
+                this, [this, id] { openRouteProperties(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::visibilityToggleRequested,
+                this, [this, id] { toggleRouteVisible(id); });
+        connect(routeQuickInfo_, &RouteQuickInfoWindow::deleteRequested,
+                this, [this, id] { confirmDeleteRoute(id); });
+    }
+    // Anchor near the tap, clamped inside the view so the popup is never
+    // off-screen on a small window.
+    routeQuickInfo_->adjustSize();
+    QPoint anchor = view_->mapToGlobal(hit.screenPt.toPoint()) + QPoint(12, 12);
+    const QRect screen = view_->screen()
+        ? view_->screen()->availableGeometry()
+        : QRect(0, 0, 1920, 1080);
+    anchor.setX(std::min(anchor.x(), screen.right() - routeQuickInfo_->width() - 12));
+    anchor.setY(std::min(anchor.y(), screen.bottom() - routeQuickInfo_->height() - 12));
+    routeQuickInfo_->move(anchor);
+    routeQuickInfo_->show();
+}
+
+void MainWindow::renameRoute(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    if (!r) return;
+    NameDialog dlg(QStringLiteral("Rename Route"), r->name, r->description, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    Route copy = *r;
+    copy.name = dlg.name();
+    copy.description = dlg.description();
+    routeStore_->updateRoute(copy);
+}
+
+void MainWindow::renameWaypoint(qint64 id) {
+    if (!routeStore_) return;
+    const Waypoint* w = nullptr;
+    for (const Waypoint& cand : routeStore_->waypoints())
+        if (cand.id == id) { w = &cand; break; }
+    if (!w) return;
+    NameDialog dlg(QStringLiteral("Rename Waypoint"), w->name, w->description, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    Waypoint copy = *w;
+    copy.name = dlg.name();
+    copy.description = dlg.description();
+    routeStore_->updateWaypoint(copy);
+}
+
+void MainWindow::toggleRouteVisible(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    if (r) routeStore_->setRouteVisible(id, !r->visible);
+}
+
+void MainWindow::toggleWaypointVisible(qint64 id) {
+    if (!routeStore_) return;
+    for (const Waypoint& w : routeStore_->waypoints())
+        if (w.id == id) { routeStore_->setWaypointVisible(id, !w.visible); return; }
+}
+
+void MainWindow::confirmDeleteRoute(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    const QString nm = (r && !r->name.isEmpty()) ? r->name : QStringLiteral("this route");
+    if (QMessageBox::question(this, QStringLiteral("Delete Route"),
+            QStringLiteral("Delete %1?").arg(nm)) != QMessageBox::Yes) return;
+    routeStore_->removeRoute(id);
+}
+
+void MainWindow::confirmDeleteWaypoint(qint64 id) {
+    if (!routeStore_) return;
+    QString nm = QStringLiteral("this waypoint");
+    for (const Waypoint& w : routeStore_->waypoints())
+        if (w.id == id) { if (!w.name.isEmpty()) nm = w.name; break; }
+    if (QMessageBox::question(this, QStringLiteral("Delete Waypoint"),
+            QStringLiteral("Delete %1?").arg(nm)) != QMessageBox::Yes) return;
+    routeStore_->removeWaypoint(id);
+}
+
+void MainWindow::startNavigation(qint64 routeId, int destIndex) {
+    if (navigator_) navigator_->startRoute(routeId, destIndex);
+}
+
+void MainWindow::onNavigatingToggled(bool on) {
+    if (!navigator_) return;
+    if (on) {
+        if (navigator_->isActive()) return;   // echo of a programmatic check; ignore
+        // User ticked "Navigating" by hand: resume the last route if one remains,
+        // otherwise there is nothing to navigate, so undo the tick.
+        if (navigator_->canResume()) navigator_->resume();
+        else if (sideMenu_)          sideMenu_->setNavigatingChecked(false);
+    } else {
+        navigator_->stop();
+    }
+}
+
+void MainWindow::onChartLongPressed(const QPointF& screenPt) {
+    // Long-press dismisses transient overlay popups (so a long-press on a saved
+    // object doesn't leave its quick-info popup hanging) and then offers the add
+    // menu at the press location.
+    if (aisQuickInfo_)   aisQuickInfo_->close();
+    if (routeQuickInfo_) routeQuickInfo_->close();
+    showAddPopup(screenPt, view_->mapToGlobal(screenPt.toPoint()), /*atPoint=*/true);
+}
+
+void MainWindow::showAddPopup(const QPointF& screenPt, const QPoint& globalPt, bool atPoint) {
+    QMenu menu(this);
+    // The long-press knows where the user pressed, so it places "here"; the "+"
+    // button has no position, so it arms creation and the next chart tap places.
+    QAction* aWpt   = menu.addAction(atPoint ? QStringLiteral("New waypoint here")
+                                             : QStringLiteral("New waypoint"));
+    QAction* aRoute = menu.addAction(atPoint ? QStringLiteral("Start route here")
+                                             : QStringLiteral("New route"));
+    QAction* picked = menu.exec(globalPt);
+    if (!picked || !routeStore_ || !routeOverlay_) return;
+
+    if (picked == aWpt) {
+        if (atPoint) {
+            // Convert the press point to geo by running the overlay through the
+            // chart-tap path: begin CreateWaypoint, then hitTest at screenPt,
+            // which calls onWaypointPlaced -> auto-name save. Mode is reset in
+            // onWaypointPlaced via endRouteMode().
+            routeOverlay_->beginCreateWaypoint();
+            routeOverlay_->hitTest(screenPt);
+        } else {
+            // Arm create-waypoint mode; the next chart tap places it.
+            startCreateWaypoint();
+        }
+        return;
+    }
+    if (picked == aRoute) {
+        // Start a fresh route session. For a long-press the first point is
+        // placed at the press location; for the "+" button the route starts
+        // empty and the first chart tap appends the first point.
+        routeOverlay_->beginCreateRoute();
+        view_->setChartEditor(routeOverlay_.get());
+        if (atPoint) routeOverlay_->hitTest(screenPt);   // appends the first point
+        showRouteEditBar(QStringLiteral("Tap the chart to add points · drag to move · tap a point to select"));
+        return;
+    }
+}
+
+void MainWindow::startEditRoute() {
+    if (!routeStore_) return;
+    // Modal picker. A row tap emits routePicked and accepts; we then begin edit.
+    RouteListDialog dlg(routeStore_, /*pickMode=*/true, this);
+    qint64 picked = -1;
+    connect(&dlg, &RouteListDialog::routePicked, this, [&picked](qint64 id) { picked = id; });
+    if (dlg.exec() == QDialog::Accepted && picked >= 0) beginEditRoute(picked);
+}
+
+void MainWindow::beginEditRoute(qint64 id) {
+    const Route* r = routeStore_->route(id);
+    if (!r || r->points.isEmpty()) return;
+    // Frame the route, then enter edit mode on a working copy.
+    double latMin = 90, latMax = -90, lonMin = 180, lonMax = -180;
+    for (const RoutePoint& p : r->points) {
+        latMin = std::min(latMin, p.lat); latMax = std::max(latMax, p.lat);
+        lonMin = std::min(lonMin, p.lon); lonMax = std::max(lonMax, p.lon);
+    }
+    view_->fitToGeoBox(latMin, lonMin, latMax, lonMax);
+    if (sideMenu_) sideMenu_->closeMenu();
+    routeOverlay_->beginEditRoute(*r);
+    view_->setChartEditor(routeOverlay_.get());
+    showRouteEditBar(QStringLiteral("Drag to move · tap empty chart to add · select a point to delete"));
+}
+
+void MainWindow::completeEdit() {
+    // The single Complete/Done button serves route creation/editing, waypoint
+    // moves, and the Route Properties point-drag round-trip.
+    if (!routeOverlay_) return;
+    if (editContext_ == EditContext::RouteProps) { finishPropsDrag(/*apply=*/true); return; }
+    if (routeOverlay_->mode() == RouteOverlay::Mode::EditWaypoint)
+        completeWaypointMove();
+    else
+        completeRoute();
+}
+
+void MainWindow::cancelEdit() {
+    // Cancel discards the current edit. For a Properties point-drag it returns to
+    // the dialog (without applying the drag); otherwise it ends the edit session.
+    if (editContext_ == EditContext::RouteProps) { finishPropsDrag(/*apply=*/false); return; }
+    endRouteMode();
+}
+
+void MainWindow::completeRoute() {
+    if (!routeOverlay_ || !routeStore_) return;
+    Route r = routeOverlay_->workingRoute();
+    if (r.points.size() < 2) {
+        QMessageBox::information(this, QStringLiteral("Route"),
+            QStringLiteral("A route needs at least two points."));
+        return;
+    }
+    // Auto-name new routes; reachable via Rename in the chart popup or via the
+    // Properties dialog. Edits keep the existing name.
+    if (r.id < 0 && r.name.isEmpty()) r.name = routeStore_->nextRouteName();
+    if (r.id < 0) routeStore_->addRoute(r);
+    else          routeStore_->updateRoute(r);
+    endRouteMode();
+}
+
+void MainWindow::startCreateWaypoint() {
+    if (sideMenu_) sideMenu_->closeMenu();
+    routeOverlay_->beginCreateWaypoint();
+    view_->setChartEditor(routeOverlay_.get());
+    showWaypointPlaceBar(QStringLiteral("Tap the chart to place a waypoint"));
+}
+
+void MainWindow::onWaypointPlaced(double lat, double lon) {
+    // Placing ends the create-waypoint mode and saves immediately with an
+    // auto-name; rename from the chart popup or Properties.
+    endRouteMode();
+    Waypoint w;
+    w.name = routeStore_->nextWaypointName();
+    w.lat = lat; w.lon = lon;
+    w.visible = true;
+    routeStore_->addWaypoint(w);
+}
+
+void MainWindow::startEditWaypoint() {
+    if (!routeStore_) return;
+    WaypointListDialog dlg(routeStore_, /*pickMode=*/true, this);
+    qint64 picked = -1;
+    connect(&dlg, &WaypointListDialog::waypointPicked, this, [&picked](qint64 id) { picked = id; });
+    if (dlg.exec() == QDialog::Accepted && picked >= 0) beginEditWaypoint(picked);
+}
+
+void MainWindow::beginEditWaypoint(qint64 id) {
+    const Waypoint* found = nullptr;
+    for (const Waypoint& w : routeStore_->waypoints())
+        if (w.id == id) { found = &w; break; }
+    if (!found) return;
+    const Waypoint w = *found;   // copy before any repaint touches the store
+    view_->fitToGeoBox(w.lat, w.lon, w.lat, w.lon);   // single point: padded by fitToGeoBox
+    if (sideMenu_) sideMenu_->closeMenu();
+    routeOverlay_->beginEditWaypoint(w);
+    view_->setChartEditor(routeOverlay_.get());
+    showWaypointEditBar(QStringLiteral("Drag the waypoint to move it, then Done"));
+}
+
+void MainWindow::completeWaypointMove() {
+    if (!routeOverlay_ || !routeStore_) return;
+    routeStore_->updateWaypoint(routeOverlay_->workingWaypoint());
+    endRouteMode();
+}
+
+void MainWindow::dropWaypoint() {
+    if (sideMenu_) sideMenu_->closeMenu();
+    const OwnshipState& s = navStore_->ownship();
+    if (!s.latitudeDeg.valid() || !s.longitudeDeg.valid()) {
+        statusLeft_->setText(QStringLiteral("Drop Waypoint: no ownship position available"));
+        return;
+    }
+    Waypoint w;
+    w.name = routeStore_->nextWaypointName();
+    w.lat = s.latitudeDeg.value;
+    w.lon = s.longitudeDeg.value;
+    w.visible = true;
+    routeStore_->addWaypoint(w);
+}
+
+void MainWindow::showRouteList() {
+    if (!routeListDlg_) {
+        routeListDlg_ = new RouteListDialog(routeStore_, /*pickMode=*/false, this);
+        routeListDlg_->setAttribute(Qt::WA_DeleteOnClose);
+        connect(routeListDlg_, &RouteListDialog::propertiesRequested,
+                this, &MainWindow::openRouteProperties);
+        connect(routeListDlg_, &RouteListDialog::editRequested,
+                this, &MainWindow::beginEditRoute);
+        connect(routeListDlg_, &RouteListDialog::newRouteRequested,
+                this, &MainWindow::startCreateRoute);
+    }
+    routeListDlg_->show();
+    routeListDlg_->raise();
+    routeListDlg_->activateWindow();
+}
+
+void MainWindow::showWaypointList() {
+    if (!waypointListDlg_) {
+        waypointListDlg_ = new WaypointListDialog(routeStore_, /*pickMode=*/false, this);
+        waypointListDlg_->setAttribute(Qt::WA_DeleteOnClose);
+        connect(waypointListDlg_, &WaypointListDialog::propertiesRequested,
+                this, &MainWindow::openWaypointProperties);
+        connect(waypointListDlg_, &WaypointListDialog::editRequested,
+                this, &MainWindow::beginEditWaypoint);
+        connect(waypointListDlg_, &WaypointListDialog::newWaypointAtOwnshipRequested,
+                this, &MainWindow::dropWaypoint);
+    }
+    waypointListDlg_->show();
+    waypointListDlg_->raise();
+    waypointListDlg_->activateWindow();
+}
+
+void MainWindow::openRouteProperties(qint64 id) {
+    if (!routeStore_) return;
+    const Route* r = routeStore_->route(id);
+    if (!r) return;
+    // One Properties editor at a time; replace any existing.
+    if (propsDlg_) propsDlg_->close();
+    propsWork_ = *r;
+    propsDlg_ = new RoutePropertiesDialog(*r, this);
+    propsDlg_->setAttribute(Qt::WA_DeleteOnClose);
+    connect(propsDlg_, &RoutePropertiesDialog::editPointRequested,
+            this, &MainWindow::onPropsEditPoint);
+    connect(propsDlg_, &QDialog::accepted, this, [this] {
+        // Commit the edited working route to the store on OK.
+        if (propsDlg_ && routeStore_) routeStore_->updateRoute(propsDlg_->currentRoute());
+    });
+    propsDlg_->show();
+    propsDlg_->raise();
+    propsDlg_->activateWindow();
+}
+
+void MainWindow::openWaypointProperties(qint64 id) {
+    if (!routeStore_) return;
+    const Waypoint* found = nullptr;
+    for (const Waypoint& w : routeStore_->waypoints())
+        if (w.id == id) { found = &w; break; }
+    if (!found) return;
+    // Modal: a waypoint has no on-chart drag handoff here (use Edit Waypoint for
+    // that), so a simple OK/Cancel editor suffices.
+    WaypointPropertiesDialog dlg(*found, this);
+    if (dlg.exec() == QDialog::Accepted)
+        routeStore_->updateWaypoint(dlg.currentWaypoint());
+}
+
+void MainWindow::onPropsEditPoint(int index) {
+    if (!propsDlg_ || !routeOverlay_) return;
+    // Capture the dialog's current edits (incl. any typed coords), then hand off
+    // to the chart so the user can drag. The dialog hides during the drag.
+    propsWork_ = propsDlg_->currentRoute();
+    propsDlg_->hide();
+
+    if (!propsWork_.points.isEmpty()) {
+        double latMin = 90, latMax = -90, lonMin = 180, lonMax = -180;
+        for (const RoutePoint& p : propsWork_.points) {
+            latMin = std::min(latMin, p.lat); latMax = std::max(latMax, p.lat);
+            lonMin = std::min(lonMin, p.lon); lonMax = std::max(lonMax, p.lon);
+        }
+        view_->fitToGeoBox(latMin, lonMin, latMax, lonMax);
+    }
+    routeOverlay_->beginEditRoute(propsWork_);
+    view_->setChartEditor(routeOverlay_.get());
+    editContext_ = EditContext::RouteProps;
+    (void)index;   // the entry point; any node is then draggable
+    showPointDragBar(QStringLiteral("Drag a point to move it, then Done"));
+}
+
+void MainWindow::finishPropsDrag(bool apply) {
+    if (apply && routeOverlay_)
+        propsWork_ = routeOverlay_->workingRoute();   // read back the dragged points
+    editContext_ = EditContext::None;
+    endRouteMode();                                   // clear overlay edit + bar
+    if (propsDlg_) {
+        propsDlg_->setRoute(propsWork_);              // reflect the new coordinates
+        propsDlg_->show();
+        propsDlg_->raise();
+        propsDlg_->activateWindow();
+    }
 }
 
 void MainWindow::showAisTargetList() {
@@ -538,10 +1144,8 @@ void MainWindow::onViewStatus(const QString& text) {
 }
 
 void MainWindow::onCursorMoved(double lon, double lat) {
-    const QChar deg(0x00B0);
-    const QString ns = (lat >= 0.0) ? QStringLiteral("N") : QStringLiteral("S");
-    const QString ew = (lon >= 0.0) ? QStringLiteral("E") : QStringLiteral("W");
-    statusRight_->setText(QString::number(std::fabs(lat), 'f', 4) + deg + ns
-                          + QStringLiteral("   ")
-                          + QString::number(std::fabs(lon), 'f', 4) + deg + ew);
+    lastCursorLon_ = lon;
+    lastCursorLat_ = lat;
+    statusRight_->setText(units::formatLatitude(lat) + QStringLiteral("   ")
+                          + units::formatLongitude(lon));
 }

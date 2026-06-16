@@ -11,6 +11,7 @@ class QDialog;
 
 class NavDataStore;
 class AisTargetStore;
+class RouteStore;
 class SideMenu;
 class ChartView;
 class QWidget;
@@ -20,7 +21,8 @@ class DataSourceRegistry;
 // PluginManager; references (does not own) the core objects it bridges to.
 class CoreApi : public ICoreApi {
 public:
-    CoreApi(NavDataStore* store, AisTargetStore* ais, SideMenu* menu, ChartView* view,
+    CoreApi(NavDataStore* store, AisTargetStore* ais, RouteStore* routes,
+            SideMenu* menu, ChartView* view,
             DataSourceRegistry* registry, QWidget* dialogParent);
     ~CoreApi() override;
 
@@ -29,6 +31,8 @@ public:
 
     IAisPublisher*        aisPublisher() override;
     const AisTargetStore* aisData() const override { return ais_; }
+
+    RouteStore* routes() override { return routes_; }
 
     void addMenuAction(const QString& title, std::function<void()> onTriggered) override;
     void addMenuToggle(const QString& title, bool checked,
@@ -51,6 +55,7 @@ public:
 private:
     NavDataStore*       store_ = nullptr;
     AisTargetStore*     ais_ = nullptr;
+    RouteStore*         routes_ = nullptr;
     SideMenu*           menu_ = nullptr;
     ChartView*          view_ = nullptr;
     DataSourceRegistry* registry_ = nullptr;

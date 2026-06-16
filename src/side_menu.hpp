@@ -39,6 +39,11 @@ public:
     // pan turns it off). Does not re-emit autoFollowToggled.
     void setAutoFollowChecked(bool on);
 
+    // Reflect the current route-navigation state in the "Navigating" checkbox
+    // (e.g. when the user starts navigating from a route popup, or navigation
+    // stops on its own). Guards against re-emitting navigatingToggled.
+    void setNavigatingChecked(bool on);
+
     // Plugin contributions to the main menu's Plugins section.
     void addPluginAction(const QString& title, std::function<void()> onTriggered);
     void addPluginToggle(const QString& title, bool checked,
@@ -54,7 +59,6 @@ public:
     void addPluginSettingsItem(const QString& title, std::function<void()> onClicked);
 
 signals:
-    void fitRequested();
     void centerOnOwnshipRequested();                  // recenter on ownship
     void autoFollowToggled(bool on);                  // auto-follow on/off
     void chartSetSelected(const QString& directory);  // user tapped a set to load
@@ -72,6 +76,16 @@ signals:
     void editHeadingSourceRequested();                 // open Heading Source dialog
     void editDangerousShipsRequested();                // open Dangerous Ships dialog
     void aisTargetListRequested();                     // open AIS Targets list dialog
+    void navigationOptionsRequested();                 // open Navigation Options dialog
+    void navigatingToggled(bool on);                   // user toggled route navigation
+    // Routes & Waypoints sub-page actions.
+    void createRouteRequested();
+    void editRouteRequested();
+    void routeListRequested();
+    void createWaypointRequested();
+    void editWaypointRequested();
+    void dropWaypointRequested();
+    void waypointListRequested();
 
 protected:
     void resizeEvent(QResizeEvent* e) override;
@@ -91,10 +105,12 @@ private:
     QPushButton* makeCheckAction(const QString& text, bool checked);
     QWidget*     buildMainPage();
     QWidget*     buildSettingsPage();
+    QWidget*     buildRoutesPage();
     QWidget*     wrapScroll(QWidget* content);   // scrollable container for a page
     void rebuildChartSets();
     void showMainPage();
     void showSettingsPage();
+    void showRoutesPage();
     void layoutPanel();
     void applyModeGeometry();   // size + scrim visibility for current autoHide_
 
@@ -106,6 +122,7 @@ private:
     QStackedWidget* stack_ = nullptr;
     QVBoxLayout* chartSetsBox_ = nullptr;   // container for the dynamic set buttons
     QPushButton* autoFollowBtn_ = nullptr;  // checkable Auto Follow item
+    QPushButton* navigatingBtn_ = nullptr;  // checkable Navigating item
     QLabel*      pluginHeader_ = nullptr;   // "Plugins" header (hidden until used)
     QVBoxLayout* pluginBox_ = nullptr;      // container for plugin-contributed items
     QVBoxLayout* dataSourceBox_ = nullptr;  // plugin data-source items (Data Connections)
@@ -117,4 +134,5 @@ private:
     bool autoHide_ = true;
     int  mainIndex_ = 0;
     int  settingsIndex_ = 1;
+    int  routesIndex_ = 2;
 };

@@ -5,6 +5,7 @@
 #include <QString>
 #include <memory>
 #include "data_sources.hpp"   // DataSourceRegistry (value member)
+#include "route_types.hpp"    // Route (value member for the props working copy)
 
 class ChartView;
 class ChartCatalog;
@@ -19,10 +20,21 @@ class AisOverlay;
 class AisTargetInfoWindow;
 class AisQuickInfoWindow;
 class AisTargetListDialog;
+class RouteStore;
+class RouteNavigator;
+class NavDisplayWindow;
+class RouteOverlay;
+class RouteListDialog;
+class WaypointListDialog;
+class RoutePropertiesDialog;
+class RouteQuickInfoWindow;
+struct ClickedRouteObject;
 class CoreApi;
 class PluginManager;
 class QLabel;
 class QPushButton;
+class QWidget;
+class QPointF;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -39,6 +51,7 @@ private slots:
     void manageChartSets();
     void chooseBasemapFolder();
     void editUnits();
+    void editNavigationOptions();
     void editStaleThresholds();
     void editOwnshipPrediction();
     void showNavDataBrowser();
@@ -50,6 +63,16 @@ private slots:
     void editHeadingSource();
     void editDangerousShips();
     void showAisTargetList();
+    // Routes & Waypoints.
+    void startCreateRoute();
+    void startEditRoute();
+    void startCreateWaypoint();
+    void startEditWaypoint();
+    void dropWaypoint();
+    void showRouteList();
+    void showWaypointList();
+    void openRouteProperties(qint64 id);     // from List Routes "Properties"
+    void openWaypointProperties(qint64 id);  // from List Waypoints "Properties"
     void publishOwnshipToView();
     void onCursorMoved(double lon, double lat);
     void onScanProgress(int done, int total);
@@ -61,6 +84,47 @@ private:
     void startScan(const QString& dir);
     void refreshChartStatus();   // compose status from ENC + raster results
     void positionMenuButton();
+
+    // Routes & Waypoints helpers ---------------------------------------------
+    void buildEditBar();              // construct the floating action bar (hidden)
+    void positionEditBar();           // centre it over the chart top
+    void showRouteEditBar(const QString& hint);    // Complete/Delete/Cancel
+    void showWaypointPlaceBar(const QString& hint); // Cancel only
+    void showWaypointEditBar(const QString& hint);  // Done/Cancel (no Delete Point)
+    void showPointDragBar(const QString& hint);     // Done/Cancel for props-drag
+    void endRouteMode();              // clear overlay edit + editor + bar
+    void beginEditRoute(qint64 id);   // fit chart + start editing a saved route
+    void beginEditWaypoint(qint64 id);// fit chart + start moving a saved waypoint
+    void completeEdit();              // Complete/Done button: dispatch by mode
+    void cancelEdit();                // Cancel button: dispatch by mode
+    void completeRoute();             // name + persist the working route
+    void completeWaypointMove();      // persist the moved waypoint
+    void onWaypointPlaced(double lat, double lon);  // create-waypoint tap
+    // Route Properties drag round-trip.
+    void onPropsEditPoint(int index); // dialog asked to drag point `index`
+    void finishPropsDrag(bool apply); // return from chart drag to the dialog
+
+    // Chart-tap / create-affordance handlers ---------------------------------
+    void onRouteObjectClicked(const ClickedRouteObject& hit);  // chart tap on saved obj
+    void renameRoute(qint64 id);
+    void renameWaypoint(qint64 id);
+    void toggleRouteVisible(qint64 id);
+    void toggleWaypointVisible(qint64 id);
+    void confirmDeleteRoute(qint64 id);
+    void confirmDeleteWaypoint(qint64 id);
+    // Route navigation (APB/RMB). Navigate from a route popup starts it at the
+    // tapped waypoint; the "Navigating" menu checkbox mirrors and can stop/resume.
+    void startNavigation(qint64 routeId, int destIndex = -1);
+    void onNavigatingToggled(bool on);
+    // Long-press on the chart and the floating "+" button both open a small
+    // popup at `globalPt`. When `atPoint` is true (long-press) the menu reads
+    // "New waypoint here" / "Start route here" and the object is placed at
+    // `screenPt` immediately. When false (the "+" button, which has no chart
+    // position) it reads "New waypoint" / "New route" and the next chart tap
+    // places the first point.
+    void onChartLongPressed(const QPointF& screenPt);
+    void showAddPopup(const QPointF& screenPt, const QPoint& globalPt, bool atPoint);
+    void positionAddButton();
 
     ChartView*    view_ = nullptr;
     ChartCatalog* catalog_ = nullptr;
@@ -84,14 +148,39 @@ private:
     // Reused list window: one instance per session, raised on subsequent opens.
     QPointer<AisTargetListDialog> aisListDlg_;
     void showAisTarget(quint32 mmsi);   // drives the two-click open behaviour
+
+    // Routes & Waypoints -----------------------------------------------------
+    RouteStore* routeStore_ = nullptr;
+    RouteNavigator* navigator_ = nullptr;   // route-following engine (child QObject)
+    NavDisplayWindow* navDisplay_ = nullptr;  // floating readout over the chart
+    std::unique_ptr<RouteOverlay> routeOverlay_;
+    QPointer<RouteListDialog>     routeListDlg_;
+    QPointer<WaypointListDialog>  waypointListDlg_;
+    // Route Properties editor + the drag round-trip it hands off to the chart.
+    QPointer<RoutePropertiesDialog> propsDlg_;
+    Route propsWork_;                  // working route while Properties is open
+    enum class EditContext { None, RouteProps };
+    EditContext editContext_ = EditContext::None;
+    // Floating action bar shown over the chart during a create/edit session.
+    QWidget*     editBar_ = nullptr;
+    QLabel*      editHint_ = nullptr;
+    QPushButton* completeBtn_ = nullptr;
+    QPushButton* deletePointBtn_ = nullptr;
+    QPushButton* cancelEditBtn_ = nullptr;
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins
     QPushButton*  menuButton_ = nullptr;
+    QPushButton*  addButton_  = nullptr;   // floating "+" next to menu button
+    // Quick-look popup for a tapped saved route/waypoint. One at a time; chart
+    // interaction dismisses it. QPointer clears when it self-deletes.
+    QPointer<RouteQuickInfoWindow> routeQuickInfo_;
     QLabel*       statusLeft_ = nullptr;   // root folder + scan summary
     QLabel*       statusMid_ = nullptr;    // band / cells shown
     QLabel*       statusRight_ = nullptr;  // cursor lat/lon
     QString       root_;
+    double        lastCursorLon_ = 0.0;   // last cursor pos, for re-rendering the
+    double        lastCursorLat_ = 0.0;   // status bar when the coord format changes
     // Latest scan results for the active folder, reconciled into one status line
     // (ENC scan and raster discovery finish independently / out of order).
     bool          encScanDone_ = false;

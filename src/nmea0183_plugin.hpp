@@ -7,6 +7,7 @@
 
 class Nmea0183DebugWindow;
 class AisDecoder;
+class Nmea0183NavSender;
 
 // NMEA 0183 network source, as a built-in plugin on the plugin API. Owns the
 // network client and (lazily) the raw-data debug window; registers itself as a
@@ -36,9 +37,10 @@ private:
     ICoreApi*        core_ = nullptr;
     IDataSource*     dataSource_ = nullptr;   // owned by the core
     IPluginSettings* settings_ = nullptr;     // owned by the core
-    std::unique_ptr<Nmea0183Client>  client_;
-    std::unique_ptr<AisDecoder>      ais_;    // decodes !AIVDM/!AIVDO -> AIS store
-    QPointer<Nmea0183DebugWindow>    debug_;  // parented to the main window
+    std::unique_ptr<Nmea0183Client>    client_;
+    std::unique_ptr<AisDecoder>        ais_;       // decodes !AIVDM/!AIVDO -> AIS store
+    std::unique_ptr<Nmea0183NavSender> navSender_;  // transmits APB/RMB/RMC while navigating
+    QPointer<Nmea0183DebugWindow>      debug_;  // parented to the main window
 
     NmeaTransport transport_ = NmeaTransport::Tcp;
     QString       host_;

@@ -105,10 +105,11 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     navBtn_->setStyleSheet(QStringLiteral(
         "QPushButton{ border:none; background:transparent; }"
         "QPushButton:pressed{ background:%1; border-radius:6px; }").arg(th.actionPressed));
-    // Context-sensitive: on the settings page it goes back, otherwise it closes.
+    // Context-sensitive: on any sub-page it goes back to the main page,
+    // otherwise it closes the menu.
     connect(navBtn_, &QPushButton::clicked, this, [this] {
-        if (stack_->currentIndex() == settingsIndex_) showMainPage();
-        else                                          closeMenu();
+        if (stack_->currentIndex() != mainIndex_) showMainPage();
+        else                                      closeMenu();
     });
     headerRow->addWidget(navBtn_);
 
@@ -123,6 +124,7 @@ SideMenu::SideMenu(Settings* settings, QWidget* parent)
     stack_ = new QStackedWidget(panel_);
     mainIndex_     = stack_->addWidget(wrapScroll(buildMainPage()));
     settingsIndex_ = stack_->addWidget(wrapScroll(buildSettingsPage()));
+    routesIndex_   = stack_->addWidget(wrapScroll(buildRoutesPage()));
     outer->addWidget(stack_, 1);
 
     anim_ = new QPropertyAnimation(panel_, "geometry", this);
@@ -156,13 +158,6 @@ QWidget* SideMenu::buildMainPage() {
     rebuildChartSets();
 
     col->addWidget(makeHeader(QStringLiteral("View")));
-    auto* fitBtn = makeIndentedAction(QStringLiteral("Fit to Charts"));
-    connect(fitBtn, &QPushButton::clicked, this, [this] {
-        emit fitRequested();
-        if (autoHide_) closeMenu();
-    });
-    col->addWidget(fitBtn);
-
     auto* centerBtn = makeIndentedAction(QStringLiteral("Center on Own Ship"));
     connect(centerBtn, &QPushButton::clicked, this, [this] {
         emit centerOnOwnshipRequested();
@@ -186,6 +181,22 @@ QWidget* SideMenu::buildMainPage() {
         if (autoHide_) closeMenu();
     });
     col->addWidget(aisListBtn);
+
+    col->addWidget(makeHeader(QStringLiteral("Navigation")));
+    auto* routesBtn = makeIndentedAction(QStringLiteral("Routes and Waypoints"));
+    connect(routesBtn, &QPushButton::clicked, this, &SideMenu::showRoutesPage);
+    col->addWidget(routesBtn);
+    auto* navOptsBtn = makeIndentedAction(QStringLiteral("Navigation Options"));
+    connect(navOptsBtn, &QPushButton::clicked, this, [this] {
+        emit navigationOptionsRequested();
+        if (autoHide_) closeMenu();
+    });
+    col->addWidget(navOptsBtn);
+
+    navigatingBtn_ = makeCheckAction(QStringLiteral("Navigating"), false);
+    connect(navigatingBtn_, &QPushButton::toggled, this,
+            [this](bool on) { emit navigatingToggled(on); });
+    col->addWidget(navigatingBtn_);
 
     col->addWidget(makeHeader(QStringLiteral("Chart Detail")));
     auto* detailLvlBtn = makeIndentedAction(QStringLiteral("Detail Level"));
@@ -359,6 +370,34 @@ QWidget* SideMenu::buildSettingsPage() {
     return page;
 }
 
+QWidget* SideMenu::buildRoutesPage() {
+    auto* page = new QWidget;
+    auto* col = new QVBoxLayout(page);
+    col->setContentsMargins(0, 0, 0, 0);
+    col->setSpacing(0);
+
+    // Lists are the management hub (visibility, properties, delete, edit on
+    // chart). "+" button on the chart and long-press on empty water cover most
+    // creates without a menu trip, so this page stays short: New Route, Drop
+    // Waypoint at Boat, and the two list dialogs. Tap a saved object on the
+    // chart to get rename / drag / properties / hide / delete.
+    auto* createRoute = makeIndentedAction(QStringLiteral("New Route"));
+    connect(createRoute, &QPushButton::clicked, this, [this] { emit createRouteRequested(); });
+    col->addWidget(createRoute);
+    auto* dropWpt = makeIndentedAction(QStringLiteral("Drop Waypoint at Boat"));
+    connect(dropWpt, &QPushButton::clicked, this, [this] { emit dropWaypointRequested(); });
+    col->addWidget(dropWpt);
+    auto* listRoutes = makeIndentedAction(QStringLiteral("Routes…"));
+    connect(listRoutes, &QPushButton::clicked, this, [this] { emit routeListRequested(); });
+    col->addWidget(listRoutes);
+    auto* listWpts = makeIndentedAction(QStringLiteral("Waypoints…"));
+    connect(listWpts, &QPushButton::clicked, this, [this] { emit waypointListRequested(); });
+    col->addWidget(listWpts);
+
+    col->addStretch(1);
+    return page;
+}
+
 QWidget* SideMenu::wrapScroll(QWidget* content) {
     // Let a page scroll when its items are taller than the panel, so the content
     // is always sized by its items (never squeezed by the layout) and the list
@@ -424,6 +463,13 @@ void SideMenu::showMainPage() {
 void SideMenu::showSettingsPage() {
     stack_->setCurrentIndex(settingsIndex_);
     title_->setText(QStringLiteral("Settings"));
+    navBtn_->setIcon(backIcon(QColor(theme::menu().titleFg)));
+    navBtn_->setToolTip(QStringLiteral("Back"));
+}
+
+void SideMenu::showRoutesPage() {
+    stack_->setCurrentIndex(routesIndex_);
+    title_->setText(QStringLiteral("Routes and Waypoints"));
     navBtn_->setIcon(backIcon(QColor(theme::menu().titleFg)));
     navBtn_->setToolTip(QStringLiteral("Back"));
 }
@@ -513,6 +559,13 @@ void SideMenu::setAutoFollowChecked(bool on) {
     // an unchanged state, but this avoids the redundant toggle/text churn).
     if (autoFollowBtn_ && autoFollowBtn_->isChecked() != on)
         autoFollowBtn_->setChecked(on);
+}
+
+void SideMenu::setNavigatingChecked(bool on) {
+    // Guard against the feedback loop: setChecked re-emits toggled, which the host
+    // routes back here as activeChanged. Only touch the button on a real change.
+    if (navigatingBtn_ && navigatingBtn_->isChecked() != on)
+        navigatingBtn_->setChecked(on);
 }
 
 void SideMenu::addPluginAction(const QString& title, std::function<void()> onTriggered) {

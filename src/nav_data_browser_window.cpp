@@ -1,8 +1,10 @@
 #include "nav_data_browser_window.hpp"
 #include "nav_data_store.hpp"
 #include "theme.hpp"
+#include "units.hpp"
 
 #include <QVBoxLayout>
+#include <QLabel>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QTimer>
@@ -15,7 +17,7 @@
 NavDataBrowserWindow::NavDataBrowserWindow(const NavDataStore* store, QWidget* parent)
     : QDialog(parent), store_(store) {
     setWindowTitle(QStringLiteral("NavData Browser"));
-    resize(520, 460);
+    resize(520, 640);
     setWindowFlag(Qt::Window, true);   // real top-level window, modeless via show()
 
     auto* col = new QVBoxLayout(this);
@@ -31,10 +33,29 @@ NavDataBrowserWindow::NavDataBrowserWindow(const NavDataStore* store, QWidget* p
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    col->addWidget(table_);
+    col->addWidget(table_, 3);
 
-    if (store_)
+    // Route navigation (APB/RMB) section: computed values, so just Field / Value.
+    auto* navHeader = new QLabel(QStringLiteral("Navigation (APB / RMB)"), this);
+    navHeader->setStyleSheet(QStringLiteral("font-weight:600; padding:4px 2px;"));
+    col->addWidget(navHeader);
+
+    navTable_ = new QTableWidget(0, 2, this);
+    navTable_->setHorizontalHeaderLabels(
+        {QStringLiteral("Field"), QStringLiteral("Value")});
+    navTable_->verticalHeader()->setVisible(false);
+    navTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    navTable_->setSelectionMode(QAbstractItemView::NoSelection);
+    navTable_->setFocusPolicy(Qt::NoFocus);
+    navTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    navTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    col->addWidget(navTable_, 2);
+
+    if (store_) {
         connect(store_, &NavDataStore::ownshipChanged, this, &NavDataBrowserWindow::refresh);
+        connect(store_, &NavDataStore::navigationChanged,
+                this, &NavDataBrowserWindow::refreshNavigation);
+    }
     // Tick so Age keeps counting even when no new data or transition arrives.
     timer_ = new QTimer(this);
     timer_->setInterval(1000);
@@ -44,11 +65,12 @@ NavDataBrowserWindow::NavDataBrowserWindow(const NavDataStore* store, QWidget* p
     refresh();
 }
 
-void NavDataBrowserWindow::setCell(int row, int col, const QString& text, bool muted) {
-    QTableWidgetItem* it = table_->item(row, col);
+void NavDataBrowserWindow::setCell(QTableWidget* table, int row, int col,
+                                   const QString& text, bool muted) {
+    QTableWidgetItem* it = table->item(row, col);
     if (!it) {
         it = new QTableWidgetItem;
-        table_->setItem(row, col, it);
+        table->setItem(row, col, it);
     }
     it->setText(text);
     // Muted (stale): pin a theme-aware grey. Fresh: clear any prior brush so
@@ -75,12 +97,13 @@ void NavDataBrowserWindow::refresh() {
                          v.stale() });
     };
     auto angle = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral("°"); };
-    auto coord = [](double v) { return QString::number(v, 'f', 6) + QStringLiteral("°"); };
+    auto latFmt = [](double v) { return units::formatLatitude(v); };
+    auto lonFmt = [](double v) { return units::formatLongitude(v); };
     auto knots = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral(" kn"); };
     auto metres = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral(" m"); };
 
-    add(QStringLiteral("Latitude"),         s.latitudeDeg,            coord);
-    add(QStringLiteral("Longitude"),        s.longitudeDeg,           coord);
+    add(QStringLiteral("Latitude"),         s.latitudeDeg,            latFmt);
+    add(QStringLiteral("Longitude"),        s.longitudeDeg,           lonFmt);
     add(QStringLiteral("COG (true)"),       s.cogDegTrue,             angle);
     add(QStringLiteral("SOG"),              s.sogKnots,               knots);
     add(QStringLiteral("Water speed"),      s.waterSpeedKnots,        knots);
@@ -99,9 +122,62 @@ void NavDataBrowserWindow::refresh() {
         table_->setRowCount(int(rows.size()));
     for (int i = 0; i < int(rows.size()); ++i) {
         const bool muted = rows[i].stale;
-        setCell(i, 0, rows[i].name,   muted);
-        setCell(i, 1, rows[i].value,  muted);
-        setCell(i, 2, rows[i].source, muted);
-        setCell(i, 3, rows[i].age,    muted);
+        setCell(table_, i, 0, rows[i].name,   muted);
+        setCell(table_, i, 1, rows[i].value,  muted);
+        setCell(table_, i, 2, rows[i].source, muted);
+        setCell(table_, i, 3, rows[i].age,    muted);
+    }
+
+    refreshNavigation();
+}
+
+void NavDataBrowserWindow::refreshNavigation() {
+    if (!store_ || !navTable_) return;
+    const NavigationData& n = store_->navigation();
+
+    struct Row { QString name, value; };
+    std::vector<Row> rows;
+
+    if (!n.active) {
+        // Nothing to follow: a single status row keeps the section self-explaining.
+        rows.push_back({ QStringLiteral("Status"), QStringLiteral("Not navigating") });
+    } else {
+        auto yesNo   = [](bool b) { return b ? QStringLiteral("Yes") : QStringLiteral("No"); };
+        auto deg1    = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral("°"); };
+        auto bearing = [&](double v, QChar u) { return deg1(v) + QLatin1Char(' ') + u; };
+        auto nm3     = [](double v) { return QString::number(v, 'f', 3) + QStringLiteral(" nm"); };
+        auto knots   = [](double v) { return QString::number(v, 'f', 1) + QStringLiteral(" kn"); };
+
+        rows.push_back({ QStringLiteral("Status"), QStringLiteral("Navigating") });
+        rows.push_back({ QStringLiteral("XTE magnitude"),          nm3(n.xteNm) });
+        rows.push_back({ QStringLiteral("Direction to steer"),     QString(n.steerDirection) });
+        rows.push_back({ QStringLiteral("Cross-track units"),      QString(n.xteUnits) });
+        rows.push_back({ QStringLiteral("Arrival circle entered"), yesNo(n.arrivalCircleEntered) });
+        rows.push_back({ QStringLiteral("Perpendicular passed"),   yesNo(n.perpendicularPassed) });
+        rows.push_back({ QStringLiteral("Bearing origin→dest"),
+                         bearing(n.bearingOriginToDestDeg, n.bearingUnits) });
+        rows.push_back({ QStringLiteral("Bearing units"),          QString(n.bearingUnits) });
+        rows.push_back({ QStringLiteral("Destination waypoint"),   n.destinationWaypointId });
+        rows.push_back({ QStringLiteral("Bearing present→dest"),
+                         bearing(n.bearingPresentToDestDeg, n.bearingUnits) });
+        rows.push_back({ QStringLiteral("Heading to steer"),
+                         bearing(n.headingToSteerDeg, n.bearingUnits) });
+        rows.push_back({ QStringLiteral("Origin waypoint"),
+                         n.originWaypointId.isEmpty() ? QStringLiteral("—") : n.originWaypointId });
+        rows.push_back({ QStringLiteral("Destination latitude"),
+                         units::formatLatitude(n.destinationLatDeg) });
+        rows.push_back({ QStringLiteral("Destination longitude"),
+                         units::formatLongitude(n.destinationLonDeg) });
+        rows.push_back({ QStringLiteral("Range to destination"),   nm3(n.rangeToDestNm) });
+        rows.push_back({ QStringLiteral("Closing velocity (VMG)"), knots(n.closingVelocityKn) });
+        rows.push_back({ QStringLiteral("FAA status"),             QString(n.faaStatus) });
+        rows.push_back({ QStringLiteral("FAA mode"),               QString(n.faaMode) });
+    }
+
+    if (navTable_->rowCount() != int(rows.size()))
+        navTable_->setRowCount(int(rows.size()));
+    for (int i = 0; i < int(rows.size()); ++i) {
+        setCell(navTable_, i, 0, rows[i].name,  false);
+        setCell(navTable_, i, 1, rows[i].value, false);
     }
 }
