@@ -89,24 +89,34 @@ void RouteNavigator::recompute() {
     if (destIdx_ < 0)     destIdx_ = (n >= 2) ? 1 : 0;
     if (destIdx_ > n - 1) destIdx_ = n - 1;
 
-    // Auto-advance past any waypoints already reached: a waypoint is reached when
-    // the boat is inside its arrival circle, or — when there is an origin leg —
-    // when it has crossed the perpendicular through that waypoint. Never advance
-    // past the final point.
+    // A waypoint is reached when the boat is inside its arrival circle, or — when
+    // there is an origin leg — when it has crossed the perpendicular through that
+    // waypoint.
     if (haveFix) {
         const double arrivalNm = settings_->arrivalRadiusNm();
-        while (destIdx_ < n - 1) {
-            const RoutePoint& dst = pts[destIdx_];
-            bool reached = geonav::distanceNm(ownLat, ownLon, dst.lat, dst.lon) <= arrivalNm;
-            if (!reached && destIdx_ >= 1) {
-                const RoutePoint& org = pts[destIdx_ - 1];
+        const auto reached = [&](int idx) -> bool {
+            const RoutePoint& dst = pts[idx];
+            if (geonav::distanceNm(ownLat, ownLon, dst.lat, dst.lon) <= arrivalNm)
+                return true;
+            if (idx >= 1) {
+                const RoutePoint& org = pts[idx - 1];
                 const double legLen = geonav::distanceNm(org.lat, org.lon, dst.lat, dst.lon);
                 const double along  = geonav::alongTrackNm(ownLat, ownLon,
                                                            org.lat, org.lon, dst.lat, dst.lon);
-                reached = legLen > kArrivalEps && along >= legLen;
+                return legLen > kArrivalEps && along >= legLen;
             }
-            if (reached) ++destIdx_;
-            else break;
+            return false;
+        };
+
+        // Auto-advance past any intermediate waypoints already passed.
+        while (destIdx_ < n - 1 && reached(destIdx_)) ++destIdx_;
+
+        // Reaching the final waypoint ends the route: stop navigating (so the
+        // boat doesn't turn around and head back to it) and announce completion.
+        if (destIdx_ == n - 1 && reached(destIdx_)) {
+            stop();
+            emit navigationCompleted();
+            return;
         }
     }
 

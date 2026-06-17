@@ -55,6 +55,7 @@
 #include <QScrollArea>
 #include <QScroller>
 #include <QFrame>
+#include <QTimer>
 #include <QScreen>
 #include <QFileDialog>
 #include <QDir>
@@ -323,6 +324,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     navigator_ = new RouteNavigator(navStore_, routeStore_, settings_, this);
     connect(navigator_, &RouteNavigator::activeChanged,
             sideMenu_, &SideMenu::setNavigatingChecked);
+    connect(navigator_, &RouteNavigator::navigationCompleted,
+            this, &MainWindow::showNavigationCompleteBanner);
     connect(sideMenu_, &SideMenu::navigatingToggled,
             this, &MainWindow::onNavigatingToggled);
     // Floating readout over the chart; shows/hides itself with navigation state.
@@ -417,6 +420,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
         positionMenuButton();
         positionAddButton();
         positionEditBar();
+        positionNavBanner();
     }
     return QMainWindow::eventFilter(obj, e);
 }
@@ -612,6 +616,36 @@ void MainWindow::positionEditBar() {
     const int x = (view_->width() - editBar_->width()) / 2;
     editBar_->move(std::max(8, x), 12);
     editBar_->raise();
+}
+
+void MainWindow::showNavigationCompleteBanner() {
+    if (!view_) return;
+    // Lazily build the banner, reusing the edit bar's dark style. It's a child of
+    // the view so it overlays the chart top, and self-dismisses after a few
+    // seconds (or when the user starts navigating again).
+    if (!navBanner_) {
+        navBanner_ = new QLabel(view_);
+        navBanner_->setAlignment(Qt::AlignCenter);
+        navBanner_->setStyleSheet(QStringLiteral(
+            "QLabel{ background: rgba(30,34,40,235); color:#e6e9ee;"
+            " font-size:15px; font-weight:600; padding:10px 18px;"
+            " border:1px solid rgba(255,255,255,40); border-radius:8px; }"));
+        navBanner_->hide();
+    }
+    navBanner_->setText(QStringLiteral("Navigation Complete."));
+    navBanner_->show();
+    positionNavBanner();
+    QTimer::singleShot(4000, navBanner_, [this] {
+        if (navBanner_) navBanner_->hide();
+    });
+}
+
+void MainWindow::positionNavBanner() {
+    if (!navBanner_ || !navBanner_->isVisible() || !view_) return;
+    navBanner_->adjustSize();
+    const int x = (view_->width() - navBanner_->width()) / 2;
+    navBanner_->move(std::max(8, x), 12);
+    navBanner_->raise();
 }
 
 void MainWindow::showRouteEditBar(const QString& hint) {
@@ -843,6 +877,7 @@ void MainWindow::confirmDeleteWaypoint(qint64 id) {
 }
 
 void MainWindow::startNavigation(qint64 routeId, int destIndex) {
+    if (navBanner_) navBanner_->hide();   // a fresh route clears the prior banner
     if (navigator_) navigator_->startRoute(routeId, destIndex);
 }
 
