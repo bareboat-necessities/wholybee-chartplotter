@@ -332,11 +332,17 @@ void NavDisplayWindow::clampIntoParent() {
     move(x, y);
 }
 
+// The drag gesture is claimed (e->accept(), no base call) so it doesn't fall
+// through to the ChartView underneath — the default QWidget handlers ignore the
+// event, which would propagate it to the parent and pan the chart while moving
+// the window.
 void NavDisplayWindow::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
         dragging_ = true;
         dragOffset_ = e->position().toPoint();
         setCursor(Qt::ClosedHandCursor);
+        e->accept();
+        return;
     }
     QFrame::mousePressEvent(e);
 }
@@ -345,6 +351,8 @@ void NavDisplayWindow::mouseMoveEvent(QMouseEvent* e) {
     if (dragging_) {
         move(mapToParent(e->position().toPoint()) - dragOffset_);
         clampIntoParent();
+        e->accept();
+        return;
     }
     QFrame::mouseMoveEvent(e);
 }
@@ -353,6 +361,8 @@ void NavDisplayWindow::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
         dragging_ = false;
         setCursor(Qt::OpenHandCursor);
+        e->accept();
+        return;
     }
     QFrame::mouseReleaseEvent(e);
 }
