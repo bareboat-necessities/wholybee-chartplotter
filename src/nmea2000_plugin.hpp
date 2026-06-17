@@ -4,6 +4,8 @@
 #include "plugin_api.hpp"
 #include "nmea2000_client.hpp"   // N2kTransport, N2kFormat, Nmea2000Client
 
+class N2kNavSender;
+
 // NMEA 2000 network source, as a built-in plugin on the plugin API. Mirrors
 // Nmea0183Plugin: owns the network client, registers itself as a data source
 // (Data Connections item + green decoding dot + Data Priority), and provides
@@ -34,6 +36,7 @@ private:
     IDataSource*     dataSource_ = nullptr;
     IPluginSettings* settings_ = nullptr;
     std::unique_ptr<Nmea2000Client> client_;
+    std::unique_ptr<N2kNavSender>   navSender_;
 
     N2kTransport transport_ = N2kTransport::Tcp;
     N2kFormat    format_    = N2kFormat::ActisenseAscii;

@@ -131,6 +131,45 @@ void Nmea2000Client::processLine(QByteArray line) {
     if (decoder_ && decoder_->decode(frame)) markDecoding();
 }
 
+namespace {
+// Serialize a frame to one Actisense "N2K ASCII" line, the same format the
+// parser reads: "A<hhmmss.ddd> <SSDDP> <PGN> <hex…>". The gateway reassembles
+// fast-packet PGNs from the full payload we provide here.
+QByteArray serializeActisenseAscii(const N2kFrame& f) {
+    auto hex = [](quint32 v, int width) {
+        return QByteArray::number(v, 16).rightJustified(width, '0').toUpper();
+    };
+    QByteArray out;
+    out += 'A';
+    out += QDateTime::currentDateTimeUtc().time()
+               .toString(QStringLiteral("HHmmss.zzz")).toLatin1();
+    out += ' ';
+    out += hex(f.src, 2);
+    out += hex(f.dst, 2);
+    out += hex(f.prio & 0x07, 1);
+    out += ' ';
+    out += hex(f.pgn, 5);
+    out += ' ';
+    for (char b : f.data) out += hex(quint8(b), 2);
+    out += "\r\n";
+    return out;
+}
+} // namespace
+
+void Nmea2000Client::transmit(const N2kFrame& frame) {
+    if (!enabled_) return;
+    const QByteArray line = serializeActisenseAscii(frame);
+    if (transport_ == N2kTransport::Tcp) {
+        if (tcp_ && tcp_->state() == QAbstractSocket::ConnectedState)
+            tcp_->write(line);
+    } else if (udp_) {
+        // Send to the configured gateway address, or broadcast if none is set.
+        QHostAddress dst;
+        if (host_.isEmpty() || !dst.setAddress(host_)) dst = QHostAddress::Broadcast;
+        udp_->writeDatagram(line, dst, port_);
+    }
+}
+
 void Nmea2000Client::markDecoding() {
     setDecoding(true);
     staleTimer_->start();

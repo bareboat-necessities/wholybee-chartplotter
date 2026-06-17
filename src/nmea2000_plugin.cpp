@@ -1,4 +1,5 @@
 #include "nmea2000_plugin.hpp"
+#include "n2k_nav_sender.hpp"
 #include "touch_spin_box.hpp"
 #include "theme.hpp"
 
@@ -32,12 +33,19 @@ void Nmea2000Plugin::initialize(ICoreApi* core) {
     QObject::connect(client_.get(), &Nmea2000Client::decodingChanged, client_.get(),
                      [this](bool on) { if (dataSource_) dataSource_->setActive(on); });
 
+    // While a route is being navigated, transmit PGN 129283/129284/129285 from
+    // the nav store out this connection (skipped if the navigation data itself
+    // came from NMEA 2000, to prevent a feedback loop).
+    navSender_ = std::make_unique<N2kNavSender>(core_->navData(), client_.get(),
+                                                QStringLiteral("nmea2000"));
+
     loadConfig();
     client_->setConfig(transport_, format_, host_, port_, enabled_);
 }
 
 void Nmea2000Plugin::shutdown() {
     if (dataSource_) dataSource_->setActive(false);
+    navSender_.reset();   // stop transmitting before the client goes away
     client_.reset();
 }
 

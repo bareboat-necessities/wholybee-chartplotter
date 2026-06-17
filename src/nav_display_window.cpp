@@ -244,13 +244,21 @@ NavDisplayWindow::NavDisplayWindow(const NavDataStore* store, QWidget* parent)
     grid->addWidget(txDot_, 5, 0, Qt::AlignCenter);
     grid->addWidget(txLabel_, 5, 1, 1, 2);
 
+    // Second transmit indicator for the NMEA 2000 navigation PGNs.
+    txDot2k_ = new QLabel(this);
+    txDot2k_->setFixedSize(12, 12);
+    txLabel2k_ = new QLabel(QStringLiteral("PGN 129283 · 129284 · 129285"), this);
+    txLabel2k_->setStyleSheet(QStringLiteral("font-size:11px; color: rgba(230,233,238,150);"));
+    grid->addWidget(txDot2k_, 6, 0, Qt::AlignCenter);
+    grid->addWidget(txLabel2k_, 6, 1, 1, 2);
+
     // CDI graphic, below the numeric readout, separated by a thin divider.
     auto* sep = new QFrame(this);
     sep->setFrameShape(QFrame::HLine);
     sep->setStyleSheet(QStringLiteral("color: rgba(255,255,255,40);"));
-    grid->addWidget(sep, 6, 0, 1, 3);
+    grid->addWidget(sep, 7, 0, 1, 3);
     cdi_ = new CdiWidget(store_, this);
-    grid->addWidget(cdi_, 7, 0, 1, 3, Qt::AlignHCenter);
+    grid->addWidget(cdi_, 8, 0, 1, 3, Qt::AlignHCenter);
 
     if (store_)
         connect(store_, &NavDataStore::navigationChanged, this, &NavDisplayWindow::refresh);
@@ -285,6 +293,18 @@ void NavDisplayWindow::refresh() {
                          "from NMEA 0183 (loop guard)")
         : QStringLiteral("Transmitting APB/XTE/RMB/RMC on the NMEA 0183 connection "
                          "(when connected)"));
+
+    // NMEA 2000 nav PGNs: same logic, suppressed only when the solution came from
+    // the NMEA 2000 link itself.
+    const bool suppressed2k =
+        n.source.compare(QLatin1String("nmea2000"), Qt::CaseInsensitive) == 0;
+    txDot2k_->setStyleSheet(QStringLiteral("background:%1; border-radius:6px;")
+        .arg(suppressed2k ? QStringLiteral("#d23b3b") : QStringLiteral("#2e9e44")));
+    txDot2k_->setToolTip(suppressed2k
+        ? QStringLiteral("PGN 129283/129284/129285 transmission suppressed: navigation "
+                         "data came from NMEA 2000 (loop guard)")
+        : QStringLiteral("Transmitting PGN 129283/129284/129285 on the NMEA 2000 "
+                         "connection (when connected)"));
 
     if (cdi_) cdi_->update();   // repaint the course-deviation graphic
 

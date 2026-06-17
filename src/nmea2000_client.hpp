@@ -11,6 +11,7 @@ class N2kDecoder;
 class QTcpSocket;
 class QUdpSocket;
 class QTimer;
+struct N2kFrame;
 
 // Network transport for an NMEA 2000 gateway. Same shape as NmeaTransport in
 // the 0183 client; kept distinct so the two clients can evolve independently.
@@ -39,6 +40,11 @@ public:
     ~Nmea2000Client() override;
 
     bool isDecoding() const { return decoding_; }
+
+    // Serialize a PGN frame to the active wire format and send it to the gateway
+    // (which fragments fast-packet PGNs and puts them on the bus). No-op unless
+    // the connection is enabled and up. Used by the navigation-output sender.
+    void transmit(const N2kFrame& frame);
 
 public slots:
     // Apply a new configuration. Tears down any existing connection and, if

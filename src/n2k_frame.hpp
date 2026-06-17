@@ -92,3 +92,47 @@ private:
     const QByteArray& data_;
     int bitPos_ = 0;
 };
+
+// Little-endian, bit-streaming writer — the inverse of N2kReader. Packs fields
+// LSB-first within each byte (and across bytes), growing the buffer as needed,
+// so the bytes it produces read back identically through N2kReader. Used to
+// build outgoing PGN payloads (e.g. the navigation output PGNs).
+class N2kWriter {
+public:
+    // Write the low `len` bits (1..64) of `value`, advancing the position.
+    void u(quint64 value, int len) {
+        int inBit = 0;
+        while (len > 0) {
+            const int byteIdx = bitPos_ / 8;
+            while (byteIdx >= data_.size()) data_.append(char(0));
+            const int bitInByte = bitPos_ % 8;
+            const int take = std::min(8 - bitInByte, len);
+            const quint64 mask = (1ULL << take) - 1;
+            const quint8 chunk = quint8((value >> inBit) & mask);
+            data_[byteIdx] = char(quint8(data_[byteIdx]) | quint8(chunk << bitInByte));
+            inBit   += take;
+            bitPos_ += take;
+            len     -= take;
+        }
+    }
+    // Write a two's-complement signed value in `len` bits.
+    void i(qint64 value, int len) { u(quint64(value), len); }
+
+    // "Not available" fields: unsigned = all ones; signed = max positive.
+    void naU(int len) { u(len >= 64 ? ~0ULL : ((1ULL << len) - 1), len); }
+    void naI(int len) { u(len >= 64 ? 0ULL : ((1ULL << (len - 1)) - 1), len); }
+
+    // Append whole bytes. Only valid when byte-aligned (bitPos_ % 8 == 0), which
+    // is the case after any sequence of fields whose bit lengths sum to a
+    // multiple of 8 — true at every point we use it (variable-length strings).
+    void appendBytes(const QByteArray& b) {
+        data_.append(b);
+        bitPos_ += b.size() * 8;
+    }
+
+    const QByteArray& bytes() const { return data_; }
+
+private:
+    QByteArray data_;
+    int bitPos_ = 0;
+};
