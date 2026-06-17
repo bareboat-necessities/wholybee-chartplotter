@@ -90,6 +90,13 @@ struct NavigationData {
     double  headingToSteerDeg = 0.0;               // == bearingPresentToDest (for now)
     QString originWaypointId;                      // name or number of previous waypoint
 
+    // Origin (previous) waypoint position. Set only when there is an origin leg
+    // (a single-point route, or "head to the first point", has none). Carried so
+    // NMEA 2000 PGN 129285 can list the active leg's two waypoints.
+    bool    hasOrigin = false;
+    double  originLatDeg = 0.0;
+    double  originLonDeg = 0.0;
+
     double  destinationLatDeg = 0.0;
     double  destinationLonDeg = 0.0;
     double  rangeToDestNm = 0.0;                    // distance to next waypoint

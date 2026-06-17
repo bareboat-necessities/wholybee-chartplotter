@@ -81,6 +81,7 @@ qt_add_executable(chartviewer
     src/nmea2000_client.cpp
     src/nmea2000_plugin.cpp
     src/n2k_decoder.cpp
+    src/n2k_nav_sender.cpp
     src/actisense_ascii_parser.cpp
     src/nav_data_browser_window.cpp
     src/data_priority_dialog.cpp

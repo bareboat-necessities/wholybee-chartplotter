@@ -44,6 +44,8 @@ private:
     QLabel* vmgLabel_     = nullptr;
     QLabel* txDot_        = nullptr;   // green = transmitting APB/XTE/RMB/RMC, red = suppressed
     QLabel* txLabel_      = nullptr;
+    QLabel* txDot2k_      = nullptr;   // NMEA 2000 nav PGNs: green = transmitting, red = suppressed
+    QLabel* txLabel2k_    = nullptr;
     CdiWidget* cdi_       = nullptr;   // course-deviation graphic
 
     QPoint dragOffset_;          // grab point within the widget while dragging

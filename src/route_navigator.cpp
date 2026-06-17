@@ -155,6 +155,8 @@ void RouteNavigator::recompute() {
     d.originWaypointId      = haveOriginLeg ? pointId(pts, destIdx_ - 1) : QString();
     d.destinationLatDeg = dest.lat;
     d.destinationLonDeg = dest.lon;
+    d.hasOrigin = haveOriginLeg;
+    if (haveOriginLeg) { d.originLatDeg = orgLat; d.originLonDeg = orgLon; }
 
     // Bearing origin -> destination. For a multi-point route this is a fixed
     // waypoint-to-waypoint bearing (available even without a fix); for a single
