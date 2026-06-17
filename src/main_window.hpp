@@ -95,6 +95,10 @@ private:
     void showWaypointEditBar(const QString& hint);  // Done/Cancel (no Delete Point)
     void showPointDragBar(const QString& hint);     // Done/Cancel for props-drag
     void endRouteMode();              // clear overlay edit + editor + bar
+    // Transient dark banner over the chart top announcing route completion;
+    // auto-dismisses after a few seconds. Reuses the edit-bar visual style.
+    void showNavigationCompleteBanner();
+    void positionNavBanner();
     void beginEditRoute(qint64 id);   // fit chart + start editing a saved route
     void beginEditWaypoint(qint64 id);// fit chart + start moving a saved waypoint
     void completeEdit();              // Complete/Done button: dispatch by mode
@@ -173,6 +177,7 @@ private:
     QPushButton* completeBtn_ = nullptr;
     QPushButton* deletePointBtn_ = nullptr;
     QPushButton* cancelEditBtn_ = nullptr;
+    QLabel*      navBanner_ = nullptr;      // transient "Navigation Complete." banner
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins

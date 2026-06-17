@@ -36,6 +36,9 @@ public slots:
 
 signals:
     void activeChanged(bool on);        // drives the menu "Navigating" checkbox
+    // The boat reached the route's final waypoint: navigation has been stopped
+    // (activeChanged(false) is emitted too). Lets the UI announce completion.
+    void navigationCompleted();
 
 private slots:
     void tick();
