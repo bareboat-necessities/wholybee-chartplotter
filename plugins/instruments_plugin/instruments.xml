@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Instrument catalogue for the Instruments plugin.
+
+  Each <instrument> defines a tile that can be added to the instrument bar from
+  Settings > Plugin Settings > Instruments.
+
+  Attributes:
+    id        stable identifier (referenced by the saved selection; keep unique)
+    name      full name shown in the settings list
+    caption   short label drawn on the tile (defaults to name)
+    path      which nav-data value to show. One of:
+                cogDegTrue, sogKnots, waterSpeedKnots, headingDegTrue,
+                headingDegMag, variationDeg, depthMeters,
+                apparentWindAngleDeg, apparentWindSpeedKnots,
+                trueWindAngleDeg, trueWindSpeedKnots, trueWindDirectionDeg,
+                latitudeDeg, longitudeDeg
+    unit      unit label shown after the value (e.g. kn, m, deg)
+    factor    multiply the stored value by this before display
+                (stored units: speed=knots, depth=metres, angles=degrees)
+    display   "digital"  numeric read-out
+              "analog"   standard min..max arc gauge with a needle
+              "compass"  north-up compass rose; needle points to the bearing
+              "wind"     bow-up wind gauge: 0 at the top (the bow), starboard to
+                         the right (positive), port to the left (negative)
+    decimals  digital: number of decimal places (also used by the rose read-out)
+    min, max  analog (arc) gauge range, in display units
+              (ignored by the compass and wind gauges, which span a full circle)
+-->
+<instruments>
+  <!-- Course over ground -->
+  <instrument id="cog-digital" name="Course Over Ground (Digital)" caption="COG"
+              path="cogDegTrue" unit="&#176;T" factor="1" display="digital" decimals="0"/>
+  <instrument id="cog-analog" name="Course Over Ground (Analog)" caption="COG"
+              path="cogDegTrue" unit="&#176;T" factor="1" display="analog" min="0" max="360"/>
+  <instrument id="cog-compass" name="Course Over Ground (Compass)" caption="COG"
+              path="cogDegTrue" unit="&#176;T" factor="1" display="compass"/>
+
+  <!-- Speed over ground -->
+  <instrument id="sog-digital" name="Speed Over Ground (Digital)" caption="SOG"
+              path="sogKnots" unit="kn" factor="1" display="digital" decimals="1"/>
+  <instrument id="sog-analog" name="Speed Over Ground (Analog)" caption="SOG"
+              path="sogKnots" unit="kn" factor="1" display="analog" min="0" max="20"/>
+
+  <!-- Speed through water -->
+  <instrument id="stw-digital" name="Speed Through Water (Digital)" caption="STW"
+              path="waterSpeedKnots" unit="kn" factor="1" display="digital" decimals="1"/>
+  <instrument id="stw-analog" name="Speed Through Water (Analog)" caption="STW"
+              path="waterSpeedKnots" unit="kn" factor="1" display="analog" min="0" max="20"/>
+
+  <!-- Apparent wind speed -->
+  <instrument id="aws-digital" name="Apparent Wind Speed (Digital)" caption="AWS"
+              path="apparentWindSpeedKnots" unit="kn" factor="1" display="digital" decimals="1"/>
+  <instrument id="aws-analog" name="Apparent Wind Speed (Analog)" caption="AWS"
+              path="apparentWindSpeedKnots" unit="kn" factor="1" display="analog" min="0" max="40"/>
+
+  <!-- Apparent wind direction (angle relative to the bow) -->
+  <instrument id="awd-digital" name="Apparent Wind Direction (Digital)" caption="AWD"
+              path="apparentWindAngleDeg" unit="&#176;" factor="1" display="digital" decimals="0"/>
+  <instrument id="awd-analog" name="Apparent Wind Direction (Analog)" caption="AWD"
+              path="apparentWindAngleDeg" unit="&#176;" factor="1" display="analog" min="0" max="360"/>
+  <instrument id="awd-wind" name="Apparent Wind Direction (Wind Gauge)" caption="AWD"
+              path="apparentWindAngleDeg" unit="&#176;" factor="1" display="wind"/>
+</instruments>
