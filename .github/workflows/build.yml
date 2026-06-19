@@ -260,10 +260,132 @@ jobs:
           name: windows-${{ matrix.name }}
           path: ${{ env.PKG_NAME }}-${{ env.ARTIFACT_TAG }}-windows-${{ matrix.name }}.zip
 
+  # Build that actually runs on a Raspberry Pi (64-bit Debian Bookworm). The
+  # generic "linux arm64" job above builds on Ubuntu 24.04 (glibc 2.39, newer
+  # Qt/GDAL), whose binaries will not run on Bookworm (glibc 2.36). Building
+  # inside a debian:bookworm container — natively on the aarch64 runner, no
+  # emulation — produces a binary/.deb matched to the Pi's glibc, Qt 6.4 and
+  # GDAL 3.6.
+  debian-bookworm:
+    name: debian bookworm (arm64 / Raspberry Pi)
+    runs-on: ubuntu-24.04-arm
+    container: debian:bookworm
+    steps:
+      - name: Install dependencies
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y \
+            ca-certificates git \
+            cmake ninja-build g++ pkg-config \
+            qt6-base-dev qt6-base-dev-tools qt6-websockets-dev libgdal-dev \
+            dpkg-dev fakeroot
+
+      - uses: actions/checkout@v4
+
+      - name: Compute artifact tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "ARTIFACT_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            echo "DEB_VERSION=${GITHUB_REF_NAME#v}-1~bookworm" >> "$GITHUB_ENV"
+          else
+            echo "ARTIFACT_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+            echo "DEB_VERSION=0.0.0+sha${GITHUB_SHA::7}-1~bookworm" >> "$GITHUB_ENV"
+          fi
+          echo "DEB_ARCH=$(dpkg --print-architecture)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Package portable tarball
+        run: |
+          set -euo pipefail
+          DIST="dist/${PKG_NAME}-${ARTIFACT_TAG}-debian-bookworm-arm64"
+          rm -rf dist
+          install -d "$DIST"
+
+          install -m 0755 "build/${APP_NAME}" "$DIST/${APP_NAME}"
+          cp -a build/symbols.bin "$DIST/"
+          cp -a build/rastersymbols-*.png "$DIST/" 2>/dev/null || true
+          [ -d build/gdal-data ] && cp -a build/gdal-data "$DIST/"
+          [ -d build/plugins ] && cp -a build/plugins "$DIST/"
+          [ -f build/instruments.xml ] && cp -a build/instruments.xml "$DIST/"
+
+          tar -czf "${PKG_NAME}-${ARTIFACT_TAG}-debian-bookworm-arm64.tar.gz" -C "dist" "${PKG_NAME}-${ARTIFACT_TAG}-debian-bookworm-arm64"
+
+      - name: Package Debian .deb
+        run: |
+          set -euo pipefail
+          PKG="${PKG_NAME}"
+          STAGE="debian/${PKG}"
+
+          rm -rf debian
+          install -d \
+            "$STAGE/DEBIAN" \
+            "$STAGE/usr/bin" \
+            "$STAGE/usr/lib/${PKG}" \
+            "$STAGE/usr/share/doc/${PKG}"
+
+          install -m 0755 "build/${APP_NAME}" "$STAGE/usr/lib/${PKG}/${APP_NAME}"
+          install -m 0644 build/symbols.bin "$STAGE/usr/lib/${PKG}/symbols.bin"
+          install -m 0644 build/rastersymbols-*.png "$STAGE/usr/lib/${PKG}/" 2>/dev/null || true
+          [ -d build/gdal-data ] && cp -a build/gdal-data "$STAGE/usr/lib/${PKG}/gdal-data"
+          [ -d build/plugins ] && cp -a build/plugins "$STAGE/usr/lib/${PKG}/plugins"
+          [ -f build/instruments.xml ] && install -m 0644 build/instruments.xml "$STAGE/usr/lib/${PKG}/instruments.xml"
+          cat > "$STAGE/usr/bin/${APP_NAME}" <<WRAPPER
+          #!/bin/sh
+          exec /usr/lib/${PKG}/${APP_NAME} "\$@"
+          WRAPPER
+          chmod 0755 "$STAGE/usr/bin/${APP_NAME}"
+          [ -f README.md ] && install -m 0644 README.md "$STAGE/usr/share/doc/${PKG}/README.md" || true
+          [ -f LICENSE ] && install -m 0644 LICENSE "$STAGE/usr/share/doc/${PKG}/copyright" || true
+
+          SIZE_KB="$(du -sk "$STAGE/usr" | awk '{print $1}')"
+
+          # Scan the binary and every plugin .so so plugin-only deps (e.g.
+          # libQt6WebSockets6 for the Signal K plugin) are declared too.
+          SHLIB_TARGETS=(-e "$STAGE/usr/lib/${PKG}/${APP_NAME}")
+          for so in "$STAGE/usr/lib/${PKG}/plugins/"*.so; do
+            [ -e "$so" ] && SHLIB_TARGETS+=(-e "$so")
+          done
+          DEPENDS="$(dpkg-shlibdeps --ignore-missing-info -O -p"${PKG}" \
+            -S"$STAGE" \
+            "${SHLIB_TARGETS[@]}" | sed -n 's/^shlibs:Depends=//p')"
+          [ -n "$DEPENDS" ] || DEPENDS="libc6"
+
+          cat > "$STAGE/DEBIAN/control" <<CONTROL
+          Package: ${PKG}
+          Version: ${DEB_VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: ${DEB_ARCH}
+          Maintainer: ${GITHUB_REPOSITORY} <noreply@github.com>
+          Depends: ${DEPENDS}
+          Recommends: qt6-wayland
+          Installed-Size: ${SIZE_KB}
+          Homepage: https://github.com/${GITHUB_REPOSITORY}
+          Description: Marine chart viewer built with Qt 6 and GDAL
+           A streamlined ENC (S-57) chart viewer. Built on Debian Bookworm for
+           64-bit Raspberry Pi / Debian arm64.
+          CONTROL
+
+          fakeroot dpkg-deb --build "$STAGE" "${PKG}_${DEB_VERSION}_${DEB_ARCH}.deb"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-bookworm-arm64
+          path: |
+            ${{ env.PKG_NAME }}-${{ env.ARTIFACT_TAG }}-debian-bookworm-arm64.tar.gz
+            ${{ env.PKG_NAME }}_${{ env.DEB_VERSION }}_${{ env.DEB_ARCH }}.deb
+
   publish:
     name: publish to GitHub Release (+ flat APT repo)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, windows]
+    needs: [linux, windows, debian-bookworm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -296,6 +418,7 @@ jobs:
           files: |
             release-assets/linux-amd64/*.tar.gz
             release-assets/linux-arm64/*.tar.gz
+            release-assets/debian-bookworm-arm64/*
             release-assets/windows-x64/*.zip
             release-assets/windows-arm64/*.zip
             apt-repo/*
