@@ -296,3 +296,77 @@ add_subdirectory(plugins/gpx_plugin)
 add_subdirectory(plugins/wmm_plugin)
 add_subdirectory(plugins/instruments_plugin)
 
+# ---- Packaging: Windows installer (CPack + NSIS) ----------------------------
+#
+# Wraps the fully-deployed Release application directory (chartviewer.exe plus
+# the Qt/vcpkg DLLs, platform plugins, plugins/, gdal-data/, and data files that
+# the post-build windeployqt / vcpkg / plugin steps assemble next to the exe)
+# into a single self-contained NSIS installer .exe.
+#
+# Usage — build Release first, then run cpack from the build dir:
+#
+#   cmake --build build/vs2022 --config Release
+#   cpack --config build/vs2022/CPackConfig.cmake -C Release -G NSIS
+#
+# (or: cd build/vs2022 && cpack -C Release -G NSIS)
+#
+# Requires NSIS (makensis) on PATH for the NSIS generator:
+#   https://nsis.sourceforge.io/Download   (zlib/libpng licence)
+# `cmake --install build/vs2022 --config Release --prefix <dir>` stages the same
+# tree without NSIS, which is handy for verifying the payload.
+if(WIN32)
+    # The exe is deployed with windeployqt --no-compiler-runtime, so the MSVC
+    # runtime is not copied next to it. Bundle it app-locally (msvcp140.dll,
+    # vcruntime140*.dll, ...) so the app launches on a clean machine. The
+    # Universal CRT ships with Windows 10/11, so it is intentionally not bundled.
+    #
+    # SKIP=TRUE lets the module resolve the DLL list into
+    # CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS without adding its own install rule (which
+    # defaults to bin/); we then install them next to the exe ourselves.
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+    include(InstallRequiredSystemLibraries)
+    install(PROGRAMS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+            DESTINATION "."
+            CONFIGURATIONS Release)
+
+    # Install the complete, already-assembled Release directory. install(DIRECTORY)
+    # cannot take a generator expression, so the per-config output path is named
+    # directly; the CONFIGURATIONS guard keeps this to Release. Requires a prior
+    # Release build (the directory is populated by the post-build steps).
+    install(DIRECTORY "${CMAKE_BINARY_DIR}/Release/"
+            DESTINATION "."
+            CONFIGURATIONS Release
+            USE_SOURCE_PERMISSIONS
+            PATTERN "*.lib"      EXCLUDE   # dev-only artifacts
+            PATTERN "*.exp"      EXCLUDE
+            PATTERN "*.pdb"      EXCLUDE
+            PATTERN "*.ilk"      EXCLUDE
+            PATTERN "CMakeFiles" EXCLUDE)
+
+    set(CPACK_GENERATOR "NSIS")
+    set(CPACK_PACKAGE_NAME            "HMV Chart")
+    set(CPACK_PACKAGE_VENDOR          "net.holybee")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HMV marine chart viewer / chartplotter")
+    # Bump for each release; drives the installer filename and Add/Remove entry.
+    set(CPACK_PACKAGE_VERSION_MAJOR 0)
+    set(CPACK_PACKAGE_VERSION_MINOR 1)
+    set(CPACK_PACKAGE_VERSION_PATCH 0)
+    set(CPACK_PACKAGE_VERSION "0.1.0")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "HMV Chart")   # Program Files subfolder
+    set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/README.md")
+
+    # Start-menu / desktop shortcut: first token is the exe basename (no .exe),
+    # second is the shortcut label.
+    set(CPACK_PACKAGE_EXECUTABLES "chartviewer" "HMV Chart")
+    set(CPACK_CREATE_DESKTOP_LINKS "chartviewer")
+
+    # NSIS specifics: 64-bit Program Files, clean reinstall, no PATH edits.
+    set(CPACK_NSIS_DISPLAY_NAME "HMV Chart")
+    set(CPACK_NSIS_PACKAGE_NAME "HMV Chart")
+    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+    set(CPACK_NSIS_MODIFY_PATH OFF)
+
+    include(CPack)
+endif()
+
