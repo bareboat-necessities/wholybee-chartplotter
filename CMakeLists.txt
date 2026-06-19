@@ -344,6 +344,10 @@ if(WIN32)
             PATTERN "CMakeFiles" EXCLUDE)
 
     set(CPACK_GENERATOR "NSIS")
+    # Emit the installer (and CPack's _CPack_Packages scratch dir) inside the
+    # build tree rather than the caller's CWD, so running cpack from the repo
+    # root doesn't drop artifacts into the source tree.
+    set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}/installer")
     set(CPACK_PACKAGE_NAME            "HMV Chart")
     set(CPACK_PACKAGE_VENDOR          "net.holybee")
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HMV marine chart viewer / chartplotter")
@@ -355,10 +359,20 @@ if(WIN32)
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "HMV Chart")   # Program Files subfolder
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/README.md")
 
-    # Start-menu / desktop shortcut: first token is the exe basename (no .exe),
-    # second is the shortcut label.
-    set(CPACK_PACKAGE_EXECUTABLES "chartviewer" "HMV Chart")
-    set(CPACK_CREATE_DESKTOP_LINKS "chartviewer")
+    # Start-menu / desktop shortcuts. NOTE: CPACK_PACKAGE_EXECUTABLES is not used
+    # because the NSIS generator hardcodes a "bin\" prefix in the shortcut target
+    # (it assumes binaries live in bin/), which is wrong for our flat layout where
+    # chartviewer.exe sits at the install root. Create the shortcuts directly so
+    # they point at $INSTDIR\chartviewer.exe, and remove them on uninstall.
+    # Backslashes are quadrupled on purpose: CMake collapses "\\\\" to "\\", CPack
+    # writes that verbatim into CPackConfig.cmake, and re-reading it yields a
+    # single "\" that lands in the generated .nsi as the NSIS path separator.
+    set(CPACK_NSIS_CREATE_ICONS_EXTRA
+        "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\HMV Chart.lnk' '$INSTDIR\\\\chartviewer.exe'
+         CreateShortCut '$DESKTOP\\\\HMV Chart.lnk' '$INSTDIR\\\\chartviewer.exe'")
+    set(CPACK_NSIS_DELETE_ICONS_EXTRA
+        "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\HMV Chart.lnk'
+         Delete '$DESKTOP\\\\HMV Chart.lnk'")
 
     # NSIS specifics: 64-bit Program Files, clean reinstall, no PATH edits.
     set(CPACK_NSIS_DISPLAY_NAME "HMV Chart")
