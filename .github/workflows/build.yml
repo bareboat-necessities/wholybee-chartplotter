@@ -1,0 +1,288 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: chartviewer
+  PKG_NAME: wholybee-chartplotter
+  BUILD_TYPE: Release
+
+jobs:
+  linux:
+    name: linux (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: amd64
+            runner: ubuntu-latest
+          - name: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute artifact tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "ARTIFACT_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            echo "DEB_VERSION=${GITHUB_REF_NAME#v}-1" >> "$GITHUB_ENV"
+          else
+            echo "ARTIFACT_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+            echo "DEB_VERSION=0.0.0+sha${GITHUB_SHA::7}-1" >> "$GITHUB_ENV"
+          fi
+          echo "DEB_ARCH=$(dpkg --print-architecture)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ pkg-config \
+            qt6-base-dev qt6-base-dev-tools libgdal-dev \
+            dpkg-dev fakeroot apt-utils
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Package portable tarball
+        run: |
+          set -euo pipefail
+          ARCH="${{ matrix.name }}"
+          DIST="dist/${PKG_NAME}-${ARTIFACT_TAG}-linux-${ARCH}"
+          rm -rf dist
+          install -d "$DIST"
+
+          install -m 0755 "build/${APP_NAME}" "$DIST/${APP_NAME}"
+          cp -a build/symbols.bin "$DIST/"
+          cp -a build/rastersymbols-*.png "$DIST/" 2>/dev/null || true
+          [ -d build/gdal-data ] && cp -a build/gdal-data "$DIST/"
+
+          tar -czf "${PKG_NAME}-${ARTIFACT_TAG}-linux-${ARCH}.tar.gz" -C "dist" "${PKG_NAME}-${ARTIFACT_TAG}-linux-${ARCH}"
+
+      - name: Package Debian .deb
+        run: |
+          set -euo pipefail
+          PKG="${PKG_NAME}"
+          STAGE="debian/${PKG}"
+
+          rm -rf debian
+          install -d \
+            "$STAGE/DEBIAN" \
+            "$STAGE/usr/bin" \
+            "$STAGE/usr/lib/${PKG}" \
+            "$STAGE/usr/share/doc/${PKG}"
+
+          install -m 0755 "build/${APP_NAME}" "$STAGE/usr/lib/${PKG}/${APP_NAME}"
+          install -m 0644 build/symbols.bin "$STAGE/usr/lib/${PKG}/symbols.bin"
+          install -m 0644 build/rastersymbols-*.png "$STAGE/usr/lib/${PKG}/" 2>/dev/null || true
+          [ -d build/gdal-data ] && cp -a build/gdal-data "$STAGE/usr/lib/${PKG}/gdal-data"
+          cat > "$STAGE/usr/bin/${APP_NAME}" <<WRAPPER
+          #!/bin/sh
+          exec /usr/lib/${PKG}/${APP_NAME} "\$@"
+          WRAPPER
+          chmod 0755 "$STAGE/usr/bin/${APP_NAME}"
+          [ -f README.md ] && install -m 0644 README.md "$STAGE/usr/share/doc/${PKG}/README.md" || true
+          [ -f LICENSE ] && install -m 0644 LICENSE "$STAGE/usr/share/doc/${PKG}/copyright" || true
+
+          SIZE_KB="$(du -sk "$STAGE/usr" | awk '{print $1}')"
+
+          cat > debian/control <<CONTROL
+          Source: ${PKG}
+          Section: utils
+          Priority: optional
+          Maintainer: ${GITHUB_REPOSITORY} <noreply@github.com>
+          Standards-Version: 4.6.2
+
+          Package: ${PKG}
+          Architecture: any
+          Depends: \${shlibs:Depends}, \${misc:Depends}
+          Description: Marine chart viewer built with Qt 6 and GDAL
+           A streamlined ENC (S-57) chart viewer.
+          CONTROL
+
+          DEPENDS="$(dpkg-shlibdeps --ignore-missing-info -O -p"${PKG}" \
+            -S"$STAGE" \
+            -e "$STAGE/usr/lib/${PKG}/${APP_NAME}" | sed -n 's/^shlibs:Depends=//p')"
+          [ -n "$DEPENDS" ] || DEPENDS="libc6"
+
+          cat > "$STAGE/DEBIAN/control" <<CONTROL
+          Package: ${PKG}
+          Version: ${DEB_VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: ${DEB_ARCH}
+          Maintainer: ${GITHUB_REPOSITORY} <noreply@github.com>
+          Depends: ${DEPENDS}
+          Installed-Size: ${SIZE_KB}
+          Homepage: https://github.com/${GITHUB_REPOSITORY}
+          Description: Marine chart viewer built with Qt 6 and GDAL
+           A streamlined ENC (S-57) chart viewer.
+          CONTROL
+
+          fakeroot dpkg-deb --build "$STAGE" "${PKG}_${DEB_VERSION}_${DEB_ARCH}.deb"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.name }}
+          path: |
+            ${{ env.PKG_NAME }}-${{ env.ARTIFACT_TAG }}-linux-${{ matrix.name }}.tar.gz
+            ${{ env.PKG_NAME }}_${{ env.DEB_VERSION }}_${{ env.DEB_ARCH }}.deb
+
+  windows:
+    name: windows (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64
+            runner: windows-latest
+            msystem: MINGW64
+            prefix: mingw-w64-x86_64
+            mingw_bin: /mingw64/bin
+          - name: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+            prefix: mingw-w64-clang-aarch64
+            mingw_bin: /clangarm64/bin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 (${{ matrix.msystem }})
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            ${{ matrix.prefix }}-cc
+            ${{ matrix.prefix }}-cmake
+            ${{ matrix.prefix }}-ninja
+            ${{ matrix.prefix }}-qt6-base
+            ${{ matrix.prefix }}-gdal
+            git
+            p7zip
+
+      - name: Compute artifact tag
+        shell: msys2 {0}
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "ARTIFACT_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "ARTIFACT_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure
+        shell: msys2 {0}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Package portable zip
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          ARCH="${{ matrix.name }}"
+          MINGW_BIN="${{ matrix.mingw_bin }}"
+          rm -rf dist "${PKG_NAME}-${ARTIFACT_TAG}-windows-${ARCH}.zip"
+          mkdir -p dist
+
+          cp -f "build/${APP_NAME}.exe" dist/
+          cp -f build/symbols.bin dist/
+          cp -f build/rastersymbols-*.png dist/ 2>/dev/null || true
+          [ -d build/gdal-data ] && cp -a build/gdal-data dist/
+
+          copy_deps () {
+            local bin="$1"
+            [ -f "$bin" ] || return 0
+            ldd "$bin" | awk '{print $3}' | grep -E "^${MINGW_BIN}/.*\.dll$" | sort -u | while read -r dll; do
+              [ -f "$dll" ] && cp -f "$dll" dist/
+            done
+          }
+          copy_deps "build/${APP_NAME}.exe"
+
+          WDEPLOY="${MINGW_BIN}/windeployqt.exe"
+          if [ -x "$WDEPLOY" ]; then
+            "$WDEPLOY" --release --no-translations --no-compiler-runtime dist/${APP_NAME}.exe
+          fi
+
+          cat > dist/run.bat <<'BAT'
+          @echo off
+          setlocal
+          set "DIR=%~dp0"
+          set "PATH=%DIR%;%SystemRoot%\System32;%SystemRoot%"
+          set "GDAL_DATA=%DIR%gdal-data"
+          "%DIR%chartviewer.exe"
+          endlocal
+          BAT
+
+          7z a "${PKG_NAME}-${ARTIFACT_TAG}-windows-${ARCH}.zip" ./dist/*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.name }}
+          path: ${{ env.PKG_NAME }}-${{ env.ARTIFACT_TAG }}-windows-${{ matrix.name }}.zip
+
+  publish:
+    name: publish to GitHub Release (+ flat APT repo)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Build flat APT repository (Packages/Release)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils
+
+          rm -rf apt-repo
+          mkdir -p apt-repo
+          cp -v release-assets/linux-amd64/*.deb apt-repo/
+          cp -v release-assets/linux-arm64/*.deb apt-repo/
+
+          pushd apt-repo >/dev/null
+          dpkg-scanpackages --multiversion . /dev/null > Packages
+          gzip -9c Packages > Packages.gz
+          apt-ftparchive release . > Release
+          popd >/dev/null
+
+      - name: Publish versioned release (tag v*)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/linux-amd64/*.tar.gz
+            release-assets/linux-arm64/*.tar.gz
+            release-assets/windows-x64/*.zip
+            release-assets/windows-arm64/*.zip
+            apt-repo/*
+
+      - name: Publish/update stable APT release (tag "apt")
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apt
+          name: APT repository (stable)
+          target_commitish: ${{ github.sha }}
+          overwrite_files: true
+          files: |
+            apt-repo/*
