@@ -232,13 +232,20 @@ jobs:
           }
           copy_deps "build/${APP_NAME}.exe"
 
-          # Runtime plugin DLLs (loaded from plugins/ next to the exe) plus their
-          # own Qt deps — e.g. the Signal K plugin pulls in Qt6WebSockets/Network,
-          # which the host exe itself does not link.
+          # Runtime plugin DLLs load from plugins/ next to the exe. Plugins pull
+          # in extra Qt modules the host exe doesn't link (e.g. the Signal K
+          # plugin needs Qt6WebSockets/Qt6Network); CMake's plugin post-build
+          # steps already stage those DLLs next to the exe in build/, so mirror
+          # build/'s top-level runtime DLLs into dist/.
+          #
+          # We deliberately do NOT run copy_deps (ldd) on the plugins: ldd
+          # resolves deps by loading the binary through the Windows loader, and a
+          # plugin's unresolved import of chartviewer.exe pops a modal "DLL not
+          # found" dialog that hangs headless CI forever.
           if [ -d build/plugins ]; then
             mkdir -p dist/plugins
             cp -f build/plugins/*.dll dist/plugins/
-            for p in dist/plugins/*.dll; do copy_deps "$p"; done
+            cp -f build/*.dll dist/ 2>/dev/null || true
           fi
           [ -f build/instruments.xml ] && cp -f build/instruments.xml dist/
 
