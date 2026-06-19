@@ -221,9 +221,14 @@ jobs:
           copy_deps () {
             local bin="$1"
             [ -f "$bin" ] || return 0
-            ldd "$bin" | awk '{print $3}' | grep -E "^${MINGW_BIN}/.*\.dll$" | sort -u | while read -r dll; do
+            # ldd exits non-zero when it can't resolve a dependency (a plugin
+            # links against chartviewer.exe, which isn't on its search path),
+            # and grep exits non-zero when a binary has no MinGW deps. Neither
+            # should abort the step under `set -euo pipefail`, so swallow the
+            # pipeline status with a trailing `|| true`.
+            ldd "$bin" 2>/dev/null | awk '{print $3}' | grep -E "^${MINGW_BIN}/.*\.dll$" | sort -u | while read -r dll; do
               [ -f "$dll" ] && cp -f "$dll" dist/
-            done
+            done || true
           }
           copy_deps "build/${APP_NAME}.exe"
 
