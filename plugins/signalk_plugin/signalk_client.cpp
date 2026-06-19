@@ -59,10 +59,19 @@ void SignalKClient::start() {
     connect(ws_, &QWebSocket::textMessageReceived,
             this, &SignalKClient::onTextMessage);
     // Treat any error as a closed link: stop talking, let the reconnect timer
-    // try again — same recovery the NMEA TCP client uses.
+    // try again — same recovery the NMEA TCP client uses. QWebSocket::errorOccurred
+    // arrived in Qt 6.5; fall back to the (overloaded) error signal before that so
+    // the plugin builds against the older Qt on the Linux CI runners.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     connect(ws_, &QWebSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) {
         if (ws_) ws_->abort();
     });
+#else
+    connect(ws_, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error),
+            this, [this](QAbstractSocket::SocketError) {
+        if (ws_) ws_->abort();
+    });
+#endif
     ws_->open(buildUrl());
     if (!reconnectTimer_->isActive()) reconnectTimer_->start();
 }

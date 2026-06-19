@@ -4,6 +4,7 @@
 #include <QString>
 #include <QSqlDatabase>
 #include "route_types.hpp"
+#include "host_export.hpp"
 
 // Persistent store for routes and standalone waypoints, backed by a read-write
 // SQLite database (routes.db in the app data dir). The whole collection is held
@@ -13,7 +14,10 @@
 //
 // Thousands of routes/waypoints in QVectors is trivial in memory; the overlay
 // culls to the viewport at paint time.
-class RouteStore : public QObject {
+// HOST_EXPORT so the symbols resolve when a runtime plugin (e.g. gpx_plugin)
+// links against the host: MinGW's auto-export does not cover class member
+// functions, so RouteStore is marked explicitly like NavDataStore.
+class HOST_EXPORT RouteStore : public QObject {
     Q_OBJECT
 public:
     explicit RouteStore(QObject* parent = nullptr);
