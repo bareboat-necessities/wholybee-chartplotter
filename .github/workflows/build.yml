@@ -351,6 +351,21 @@ jobs:
 
           SIZE_KB="$(du -sk "$STAGE/usr" | awk '{print $1}')"
 
+          # dpkg-shlibdeps reads the source package's debian/control by default.
+          cat > debian/control <<CONTROL
+          Source: ${PKG}
+          Section: utils
+          Priority: optional
+          Maintainer: ${GITHUB_REPOSITORY} <noreply@github.com>
+          Standards-Version: 4.6.2
+
+          Package: ${PKG}
+          Architecture: any
+          Depends: \${shlibs:Depends}, \${misc:Depends}
+          Description: Marine chart viewer built with Qt 6 and GDAL
+           A streamlined ENC (S-57) chart viewer.
+          CONTROL
+
           # Scan the binary and every plugin .so so plugin-only deps (e.g.
           # libQt6WebSockets6 for the Signal K plugin) are declared too.
           SHLIB_TARGETS=(-e "$STAGE/usr/lib/${PKG}/${APP_NAME}")
