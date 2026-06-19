@@ -46,7 +46,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             cmake ninja-build g++ pkg-config \
-            qt6-base-dev qt6-base-dev-tools libgdal-dev \
+            qt6-base-dev qt6-base-dev-tools qt6-websockets-dev libgdal-dev \
             dpkg-dev fakeroot apt-utils
 
       - name: Configure
@@ -170,6 +170,7 @@ jobs:
             ${{ matrix.prefix }}-cmake
             ${{ matrix.prefix }}-ninja
             ${{ matrix.prefix }}-qt6-base
+            ${{ matrix.prefix }}-qt6-websockets
             ${{ matrix.prefix }}-gdal
             git
             p7zip
