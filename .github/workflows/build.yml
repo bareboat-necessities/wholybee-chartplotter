@@ -270,6 +270,12 @@ jobs:
     name: debian bookworm (arm64 / Raspberry Pi)
     runs-on: ubuntu-24.04-arm
     container: debian:bookworm
+    # The debian:bookworm container has bash, but GitHub Actions falls back to
+    # /bin/sh (dash) for container jobs, which breaks the bash-only syntax used
+    # below ([[ ]], ${VAR::N}, set -o pipefail, arrays). Force bash for all steps.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Install dependencies
         run: |
