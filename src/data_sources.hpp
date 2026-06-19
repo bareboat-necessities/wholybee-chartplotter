@@ -7,7 +7,7 @@
 // on NavValueMeta.source, plus a human-readable name for the UI.
 struct DataSourceInfo { QString id; QString name; };
 
-// Runtime registry of navigation sources — built-ins (NMEA 0183, Simulator)
+// Runtime registry of navigation sources — built-ins (NMEA 0183/2000)
 // registered at startup, plus any registered by plugins. Drives the Data
 // Priority dialog and the order applied to the NavDataStore, so plugin sources
 // participate in priority/fall-back like built-in ones.

@@ -67,6 +67,9 @@ jobs:
           cp -a build/symbols.bin "$DIST/"
           cp -a build/rastersymbols-*.png "$DIST/" 2>/dev/null || true
           [ -d build/gdal-data ] && cp -a build/gdal-data "$DIST/"
+          # Runtime plugins (and the instruments catalogue seed) live next to the exe.
+          [ -d build/plugins ] && cp -a build/plugins "$DIST/"
+          [ -f build/instruments.xml ] && cp -a build/instruments.xml "$DIST/"
 
           tar -czf "${PKG_NAME}-${ARTIFACT_TAG}-linux-${ARCH}.tar.gz" -C "dist" "${PKG_NAME}-${ARTIFACT_TAG}-linux-${ARCH}"
 
@@ -87,6 +90,9 @@ jobs:
           install -m 0644 build/symbols.bin "$STAGE/usr/lib/${PKG}/symbols.bin"
           install -m 0644 build/rastersymbols-*.png "$STAGE/usr/lib/${PKG}/" 2>/dev/null || true
           [ -d build/gdal-data ] && cp -a build/gdal-data "$STAGE/usr/lib/${PKG}/gdal-data"
+          # Runtime plugins (.so) load from a plugins/ folder next to the binary.
+          [ -d build/plugins ] && cp -a build/plugins "$STAGE/usr/lib/${PKG}/plugins"
+          [ -f build/instruments.xml ] && install -m 0644 build/instruments.xml "$STAGE/usr/lib/${PKG}/instruments.xml"
           cat > "$STAGE/usr/bin/${APP_NAME}" <<WRAPPER
           #!/bin/sh
           exec /usr/lib/${PKG}/${APP_NAME} "\$@"
@@ -111,9 +117,15 @@ jobs:
            A streamlined ENC (S-57) chart viewer.
           CONTROL
 
+          # Scan the binary and every plugin .so so plugin-only deps (e.g.
+          # libQt6WebSockets6 for the Signal K plugin) are declared too.
+          SHLIB_TARGETS=(-e "$STAGE/usr/lib/${PKG}/${APP_NAME}")
+          for so in "$STAGE/usr/lib/${PKG}/plugins/"*.so; do
+            [ -e "$so" ] && SHLIB_TARGETS+=(-e "$so")
+          done
           DEPENDS="$(dpkg-shlibdeps --ignore-missing-info -O -p"${PKG}" \
             -S"$STAGE" \
-            -e "$STAGE/usr/lib/${PKG}/${APP_NAME}" | sed -n 's/^shlibs:Depends=//p')"
+            "${SHLIB_TARGETS[@]}" | sed -n 's/^shlibs:Depends=//p')"
           [ -n "$DEPENDS" ] || DEPENDS="libc6"
 
           cat > "$STAGE/DEBIAN/control" <<CONTROL
@@ -214,6 +226,16 @@ jobs:
             done
           }
           copy_deps "build/${APP_NAME}.exe"
+
+          # Runtime plugin DLLs (loaded from plugins/ next to the exe) plus their
+          # own Qt deps — e.g. the Signal K plugin pulls in Qt6WebSockets/Network,
+          # which the host exe itself does not link.
+          if [ -d build/plugins ]; then
+            mkdir -p dist/plugins
+            cp -f build/plugins/*.dll dist/plugins/
+            for p in dist/plugins/*.dll; do copy_deps "$p"; done
+          fi
+          [ -f build/instruments.xml ] && cp -f build/instruments.xml dist/
 
           WDEPLOY="${MINGW_BIN}/windeployqt.exe"
           if [ -x "$WDEPLOY" ]; then

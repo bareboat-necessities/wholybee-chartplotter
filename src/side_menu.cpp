@@ -280,23 +280,8 @@ QWidget* SideMenu::buildSettingsPage() {
 
     col->addWidget(makeHeader(QStringLiteral("Data Connections")));
 
-    // --- The sources themselves, at the top of the section ---
-    // Simulator is the built-in source; its dot shows when it is running. Other
-    // sources (NMEA 0183, plugins) register themselves into dataSourceBox_ below.
-    auto* sim = makeSettingsAction(QStringLiteral("Simulator"));
-    sim->setCheckable(true);
-    sim->setChecked(settings_->simulatorEnabled());
-    sim->setIcon(statusDotIcon(settings_->simulatorEnabled()));
-    connect(sim, &QPushButton::toggled, this, [this, sim](bool on) {
-        sim->setIcon(statusDotIcon(on));
-        settings_->setSimulatorEnabled(on);
-    });
-    connect(settings_, &Settings::simulatorEnabledChanged, sim, [sim](bool on) {
-        if (sim->isChecked() != on) sim->setChecked(on);   // toggled() refreshes the dot
-    });
-    col->addWidget(sim);
-
-    // Plugin-registered data sources land here, among the built-in sources.
+    // Data sources (NMEA 0183/2000 and plugin-registered sources) register
+    // themselves into dataSourceBox_ below, each with its own status dot.
     auto* dsHolder = new QWidget(page);
     dataSourceBox_ = new QVBoxLayout(dsHolder);
     dataSourceBox_->setContentsMargins(0, 0, 0, 0);

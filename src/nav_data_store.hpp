@@ -16,7 +16,7 @@ enum class NavFreshness { Fresh, Stale, Invalid };
 // Provenance a publisher supplies when it sets a value: which source produced
 // it and when. The store derives age/freshness from this.
 struct NavValueMeta {
-    QString   source;              // e.g. "nmea0183", "nmea2000", "simulator"
+    QString   source;              // e.g. "nmea0183", "nmea2000", "signalk"
     QDateTime timestampUtc;        // when the source produced the value
 };
 
