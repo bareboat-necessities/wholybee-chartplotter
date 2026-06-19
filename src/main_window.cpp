@@ -36,7 +36,6 @@
 #include "ais_overlay.hpp"
 #include "ais_target_info_window.hpp"
 #include "ais_quick_info_window.hpp"
-#include "simulator.hpp"
 #include "core_api.hpp"
 #include "plugin_manager.hpp"
 #include "nmea0183_plugin.hpp"
@@ -153,9 +152,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(catalog_, &ChartCatalog::finished, this, &MainWindow::onScanFinished);
     view_->setCatalog(catalog_);
 
-    // Nav data store + simulator (built-in publisher). The store owns shared
-    // ownship state; the view subscribes; the simulator publishes through the
-    // INavDataPublisher API. This is the foundation for AIS/instruments/routes.
+    // Nav data store: the store owns shared ownship state, the view subscribes,
+    // and publishers (NMEA plugins, etc.) feed it through the INavDataPublisher
+    // API. This is the foundation for AIS/instruments/routes.
     navStore_  = new NavDataStore(this);
     navStore_->setStaleSeconds(settings_->staleSeconds());
     navStore_->setInvalidSeconds(settings_->invalidSeconds());
@@ -165,8 +164,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         navStore_->setInvalidSeconds(i);
     });
     // Source arbitration: highest-priority source wins, falling back when its
-    // data goes invalid. Sources register into registry_ (NMEA via its plugin,
-    // simulator below); the saved order is applied after plugin init (below).
+    // data goes invalid. Sources register into registry_ (e.g. NMEA via its
+    // plugin); the saved order is applied after plugin init (below).
     connect(settings_, &Settings::dataSourcePriorityChanged,
             navStore_, &NavDataStore::setSourcePriority);
     // ownshipChanged fires on new data and on any per-value freshness transition.
@@ -275,15 +274,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (cpaCalc_) cpaCalc_->setOwnshipMmsi(m.toUInt());
     });
 
-    simulator_ = new Simulator(navStore_, this);
-    simulator_->setPosition(settings_->simulatorLat(), settings_->simulatorLon());
-    // Persist the simulator's position as it moves so it resumes where it left off.
-    connect(simulator_, &Simulator::positionChanged,
-            settings_, &Settings::setSimulatorPosition);
-    connect(settings_, &Settings::simulatorEnabledChanged,
-            simulator_, &Simulator::setRunning);
-    if (settings_->simulatorEnabled()) simulator_->setRunning(true);
-
     // Touch-first navigation: a floating menu button over the chart opens the
     // side drawer. No toolbar, no right-click, large tap targets.
     sideMenu_ = new SideMenu(settings_, view_);
@@ -335,22 +325,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // Plugin layer: the core exposes services through CoreApi; the manager owns
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
-    // plugin would use later. NMEA 0183 is a plugin; the test plugin exercises
-    // menus, overlays, and the nav data API. Plugins register their sources here.
+    // plugin would use later. NMEA 0183/2000 are built-in plugins; dynamic
+    // plugins are discovered alongside the exe. Plugins register their sources here.
     coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, routeStore_, sideMenu_, view_, &registry_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
     plugins_->add(std::make_unique<Nmea2000Plugin>());
-    // Dynamic plugins discovered alongside the exe. Test Plugin lives here
-    // now — built as its own VS project under plugins/test_plugin/, loaded
-    // via QPluginLoader.
+    // Dynamic plugins (GPX, Signal K, WMM, Instruments, ...) discovered as DLLs
+    // in the plugins/ folder alongside the exe and loaded via QPluginLoader.
     plugins_->loadFromDirectory(QCoreApplication::applicationDirPath()
                                 + QStringLiteral("/plugins"));
     plugins_->initializeAll();
 
-    // Simulator is a core built-in source; register it last so real data
-    // (NMEA) outranks it by default. Then apply the saved priority order.
-    registry_.add(QStringLiteral("simulator"), QStringLiteral("Simulator"));
+    // Apply the saved source-priority order across the registered sources
+    // (NMEA 0183/2000 and any plugin sources).
     navStore_->setSourcePriority(registry_.orderedIds(settings_->dataSourcePriority()));
 
     menuButton_ = new QPushButton(QStringLiteral("☰"), view_);  // hamburger

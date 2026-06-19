@@ -120,7 +120,6 @@ qt_add_executable(chartviewer
     src/vessel_symbol.cpp
     src/sym_atlas.cpp
     src/theme.cpp
-    src/simulator.cpp
     src/nmea0183_client.cpp
 )
 
@@ -290,7 +289,6 @@ endforeach()
 # Each plugin lives in its own subdirectory under plugins/, builds to its own
 # shared library (a separate target / VS project), and post-build copies itself
 # into plugins/ next to the host exe so QPluginLoader picks it up at runtime.
-add_subdirectory(plugins/test_plugin)
 add_subdirectory(plugins/signalk_plugin)
 add_subdirectory(plugins/gpx_plugin)
 add_subdirectory(plugins/wmm_plugin)

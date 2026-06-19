@@ -14,8 +14,7 @@ enum class NmeaTransport { Tcp, Udp };
 
 // Reads NMEA 0183 sentences from a WiFi gateway over TCP or UDP, decodes the
 // position sentences we care about (RMC, GLL), and publishes them into the
-// NavDataStore through the INavDataPublisher contract — the same path the
-// simulator uses.
+// NavDataStore through the INavDataPublisher contract.
 //
 // "Decoding" status: while valid position sentences keep arriving, isDecoding()
 // is true; if none arrive for the timeout (5 s) it flips false. The UI shows a
