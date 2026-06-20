@@ -9,6 +9,7 @@ class QLabel;
 class QStackedWidget;
 class QVBoxLayout;
 class QPropertyAnimation;
+class QWheelEvent;
 
 // Touch-first navigation drawer that slides in over the chart from the left.
 //
@@ -89,6 +90,7 @@ signals:
 
 protected:
     void resizeEvent(QResizeEvent* e) override;
+    void wheelEvent(QWheelEvent* e) override;
     bool eventFilter(QObject* obj, QEvent* e) override;
 
 private:

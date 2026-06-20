@@ -13,6 +13,7 @@
 #include <QPropertyAnimation>
 #include <QEvent>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QResizeEvent>
 #include <QPixmap>
 #include <QPainter>
@@ -651,6 +652,14 @@ void SideMenu::setAutoHide(bool on) {
 
 void SideMenu::resizeEvent(QResizeEvent*) {
     layoutPanel();
+}
+
+// Swallow wheel events that bubble up to us. A page's QScrollArea only consumes
+// the wheel when it actually has room to scroll; when the content fits, the
+// unhandled event would otherwise propagate to the chart view underneath and
+// zoom/pan it. Accepting it here stops that while leaving real scrolling intact.
+void SideMenu::wheelEvent(QWheelEvent* e) {
+    e->accept();
 }
 
 bool SideMenu::eventFilter(QObject* obj, QEvent* e) {
