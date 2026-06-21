@@ -1,5 +1,6 @@
 #include "ais_target_list_dialog.hpp"
 #include "ais_target_store.hpp"
+#include "theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -8,9 +9,9 @@
 #include <QPushButton>
 #include <QFrame>
 #include <QLabel>
+#include <QSizePolicy>
 #include <QTimer>
 #include <algorithm>
-#include <limits>
 #include <vector>
 
 namespace {
@@ -25,11 +26,12 @@ QString fmtDistance(const std::optional<double>& rangeMeters) {
 
 // A cell label that passes mouse events through to its parent row button, so a
 // tap anywhere on the row registers as a button click (no per-label handling).
-QLabel* makeCell(int fixedWidth, Qt::Alignment align) {
+QLabel* makeCell(int fixedWidth, Qt::Alignment align, const QString& color) {
     auto* l = new QLabel;
     l->setAttribute(Qt::WA_TransparentForMouseEvents);
     l->setAlignment(align);
-    l->setStyleSheet(QStringLiteral("font-size:14px; padding:0 4px; border:none;"));
+    l->setStyleSheet(QStringLiteral("font-size:14px; padding:0 4px; border:none; color:%1;")
+                     .arg(color));
     if (fixedWidth > 0) l->setFixedWidth(fixedWidth);
     return l;
 }
@@ -39,49 +41,106 @@ AisTargetListDialog::AisTargetListDialog(const AisTargetStore* store, QWidget* p
     : QDialog(parent), store_(store) {
     setWindowTitle(QStringLiteral("AIS Targets"));
     resize(560, 600);
-    setWindowFlag(Qt::Window, true);   // modeless top-level window
+    // Frameless + side-menu palette (light/dark aware), matching the chart-object
+    // chooser, instead of the system window chrome.
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+
+    const theme::MenuPalette& t = theme::menu();
 
     auto* col = new QVBoxLayout(this);
+    col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(0);
-    col->setContentsMargins(0, 0, 0, 8);
 
-    countLabel_ = new QLabel(this);
-    countLabel_->setStyleSheet(QStringLiteral("font-size:13px; padding:6px 8px;"));
-    col->addWidget(countLabel_);
+    // Bordered panel so the frameless window still has a visible edge.
+    auto* panel = new QFrame(this);
+    panel->setObjectName(QStringLiteral("AisListPanel"));
+    panel->setStyleSheet(QStringLiteral(
+        "#AisListPanel{ background:%1; border:1px solid %2; }")
+        .arg(t.panelBg, t.panelBorder));
+    col->addWidget(panel);
 
-    // Static column header row — outside the scroll area so it doesn't scroll.
+    auto* panelCol = new QVBoxLayout(panel);
+    panelCol->setContentsMargins(0, 0, 0, 0);
+    panelCol->setSpacing(0);
+
+    // Title bar, mirroring the side-menu header: a brand-navy strip with the
+    // title and a close "✕" (the window is frameless, so this is the dismiss).
+    auto* titleBar = new QWidget(panel);
+    titleBar->setStyleSheet(QStringLiteral("background:%1;").arg(t.titleBg));
+    auto* titleRow = new QHBoxLayout(titleBar);
+    titleRow->setContentsMargins(16, 8, 8, 8);
+    titleRow->setSpacing(6);
+    auto* titleLbl = new QLabel(QStringLiteral("AIS Targets"), titleBar);
+    titleLbl->setStyleSheet(QStringLiteral(
+        "font-size:18px; font-weight:600; background:transparent; color:%1;").arg(t.titleFg));
+    titleRow->addWidget(titleLbl, 1);
+    auto* closeBtn = new QPushButton(QString(QChar(0x2715)), titleBar);   // ✕
+    closeBtn->setFlat(true);
+    closeBtn->setFixedSize(44, 44);
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    closeBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{ border:none; background:transparent; color:%1; font-size:18px; }"
+        "QPushButton:pressed{ background:%2; border-radius:6px; }")
+        .arg(t.titleFg, t.actionPressed));
+    connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
+    titleRow->addWidget(closeBtn);
+    panelCol->addWidget(titleBar);
+
+    countLabel_ = new QLabel(panel);
+    countLabel_->setStyleSheet(QStringLiteral("font-size:13px; padding:6px 12px; color:%1;")
+                               .arg(t.actionFg));
+    panelCol->addWidget(countLabel_);
+
+    // Clickable column headers — tap to sort, tap again to reverse. Widths match
+    // the row cells below so the columns line up.
     {
-        auto* hdr = new QWidget(this);
+        auto* hdr = new QWidget(panel);
+        hdr->setObjectName(QStringLiteral("AisListHdr"));
         hdr->setStyleSheet(QStringLiteral(
-            "background: palette(button); font-size:12px; font-weight:600;"));
+            "#AisListHdr{ background:%1; border-bottom:1px solid %2; }")
+            .arg(t.headerBg, t.separator));
         auto* hl = new QHBoxLayout(hdr);
         hl->setContentsMargins(8, 4, 8, 4);
         hl->setSpacing(0);
-        auto* hName = new QLabel(QStringLiteral("Name"), hdr);
-        hName->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        auto* hMmsi = new QLabel(QStringLiteral("MMSI"), hdr);
-        hMmsi->setFixedWidth(100);
-        hMmsi->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        auto* hCall = new QLabel(QStringLiteral("Call sign"), hdr);
-        hCall->setFixedWidth(100);
-        auto* hDist = new QLabel(QStringLiteral("Distance"), hdr);
-        hDist->setFixedWidth(90);
-        hDist->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        hl->addWidget(hName);
-        hl->addWidget(hMmsi);
-        hl->addWidget(hCall);
-        hl->addWidget(hDist);
-        col->addWidget(hdr);
+
+        auto makeHeaderBtn = [&](SortColumn c, int width, bool right) {
+            auto* b = new QPushButton(hdr);
+            b->setFlat(true);
+            b->setCursor(Qt::PointingHandCursor);
+            if (width > 0) b->setFixedWidth(width);
+            else b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+            b->setStyleSheet(QStringLiteral(
+                "QPushButton{ border:none; background:transparent; color:%1;"
+                " font-size:12px; font-weight:600; padding:0 4px; text-align:%2; }"
+                "QPushButton:pressed{ color:%3; }")
+                .arg(t.headerFg,
+                     right ? QStringLiteral("right") : QStringLiteral("left"),
+                     t.accent));
+            connect(b, &QPushButton::clicked, this, [this, c] { setSort(c); });
+            return b;
+        };
+        hdrName_ = makeHeaderBtn(SortColumn::Name,     0,   false);
+        hdrMmsi_ = makeHeaderBtn(SortColumn::Mmsi,     100, true);
+        hdrCall_ = makeHeaderBtn(SortColumn::Call,     100, false);
+        hdrDist_ = makeHeaderBtn(SortColumn::Distance, 90,  true);
+        hl->addWidget(hdrName_, 1);
+        hl->addWidget(hdrMmsi_);
+        hl->addWidget(hdrCall_);
+        hl->addWidget(hdrDist_);
+        panelCol->addWidget(hdr);
+        updateHeaderLabels();
     }
 
     // Scrollable row area. Uses QScrollArea — the same widget the side menu uses
     // via wrapScroll() — so QScroller delivers identical pixel-level drag-to-scroll
     // behaviour: content moves exactly with the finger, no velocity amplification.
-    scrollArea_ = new QScrollArea(this);
+    scrollArea_ = new QScrollArea(panel);
     scrollArea_->setFrameShape(QFrame::NoFrame);
     scrollArea_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scrollArea_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scrollArea_->setWidgetResizable(true);
+    scrollArea_->setStyleSheet(QStringLiteral(
+        "QScrollArea, QScrollArea > QWidget > QWidget { background:%1; }").arg(t.panelBg));
 
     rowContainer_ = new QWidget;
     rowLayout_ = new QVBoxLayout(rowContainer_);
@@ -91,17 +150,7 @@ AisTargetListDialog::AisTargetListDialog(const AisTargetStore* store, QWidget* p
     scrollArea_->setWidget(rowContainer_);
 
     QScroller::grabGesture(scrollArea_->viewport(), QScroller::LeftMouseButtonGesture);
-    col->addWidget(scrollArea_, 1);
-
-    auto* btnRow = new QHBoxLayout;
-    btnRow->setContentsMargins(8, 8, 8, 0);
-    btnRow->addStretch(1);
-    auto* closeBtn = new QPushButton(QStringLiteral("Close"));
-    closeBtn->setMinimumHeight(44);
-    closeBtn->setDefault(true);
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
-    btnRow->addWidget(closeBtn);
-    col->addLayout(btnRow);
+    panelCol->addWidget(scrollArea_, 1);
 
     // Coalesce bursts of per-target signals (one per AIS message) into at most
     // one rebuild per 250 ms interval.
@@ -129,27 +178,50 @@ void AisTargetListDialog::scheduleRefresh() {
     if (!coalesce_->isActive()) coalesce_->start();
 }
 
+void AisTargetListDialog::setSort(SortColumn c) {
+    // Re-tapping the active column reverses it; a new column starts ascending.
+    if (sortColumn_ == c) sortAsc_ = !sortAsc_;
+    else { sortColumn_ = c; sortAsc_ = true; }
+    updateHeaderLabels();
+    refresh();
+}
+
+void AisTargetListDialog::updateHeaderLabels() {
+    auto set = [this](QPushButton* b, SortColumn c, const QString& base) {
+        if (!b) return;
+        b->setText(sortColumn_ == c
+            ? base + (sortAsc_ ? QStringLiteral("  ▲")    // ▲
+                               : QStringLiteral("  ▼"))   // ▼
+            : base);
+    };
+    set(hdrName_, SortColumn::Name,     QStringLiteral("Name"));
+    set(hdrMmsi_, SortColumn::Mmsi,     QStringLiteral("MMSI"));
+    set(hdrCall_, SortColumn::Call,     QStringLiteral("Call sign"));
+    set(hdrDist_, SortColumn::Distance, QStringLiteral("Distance"));
+}
+
 AisTargetListDialog::Row AisTargetListDialog::makeRow() {
     Row r;
+    const theme::MenuPalette& t = theme::menu();
     // Flat button = the tap target. Qt handles click detection; child labels are
     // transparent to the mouse so a tap anywhere on the row hits the button.
     r.btn = new QPushButton(rowContainer_);
     r.btn->setFlat(true);
     r.btn->setMinimumHeight(44);
     r.btn->setStyleSheet(QStringLiteral(
-        "QPushButton { text-align:left; border:none;"
-        " border-bottom:1px solid palette(mid); }"
-        "QPushButton:pressed { background:palette(highlight);"
-        " color:palette(highlighted-text); }"));
+        "QPushButton { text-align:left; border:none; background:%1; color:%2;"
+        " border-bottom:1px solid %3; }"
+        "QPushButton:pressed { background:%4; }")
+        .arg(t.actionBg, t.actionFg, t.separator, t.actionPressed));
 
     auto* hl = new QHBoxLayout(r.btn);
     hl->setContentsMargins(8, 0, 8, 0);
     hl->setSpacing(0);
-    r.name = makeCell(0,   Qt::AlignLeft  | Qt::AlignVCenter);
+    r.name = makeCell(0,   Qt::AlignLeft  | Qt::AlignVCenter, t.actionFg);
     r.name->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    r.mmsi = makeCell(100, Qt::AlignRight | Qt::AlignVCenter);
-    r.call = makeCell(100, Qt::AlignLeft  | Qt::AlignVCenter);
-    r.dist = makeCell(90,  Qt::AlignRight | Qt::AlignVCenter);
+    r.mmsi = makeCell(100, Qt::AlignRight | Qt::AlignVCenter, t.actionFg);
+    r.call = makeCell(100, Qt::AlignLeft  | Qt::AlignVCenter, t.actionFg);
+    r.dist = makeCell(90,  Qt::AlignRight | Qt::AlignVCenter, t.actionFg);
     hl->addWidget(r.name, 1);
     hl->addWidget(r.mmsi);
     hl->addWidget(r.call);
@@ -168,16 +240,44 @@ AisTargetListDialog::Row AisTargetListDialog::makeRow() {
 void AisTargetListDialog::refresh() {
     if (!store_) return;
 
-    // Snapshot and sort by distance ascending; targets without a range sink to
-    // the bottom so usable contacts stay visible.
+    // Snapshot, then sort by the active column/direction. Targets missing the
+    // sorted field always sink to the bottom (regardless of direction) so usable
+    // contacts stay visible; MMSI is the stable tie-break.
     std::vector<const AisTarget*> targets;
     targets.reserve(store_->targets().size());
     for (const AisTarget& t : store_->targets()) targets.push_back(&t);
-    std::sort(targets.begin(), targets.end(), [](const AisTarget* a, const AisTarget* b) {
-        const double da = a->rangeMeters.value_or(std::numeric_limits<double>::infinity());
-        const double db = b->rangeMeters.value_or(std::numeric_limits<double>::infinity());
-        if (da != db) return da < db;
-        return a->mmsi < b->mmsi;
+
+    const bool asc = sortAsc_;
+    const SortColumn sc = sortColumn_;
+    std::sort(targets.begin(), targets.end(),
+              [asc, sc](const AisTarget* a, const AisTarget* b) {
+        switch (sc) {
+        case SortColumn::Name: {
+            const bool ha = !a->name.isEmpty(), hb = !b->name.isEmpty();
+            if (ha != hb) return ha;                       // named first, always
+            if (ha) { const int c = a->name.compare(b->name, Qt::CaseInsensitive);
+                      if (c != 0) return asc ? c < 0 : c > 0; }
+            return a->mmsi < b->mmsi;
+        }
+        case SortColumn::Call: {
+            const bool ha = !a->callSign.isEmpty(), hb = !b->callSign.isEmpty();
+            if (ha != hb) return ha;
+            if (ha) { const int c = a->callSign.compare(b->callSign, Qt::CaseInsensitive);
+                      if (c != 0) return asc ? c < 0 : c > 0; }
+            return a->mmsi < b->mmsi;
+        }
+        case SortColumn::Distance: {
+            const bool ha = a->rangeMeters.has_value(), hb = b->rangeMeters.has_value();
+            if (ha != hb) return ha;                       // known range first, always
+            if (ha) { const double da = *a->rangeMeters, db = *b->rangeMeters;
+                      if (da != db) return asc ? da < db : da > db; }
+            return a->mmsi < b->mmsi;
+        }
+        case SortColumn::Mmsi:
+        default:
+            if (a->mmsi != b->mmsi) return asc ? a->mmsi < b->mmsi : a->mmsi > b->mmsi;
+            return false;
+        }
     });
 
     countLabel_->setText(QStringLiteral("Tracking %1 target%2")

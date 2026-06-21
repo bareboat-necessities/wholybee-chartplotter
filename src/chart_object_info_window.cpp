@@ -1,15 +1,28 @@
 #include "chart_object_info_window.hpp"
-#include "theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QScrollArea>
-#include <QScroller>
+#include <QGridLayout>
 #include <QFrame>
 #include <QLabel>
 #include <QHash>
+#include <QStringList>
 
 namespace {
+
+// Shared palette / type face with the AIS target window, nav display window and
+// instruments plugin (always dark, regardless of the OS theme).
+const QString kText     = QStringLiteral("#e6e9ee");
+const QString kCaption  = QStringLiteral("rgba(230,233,238,165)");
+const QString kDim      = QStringLiteral("rgba(230,233,238,150)");
+const QString kHairline = QStringLiteral("rgba(255,255,255,40)");
+
+QFrame* makeSeparator(QWidget* parent) {
+    auto* s = new QFrame(parent);
+    s->setFrameShape(QFrame::HLine);
+    s->setStyleSheet(QStringLiteral("color:%1;").arg(kHairline));
+    return s;
+}
 
 // A compact S-57 object-class dictionary covering the classes a user is most
 // likely to click. Unknown acronyms fall through to the acronym itself, so the
@@ -88,84 +101,130 @@ QString chartObjectClassName(const QString& acronym) {
 
 ChartObjectInfoWindow::ChartObjectInfoWindow(const ChartObjectInfo& obj,
                                              DepthUnit depthUnit, QWidget* parent)
-    : QDialog(parent) {
+    : FramelessInfoDialog(parent) {
     const QString cls = chartObjectClassName(obj.objClass);
-    setWindowTitle(obj.name.isEmpty() ? cls
-                                      : QStringLiteral("%1 — %2").arg(cls, obj.name));
-    setWindowFlag(Qt::Window, true);
-    resize(360, 420);
+    const bool haveName = !obj.name.isEmpty();
+    setWindowTitle(haveName ? QStringLiteral("%1 — %2").arg(cls, obj.name) : cls);
 
-    auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(0);
+    // The frameless translucent window + rounded dark panel come from the base;
+    // build our content into its layout.
+    auto* col = panelLayout();
 
-    auto* scroll = new QScrollArea(this);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setWidgetResizable(true);
-    auto* body = new QWidget;
-    auto* col = new QVBoxLayout(body);
-    col->setContentsMargins(16, 14, 16, 14);
-    col->setSpacing(6);
+    // ---- Header: object identity, with the close button at the right. When the
+    // object has a name that is the headline (class becomes the subtitle); the
+    // raw S-57 acronym trails the subtitle for reference.
+    auto* header = new QHBoxLayout;
+    header->setSpacing(8);
+    auto* idCol = new QVBoxLayout;
+    idCol->setSpacing(1);
 
-    // Header: friendly class name (+ raw acronym for reference).
-    auto* title = new QLabel(cls);
-    title->setStyleSheet(QStringLiteral("font-size:18px; font-weight:700;"));
-    col->addWidget(title);
-    if (obj.objClass != cls) {
-        auto* acr = new QLabel(obj.objClass);
-        acr->setStyleSheet(QStringLiteral("font-size:12px; color:%1;").arg(theme::textMuted()));
-        col->addWidget(acr);
+    auto* title = new QLabel(this);
+    title->setStyleSheet(QStringLiteral("font-size:18px; font-weight:700; color:%1;").arg(kText));
+    title->setWordWrap(true);
+    auto* subtitle = new QLabel(this);
+    subtitle->setStyleSheet(QStringLiteral("font-size:12px; color:%1;").arg(kDim));
+    subtitle->setWordWrap(true);
+
+    QStringList sub;
+    if (haveName) {
+        title->setText(obj.name);
+        sub << cls;
+        if (obj.objClass != cls) sub << obj.objClass;
+    } else {
+        title->setText(cls);
+        if (obj.objClass != cls) sub << obj.objClass;
     }
-    col->addSpacing(8);
+    subtitle->setText(sub.join(QStringLiteral("  ·  ")));
+    subtitle->setVisible(!sub.isEmpty());
 
-    if (!obj.name.isEmpty()) addRow(col, QStringLiteral("Name"), obj.name);
+    idCol->addWidget(title);
+    idCol->addWidget(subtitle);
+    header->addLayout(idCol, 1);
+    header->addWidget(makeCloseButton(), 0, Qt::AlignTop);
+    col->addLayout(header);
+
+    col->addWidget(makeSeparator(panel()));
+
+    // ---- Key facts (depth / position / scale).
+    QVector<Detail> facts;
     if (obj.hasDepth) {
         const double v = (depthUnit == DepthUnit::Meters)
                            ? obj.depthM : obj.depthM * units::kMetersToFeet;
         const QString suffix = (depthUnit == DepthUnit::Meters) ? QStringLiteral(" m")
                                                                 : QStringLiteral(" ft");
-        addRow(col, QStringLiteral("Depth"),
-               QString::number(v, 'f', v < 10.0 ? 1 : 0) + suffix);
+        facts.push_back({QStringLiteral("Depth"),
+                         QString::number(v, 'f', v < 10.0 ? 1 : 0) + suffix, false});
     }
-    addRow(col, QStringLiteral("Position"),
-           units::formatLatitude(obj.lat) + QStringLiteral("  ") +
-           units::formatLongitude(obj.lon));
+    facts.push_back({QStringLiteral("Lat"), units::formatLatitude(obj.lat),  false});
+    facts.push_back({QStringLiteral("Lon"), units::formatLongitude(obj.lon), false});
     if (obj.scaleMin > 0)
-        addRow(col, QStringLiteral("Min scale"),
-               QStringLiteral("1:%1").arg(obj.scaleMin));
+        facts.push_back({QStringLiteral("Min scale"),
+                         QStringLiteral("1:%1").arg(obj.scaleMin), false});
 
-    // Remaining captured S-57 attributes (skip OBJNAM — already shown as Name).
-    bool anyAttr = false;
+    auto* factsBox = new QWidget(this);
+    auto* factsGrid = new QGridLayout(factsBox);
+    factsGrid->setContentsMargins(0, 0, 0, 0);
+    factsGrid->setHorizontalSpacing(10);
+    factsGrid->setVerticalSpacing(5);
+    fillGrid(factsGrid, factsBox, facts);
+    col->addWidget(factsBox);
+
+    // ---- Remaining captured S-57 attributes (skip OBJNAM — already the name).
+    QVector<Detail> attrs;
     for (const ChartObjectAttr& a : obj.attrs) {
         if (a.key == QStringLiteral("OBJNAM") || a.value.isEmpty()) continue;
-        if (!anyAttr) {
-            col->addSpacing(8);
-            auto* hdr = new QLabel(QStringLiteral("Attributes"));
-            hdr->setStyleSheet(QStringLiteral("font-size:12px; color:%1;").arg(theme::textMuted()));
-            col->addWidget(hdr);
-            anyAttr = true;
-        }
-        addRow(col, attrLabel(a.key), a.value);
+        attrs.push_back({attrLabel(a.key), a.value, a.value.length() > 16});
+    }
+    if (!attrs.isEmpty()) {
+        col->addWidget(makeSeparator(panel()));
+        auto* hdr = new QLabel(QStringLiteral("Attributes"), this);
+        hdr->setStyleSheet(QStringLiteral("font-size:12px; font-weight:600; color:%1;").arg(kCaption));
+        col->addWidget(hdr);
+
+        auto* attrsBox = new QWidget(this);
+        auto* attrsGrid = new QGridLayout(attrsBox);
+        attrsGrid->setContentsMargins(0, 0, 0, 0);
+        attrsGrid->setHorizontalSpacing(10);
+        attrsGrid->setVerticalSpacing(5);
+        fillGrid(attrsGrid, attrsBox, attrs);
+        col->addWidget(attrsBox);
     }
 
     col->addStretch(1);
-    scroll->setWidget(body);
-    QScroller::grabGesture(scroll->viewport(), QScroller::LeftMouseButtonGesture);
-    outer->addWidget(scroll, 1);
 }
 
-void ChartObjectInfoWindow::addRow(QVBoxLayout* col, const QString& field,
-                                   const QString& value) {
-    auto* row = new QHBoxLayout;
-    row->setContentsMargins(0, 0, 0, 0);
-    auto* f = new QLabel(field);
-    f->setStyleSheet(QStringLiteral("color:%1;").arg(theme::textMuted()));
-    f->setMinimumWidth(120);
-    auto* v = new QLabel(value);
-    v->setWordWrap(true);
-    v->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    row->addWidget(f, 0, Qt::AlignTop);
-    row->addWidget(v, 1);
-    col->addLayout(row);
+void ChartObjectInfoWindow::fillGrid(QGridLayout* grid, QWidget* parent,
+                                     const QVector<Detail>& entries) {
+    auto makeCaption = [parent](const QString& text) {
+        auto* l = new QLabel(text, parent);
+        l->setStyleSheet(QStringLiteral("font-size:12px; color:%1;").arg(kDim));
+        l->setMinimumWidth(58);
+        l->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        return l;
+    };
+    auto makeValue = [parent](const QString& text, bool wrap) {
+        auto* l = new QLabel(text, parent);
+        l->setStyleSheet(QStringLiteral("font-size:13px; font-weight:600; color:%1;").arg(kText));
+        l->setWordWrap(wrap);
+        l->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        return l;
+    };
+
+    int row = 0, half = 0;   // half: 0 = left pair (cols 0/1), 1 = right pair (cols 2/3)
+    for (const Detail& d : entries) {
+        if (d.wide) {
+            if (half == 1) { ++row; half = 0; }          // finish the open row first
+            grid->addWidget(makeCaption(d.caption), row, 0);
+            grid->addWidget(makeValue(d.value, true), row, 1, 1, 3);
+            ++row; half = 0;
+        } else {
+            const int base = (half == 0) ? 0 : 2;
+            grid->addWidget(makeCaption(d.caption), row, base);
+            grid->addWidget(makeValue(d.value, false), row, base + 1);
+            if (half == 0) half = 1;
+            else { half = 0; ++row; }
+        }
+    }
+    grid->setColumnStretch(1, 1);
+    grid->setColumnStretch(3, 1);
 }

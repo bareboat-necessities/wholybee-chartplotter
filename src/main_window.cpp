@@ -59,11 +59,54 @@
 #include <QFileDialog>
 #include <QDir>
 #include <QEvent>
+#include <QMouseEvent>
 #include <QCloseEvent>
 #include <QSettings>
 #include <QCursor>
 #include <algorithm>
 #include <cmath>
+
+namespace {
+// Makes a frameless window draggable by one of its child widgets (a title bar).
+// Installed as an event filter on that widget: a left-press starts the drag and
+// subsequent moves reposition the top-level window. No Q_OBJECT needed — it only
+// overrides the virtual eventFilter(), so it doesn't require moc.
+class WindowDragger : public QObject {
+public:
+    explicit WindowDragger(QWidget* window)
+        : QObject(window), window_(window) {}
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* e) override {
+        if (e->type() == QEvent::MouseButtonPress) {
+            auto* me = static_cast<QMouseEvent*>(e);
+            if (me->button() == Qt::LeftButton) {
+                dragging_ = true;
+                offset_ = me->globalPosition().toPoint() - window_->frameGeometry().topLeft();
+                return true;
+            }
+        } else if (e->type() == QEvent::MouseMove) {
+            auto* me = static_cast<QMouseEvent*>(e);
+            if (dragging_ && (me->buttons() & Qt::LeftButton)) {
+                window_->move(me->globalPosition().toPoint() - offset_);
+                return true;
+            }
+        } else if (e->type() == QEvent::MouseButtonRelease) {
+            auto* me = static_cast<QMouseEvent*>(e);
+            if (me->button() == Qt::LeftButton && dragging_) {
+                dragging_ = false;
+                return true;
+            }
+        }
+        return QObject::eventFilter(obj, e);
+    }
+
+private:
+    QWidget* window_   = nullptr;
+    bool     dragging_ = false;
+    QPoint   offset_;
+};
+} // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("Marine Chart Viewer"));
@@ -745,16 +788,63 @@ void MainWindow::onObjectsPicked(const QList<ChartObjectInfo>& objects,
     // the AIS target list; a single tap selects (no OK button).
     QDialog dlg(this);
     dlg.setWindowTitle(QStringLiteral("Chart objects here"));
+    // Frameless + side-menu palette (light/dark aware) instead of the system
+    // dialog chrome, so the chooser matches the rest of the app.
+    dlg.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
     dlg.resize(320, 360);
+
+    const theme::MenuPalette& th = theme::menu();
+
     auto* col = new QVBoxLayout(&dlg);
     col->setContentsMargins(0, 0, 0, 0);
     col->setSpacing(0);
 
-    auto* scroll = new QScrollArea(&dlg);
+    // Bordered panel so the frameless window still has a visible edge.
+    auto* panel = new QFrame(&dlg);
+    panel->setObjectName(QStringLiteral("ObjectChooserPanel"));
+    panel->setStyleSheet(QStringLiteral(
+        "#ObjectChooserPanel{ background:%1; border:1px solid %2; }")
+        .arg(th.panelBg, th.panelBorder));
+    col->addWidget(panel);
+
+    auto* panelCol = new QVBoxLayout(panel);
+    panelCol->setContentsMargins(0, 0, 0, 0);
+    panelCol->setSpacing(0);
+
+    // Title bar, mirroring the side-menu header: a brand-navy strip with the
+    // title and a close "✕" (the window is frameless, so this is the dismiss).
+    // Dragging the bar moves the (frameless) window.
+    auto* header = new QWidget(panel);
+    header->setStyleSheet(QStringLiteral("background:%1;").arg(th.titleBg));
+    header->setCursor(Qt::SizeAllCursor);
+    header->installEventFilter(new WindowDragger(&dlg));
+    auto* headerRow = new QHBoxLayout(header);
+    headerRow->setContentsMargins(16, 8, 8, 8);
+    headerRow->setSpacing(6);
+    auto* title = new QLabel(QStringLiteral("Chart objects here"), header);
+    title->setAttribute(Qt::WA_TransparentForMouseEvents);   // clicks fall to the bar (drag)
+    title->setStyleSheet(QStringLiteral(
+        "font-size:18px; font-weight:600; background:transparent; color:%1;").arg(th.titleFg));
+    headerRow->addWidget(title, 1);
+    auto* closeBtn = new QPushButton(QString(QChar(0x2715)), header);   // ✕
+    closeBtn->setFlat(true);
+    closeBtn->setFixedSize(44, 44);
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    closeBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{ border:none; background:transparent; color:%1; font-size:18px; }"
+        "QPushButton:pressed{ background:%2; border-radius:6px; }")
+        .arg(th.titleFg, th.actionPressed));
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    headerRow->addWidget(closeBtn);
+    panelCol->addWidget(header);
+
+    auto* scroll = new QScrollArea(panel);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setWidgetResizable(true);
+    scroll->setStyleSheet(QStringLiteral(
+        "QScrollArea, QScrollArea > QWidget > QWidget { background:%1; }").arg(th.panelBg));
     auto* rows = new QWidget;
     auto* rowCol = new QVBoxLayout(rows);
     rowCol->setContentsMargins(0, 0, 0, 0);
@@ -767,12 +857,15 @@ void MainWindow::onObjectsPicked(const QList<ChartObjectInfo>& objects,
         auto* btn = new QPushButton(o.name.isEmpty() ? cls
                                     : QStringLiteral("%1 — %2").arg(cls, o.name));
         btn->setFlat(true);
-        btn->setMinimumHeight(48);
+        btn->setMinimumHeight(56);
+        btn->setCursor(Qt::PointingHandCursor);
+        // Rows styled as side-menu actions: pinned background + text colour so
+        // they render correctly in either theme, with a per-row separator.
         btn->setStyleSheet(QStringLiteral(
-            "QPushButton { text-align:left; border:none; padding:0 12px;"
-            " border-bottom:1px solid palette(mid); }"
-            "QPushButton:pressed { background:palette(highlight);"
-            " color:palette(highlighted-text); }"));
+            "QPushButton{ text-align:left; border:none; padding:0 24px; font-size:16px;"
+            " background:%1; color:%2; border-bottom:1px solid %3; }"
+            "QPushButton:pressed{ background:%4; }")
+            .arg(th.actionBg, th.actionFg, th.separator, th.actionPressed));
         connect(btn, &QPushButton::clicked, &dlg, [&dlg, &chosen, i] {
             chosen = i;
             dlg.accept();
@@ -782,9 +875,20 @@ void MainWindow::onObjectsPicked(const QList<ChartObjectInfo>& objects,
     rowCol->addStretch(1);
     scroll->setWidget(rows);
     QScroller::grabGesture(scroll->viewport(), QScroller::LeftMouseButtonGesture);
-    col->addWidget(scroll, 1);
+    panelCol->addWidget(scroll, 1);
 
-    dlg.move(globalPos + QPoint(12, 12));
+    // Anchor near the tap but clamp inside the screen so the whole window is
+    // visible (e.g. a click near the bottom edge would otherwise be cut off).
+    QPoint anchor = globalPos + QPoint(12, 12);
+    const QRect screen = view_->screen() ? view_->screen()->availableGeometry()
+                                         : QRect(0, 0, 1920, 1080);
+    // Pull back from the right/bottom edges first, then guarantee the top-left
+    // stays on-screen (min-then-max, so it's safe even if the window is large).
+    anchor.setX(std::min(anchor.x(), screen.right()  - dlg.width()  - 12));
+    anchor.setY(std::min(anchor.y(), screen.bottom() - dlg.height() - 12));
+    anchor.setX(std::max(anchor.x(), screen.left() + 12));
+    anchor.setY(std::max(anchor.y(), screen.top()  + 12));
+    dlg.move(anchor);
     if (dlg.exec() == QDialog::Accepted && chosen >= 0)
         showObjectInfo(objects.at(chosen), globalPos);
 }
