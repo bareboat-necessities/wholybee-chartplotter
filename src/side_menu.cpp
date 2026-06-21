@@ -237,6 +237,12 @@ QWidget* SideMenu::buildMainPage() {
     auto* settingsBtn = makeIndentedAction(QStringLiteral("Settings"));
     connect(settingsBtn, &QPushButton::clicked, this, &SideMenu::showSettingsPage);
     col->addWidget(settingsBtn);
+    auto* aboutBtn = makeIndentedAction(QStringLiteral("About…"));
+    connect(aboutBtn, &QPushButton::clicked, this, [this] {
+        emit aboutRequested();
+        if (autoHide_) closeMenu();
+    });
+    col->addWidget(aboutBtn);
     // Dismiss now lives on the header bar (the "✕" button), always reachable.
 
     return page;

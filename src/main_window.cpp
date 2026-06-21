@@ -1,4 +1,7 @@
 #include "main_window.hpp"
+#include "app_info.hpp"
+#include "about_dialog.hpp"
+#include "window_dragger.hpp"
 #include "chart_view.hpp"
 #include "chart_catalog.hpp"
 #include "theme.hpp"
@@ -66,50 +69,8 @@
 #include <algorithm>
 #include <cmath>
 
-namespace {
-// Makes a frameless window draggable by one of its child widgets (a title bar).
-// Installed as an event filter on that widget: a left-press starts the drag and
-// subsequent moves reposition the top-level window. No Q_OBJECT needed — it only
-// overrides the virtual eventFilter(), so it doesn't require moc.
-class WindowDragger : public QObject {
-public:
-    explicit WindowDragger(QWidget* window)
-        : QObject(window), window_(window) {}
-
-protected:
-    bool eventFilter(QObject* obj, QEvent* e) override {
-        if (e->type() == QEvent::MouseButtonPress) {
-            auto* me = static_cast<QMouseEvent*>(e);
-            if (me->button() == Qt::LeftButton) {
-                dragging_ = true;
-                offset_ = me->globalPosition().toPoint() - window_->frameGeometry().topLeft();
-                return true;
-            }
-        } else if (e->type() == QEvent::MouseMove) {
-            auto* me = static_cast<QMouseEvent*>(e);
-            if (dragging_ && (me->buttons() & Qt::LeftButton)) {
-                window_->move(me->globalPosition().toPoint() - offset_);
-                return true;
-            }
-        } else if (e->type() == QEvent::MouseButtonRelease) {
-            auto* me = static_cast<QMouseEvent*>(e);
-            if (me->button() == Qt::LeftButton && dragging_) {
-                dragging_ = false;
-                return true;
-            }
-        }
-        return QObject::eventFilter(obj, e);
-    }
-
-private:
-    QWidget* window_   = nullptr;
-    bool     dragging_ = false;
-    QPoint   offset_;
-};
-} // namespace
-
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle(QStringLiteral("Marine Chart Viewer"));
+    setWindowTitle(appinfo::name());
     resize(1100, 750);   // first-run default; overridden by restoreGeometry below
 
     // Restore the previous size / position / maximised state (no-op on first run
@@ -343,6 +304,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(sideMenu_, &SideMenu::editHeadingSourceRequested,       this, &MainWindow::editHeadingSource);
     connect(sideMenu_, &SideMenu::editDangerousShipsRequested,      this, &MainWindow::editDangerousShips);
     connect(sideMenu_, &SideMenu::aisTargetListRequested,           this, &MainWindow::showAisTargetList);
+    connect(sideMenu_, &SideMenu::aboutRequested,                   this, &MainWindow::showAbout);
     connect(sideMenu_, &SideMenu::createRouteRequested,    this, &MainWindow::startCreateRoute);
     connect(sideMenu_, &SideMenu::editRouteRequested,      this, &MainWindow::startEditRoute);
     connect(sideMenu_, &SideMenu::routeListRequested,      this, &MainWindow::showRouteList);
@@ -891,6 +853,11 @@ void MainWindow::onObjectsPicked(const QList<ChartObjectInfo>& objects,
     dlg.move(anchor);
     if (dlg.exec() == QDialog::Accepted && chosen >= 0)
         showObjectInfo(objects.at(chosen), globalPos);
+}
+
+void MainWindow::showAbout() {
+    AboutDialog dlg(this);
+    dlg.exec();
 }
 
 void MainWindow::showObjectInfo(const ChartObjectInfo& obj, const QPoint& globalPos) {
