@@ -64,6 +64,7 @@ private slots:
     void editHeadingSource();
     void editDangerousShips();
     void showAisTargetList();
+    void showAbout();
     // Routes & Waypoints.
     void startCreateRoute();
     void startEditRoute();

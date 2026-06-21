@@ -77,6 +77,7 @@ signals:
     void editHeadingSourceRequested();                 // open Heading Source dialog
     void editDangerousShipsRequested();                // open Dangerous Ships dialog
     void aisTargetListRequested();                     // open AIS Targets list dialog
+    void aboutRequested();                             // open the About dialog
     void navigationOptionsRequested();                 // open Navigation Options dialog
     void navigatingToggled(bool on);                   // user toggled route navigation
     // Routes & Waypoints sub-page actions.

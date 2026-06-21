@@ -2,13 +2,18 @@
 #include <QDir>
 #include "chart_loader.hpp"
 #include "main_window.hpp"
+#include "app_info.hpp"
 
 int main(int argc, char** argv) {
     // QApplication must come first: we need applicationDirPath() to locate the
     // bundled gdal-data/ folder before initialising GDAL.
     QApplication app(argc, argv);
     QApplication::setOrganizationName(QStringLiteral("net.holybee"));
+    // The QSettings key stays "HMV Chart" so existing user settings aren't
+    // orphaned by the rename; the user-visible name is the display name.
     QApplication::setApplicationName(QStringLiteral("HMV Chart"));
+    QApplication::setApplicationDisplayName(appinfo::name());
+    QApplication::setApplicationVersion(appinfo::version());
 
     // Resolve the bundled GDAL data directory (contains s57objectclasses.csv
     // etc.). CMake copies this from the GDAL installation into gdal-data/ next

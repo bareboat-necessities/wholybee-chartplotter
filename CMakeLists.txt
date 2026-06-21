@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(marine_chart_viewer_qt CXX)
+project(marine_chart_viewer_qt VERSION 0.0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -103,6 +103,7 @@ qt_add_executable(chartviewer
     src/cpa_calculator.cpp
     src/ais_decoder.cpp
     src/ais_overlay.cpp
+    src/about_dialog.cpp
     src/frameless_info_dialog.cpp
     src/ais_target_info_window.cpp
     src/ais_target_list_dialog.cpp
@@ -127,16 +128,29 @@ qt_add_executable(chartviewer
 target_link_libraries(chartviewer PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Network Qt6::Sql ${GDAL_LINK})
 add_dependencies(chartviewer symbols_bin)
 
+# Embed the README and licence so the in-app About box can show them without an
+# on-disk lookup (BASE makes them resolve as :/README.md and :/LICENSE).
+qt_add_resources(chartviewer "appdocs"
+    PREFIX "/"
+    BASE "${CMAKE_SOURCE_DIR}"
+    FILES
+        README.md
+        LICENSE)
+
 # Dev convenience: lets the basemap resolver fall back to the in-tree gshhg-shp
 # folder during development. On an installed build this path won't exist, so it
 # is skipped and the standard data locations are used instead.
 target_compile_definitions(chartviewer PRIVATE
     CHARTPLOTTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    # Application version string for the About box / window metadata.
+    APP_VERSION="${PROJECT_VERSION}"
     # Flips HOST_EXPORT to dllexport in the host's translation units; plugins
     # don't define this, so they see dllimport for the same types.
     CHARTPLOTTER_BUILD_HOST=1)
 
 set_target_properties(chartviewer PROPERTIES
+    # User-facing executable name (hmvchartplotter.exe).
+    OUTPUT_NAME "hmvchartplotter"
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
     # Expose the host's symbols so dynamically loaded plugins can link against
@@ -347,35 +361,35 @@ if(WIN32)
     # build tree rather than the caller's CWD, so running cpack from the repo
     # root doesn't drop artifacts into the source tree.
     set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}/installer")
-    set(CPACK_PACKAGE_NAME            "HMV Chart")
+    set(CPACK_PACKAGE_NAME            "HMV Chartplotter")
     set(CPACK_PACKAGE_VENDOR          "net.holybee")
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HMV marine chart viewer / chartplotter")
     # Bump for each release; drives the installer filename and Add/Remove entry.
-    set(CPACK_PACKAGE_VERSION_MAJOR 0)
-    set(CPACK_PACKAGE_VERSION_MINOR 1)
-    set(CPACK_PACKAGE_VERSION_PATCH 0)
-    set(CPACK_PACKAGE_VERSION "0.1.0")
-    set(CPACK_PACKAGE_INSTALL_DIRECTORY "HMV Chart")   # Program Files subfolder
+    set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+    set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+    set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "HMV Chartplotter")   # Program Files subfolder
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/README.md")
 
     # Start-menu / desktop shortcuts. NOTE: CPACK_PACKAGE_EXECUTABLES is not used
     # because the NSIS generator hardcodes a "bin\" prefix in the shortcut target
     # (it assumes binaries live in bin/), which is wrong for our flat layout where
-    # chartviewer.exe sits at the install root. Create the shortcuts directly so
-    # they point at $INSTDIR\chartviewer.exe, and remove them on uninstall.
+    # hmvchartplotter.exe sits at the install root. Create the shortcuts directly so
+    # they point at $INSTDIR\hmvchartplotter.exe, and remove them on uninstall.
     # Backslashes are quadrupled on purpose: CMake collapses "\\\\" to "\\", CPack
     # writes that verbatim into CPackConfig.cmake, and re-reading it yields a
     # single "\" that lands in the generated .nsi as the NSIS path separator.
     set(CPACK_NSIS_CREATE_ICONS_EXTRA
-        "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\HMV Chart.lnk' '$INSTDIR\\\\chartviewer.exe'
-         CreateShortCut '$DESKTOP\\\\HMV Chart.lnk' '$INSTDIR\\\\chartviewer.exe'")
+        "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\HMV Chartplotter.lnk' '$INSTDIR\\\\hmvchartplotter.exe'
+         CreateShortCut '$DESKTOP\\\\HMV Chartplotter.lnk' '$INSTDIR\\\\hmvchartplotter.exe'")
     set(CPACK_NSIS_DELETE_ICONS_EXTRA
-        "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\HMV Chart.lnk'
-         Delete '$DESKTOP\\\\HMV Chart.lnk'")
+        "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\HMV Chartplotter.lnk'
+         Delete '$DESKTOP\\\\HMV Chartplotter.lnk'")
 
     # NSIS specifics: 64-bit Program Files, clean reinstall, no PATH edits.
-    set(CPACK_NSIS_DISPLAY_NAME "HMV Chart")
-    set(CPACK_NSIS_PACKAGE_NAME "HMV Chart")
+    set(CPACK_NSIS_DISPLAY_NAME "HMV Chartplotter")
+    set(CPACK_NSIS_PACKAGE_NAME "HMV Chartplotter")
     set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     set(CPACK_NSIS_MODIFY_PATH OFF)
