@@ -16,6 +16,12 @@ class QVBoxLayout;
 // Distance. Targets without a name or call sign show "unknown"; targets without
 // a computed range show "—".
 //
+// Frameless, with the side-menu palette (light/dark aware) and a brand-navy
+// title bar + close button, matching the chart-object chooser. The column
+// headers are clickable: tapping one sorts by that column, tapping the active
+// header again reverses the direction (shown by a ▲/▼ marker). Targets missing
+// the sorted field always sink to the bottom regardless of direction.
+//
 // Rebuilt on a 250 ms coalescing timer triggered by targetUpdated/targetExpired,
 // so bursts of AIS messages don't cause per-message redraws. The 1 Hz tick keeps
 // the Distance column current as ownship moves between AIS updates.
@@ -35,6 +41,8 @@ private slots:
     void refresh();
 
 private:
+    enum class SortColumn { Name, Mmsi, Call, Distance };
+
     // One reusable row: a flat button (the tap target) holding four labels.
     struct Row {
         QPushButton* btn  = nullptr;
@@ -45,13 +53,22 @@ private:
     };
     Row  makeRow();
     void scheduleRefresh();
+    void setSort(SortColumn c);     // header click: pick column / toggle direction
+    void updateHeaderLabels();      // refresh the ▲/▼ sort marker
 
     const AisTargetStore* store_        = nullptr;
     QScrollArea*          scrollArea_   = nullptr;
     QWidget*              rowContainer_ = nullptr;
     QVBoxLayout*          rowLayout_    = nullptr;
     QLabel*               countLabel_   = nullptr;
+    QPushButton*          hdrName_      = nullptr;
+    QPushButton*          hdrMmsi_      = nullptr;
+    QPushButton*          hdrCall_      = nullptr;
+    QPushButton*          hdrDist_      = nullptr;
     QTimer*               timer_        = nullptr;   // 1 Hz distance tick
     QTimer*               coalesce_     = nullptr;   // burst-coalescing rebuild trigger
     std::vector<Row>      rows_;                     // reused across refreshes
+
+    SortColumn sortColumn_ = SortColumn::Distance;   // default: nearest first
+    bool       sortAsc_    = true;
 };

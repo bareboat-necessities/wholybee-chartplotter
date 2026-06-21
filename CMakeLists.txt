@@ -103,6 +103,7 @@ qt_add_executable(chartviewer
     src/cpa_calculator.cpp
     src/ais_decoder.cpp
     src/ais_overlay.cpp
+    src/frameless_info_dialog.cpp
     src/ais_target_info_window.cpp
     src/ais_target_list_dialog.cpp
     src/ais_quick_info_window.cpp
