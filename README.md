@@ -102,7 +102,7 @@ Visual Studio (MSVC) path; quick Linux build:
 ```bash
 sudo apt install cmake g++ qt6-base-dev libgdal-dev
 cmake -S . -B build && cmake --build build
-./build/chartviewer
+./build/hmvchartplotter
 ```
 
 On Windows, remember `GDAL_DATA` must point at GDAL's data folder so the S-57
