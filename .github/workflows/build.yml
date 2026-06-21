@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 env:
-  APP_NAME: chartviewer
+  APP_NAME: hmvchartplotter
   PKG_NAME: wholybee-chartplotter
   BUILD_TYPE: Release
 
@@ -233,7 +233,7 @@ jobs:
             local bin="$1"
             [ -f "$bin" ] || return 0
             # ldd exits non-zero when it can't resolve a dependency (a plugin
-            # links against chartviewer.exe, which isn't on its search path),
+            # links against hmvchartplotter.exe, which isn't on its search path),
             # and grep exits non-zero when a binary has no MinGW deps. Neither
             # should abort the step under `set -euo pipefail`, so swallow the
             # pipeline status with a trailing `|| true`.
@@ -251,7 +251,7 @@ jobs:
           #
           # We deliberately do NOT run copy_deps (ldd) on the plugins: ldd
           # resolves deps by loading the binary through the Windows loader, and a
-          # plugin's unresolved import of chartviewer.exe pops a modal "DLL not
+          # plugin's unresolved import of hmvchartplotter.exe pops a modal "DLL not
           # found" dialog that hangs headless CI forever.
           if [ -d build/plugins ]; then
             mkdir -p dist/plugins
@@ -271,7 +271,7 @@ jobs:
           set "DIR=%~dp0"
           set "PATH=%DIR%;%SystemRoot%\System32;%SystemRoot%"
           set "GDAL_DATA=%DIR%gdal-data"
-          "%DIR%chartviewer.exe"
+          "%DIR%hmvchartplotter.exe"
           endlocal
           BAT
 
