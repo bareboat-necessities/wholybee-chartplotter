@@ -1,4 +1,5 @@
 #include "chart_catalog.hpp"
+#include "chart_source.hpp"
 #include "projection.hpp"
 
 #include <QDirIterator>
@@ -122,6 +123,11 @@ BBox projectExtent(double minLon, double minLat, double maxLon, double maxLat) {
 } // namespace
 
 void ChartCatalog::runScan(QString root, QString cachePath) {
+    // A registered chart source (e.g. CM93 plugin) supplies cells directly; the
+    // built-in *.000/GDAL path below is bypassed. The source owns its own
+    // footprint caching, so the JSON cache (cachePath) is unused in that case.
+    if (source_) { runScanFromSource(std::move(root)); return; }
+
     std::vector<CellRecord> recs;
     BBox bounds;
 
@@ -197,6 +203,56 @@ void ChartCatalog::runScan(QString root, QString cachePath) {
     }
 
     saveCache(cachePath, updated);
+
+    cells_  = std::move(recs);
+    bounds_ = bounds;
+    scanning_.store(false);
+    emit finished(true, QStringLiteral("%1 cell(s) cataloged").arg(total));
+}
+
+void ChartCatalog::runScanFromSource(QString root) {
+    std::vector<ChartSourceCell> srcCells;
+    QString err;
+    // Forward the source's progress to our progress() signal. This runs on the
+    // scan worker thread; the connection to the UI is queued.
+    const bool ok = source_->catalog(root, srcCells, err,
+        [this](int done, int total) { emit progress(done, total); });
+    if (!ok) {
+        cells_.clear();
+        bounds_ = BBox{};
+        scanning_.store(false);
+        emit finished(false, err.isEmpty()
+            ? (QStringLiteral("Chart source could not catalog:\n") + root) : err);
+        return;
+    }
+    if (srcCells.empty()) {
+        cells_.clear();
+        bounds_ = BBox{};
+        scanning_.store(false);
+        emit finished(false, QStringLiteral("No charts found under:\n") + root);
+        return;
+    }
+
+    // Adopt the source's cells as CellRecords (its opaque id becomes the cell
+    // path/key the rest of the pipeline uses). Band, bbox and coverage come
+    // straight from the source — no GDAL, no filename band parsing.
+    std::vector<CellRecord> recs;
+    recs.reserve(srcCells.size());
+    BBox bounds;
+    const int total = static_cast<int>(srcCells.size());
+    int done = 0;
+    for (ChartSourceCell& c : srcCells) {
+        CellRecord r;
+        r.path        = std::move(c.id);
+        r.band        = c.band;
+        r.bbox        = c.bbox;
+        r.coverage    = std::move(c.coverage);
+        r.extentValid = r.bbox.valid();
+        if (r.extentValid) bounds.expand(r.bbox);
+        recs.push_back(std::move(r));
+        if ((++done % 64) == 0 || done == total)
+            emit progress(done, total);
+    }
 
     cells_  = std::move(recs);
     bounds_ = bounds;

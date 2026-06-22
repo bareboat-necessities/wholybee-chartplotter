@@ -5,6 +5,7 @@
 #include <QString>
 #include <memory>
 #include "data_sources.hpp"   // DataSourceRegistry (value member)
+#include "chart_source.hpp"   // ChartSourceRegistry (value member)
 #include "route_types.hpp"    // Route (value member for the props working copy)
 #include "chart_object.hpp"   // ChartObjectInfo (signal/slot parameter)
 
@@ -178,6 +179,7 @@ private:
     QPushButton* cancelEditBtn_ = nullptr;
     QLabel*      navBanner_ = nullptr;      // transient "Navigation Complete." banner
     DataSourceRegistry             registry_;    // nav sources (built-in + plugin)
+    ChartSourceRegistry            chartSources_; // vector-chart backends (plugin)
     std::unique_ptr<CoreApi>       coreApi_;     // plugin-facing core services
     std::unique_ptr<PluginManager> plugins_;     // owns built-in plugins
     QPushButton*  menuButton_ = nullptr;

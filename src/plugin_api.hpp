@@ -15,6 +15,7 @@ class NavDataStore;
 class IAisPublisher;
 class AisTargetStore;
 class RouteStore;
+class IChartSource;
 
 // Plugin API surface (Milestone 3 in ProjectSpec.md).
 //
@@ -157,6 +158,16 @@ public:
     virtual void addChartOverlay(IChartOverlay* overlay) = 0;
     virtual void removeChartOverlay(IChartOverlay* overlay) = 0;
     virtual void requestChartRepaint() = 0;
+
+    // Chart sources ----------------------------------------------------------
+    // Register a pluggable vector-chart backend (e.g. CM93). See IChartSource
+    // in chart_source.hpp. The host offers each registered source the active
+    // chart folder via IChartSource::canHandle and uses the first that claims
+    // it; the built-in ENC/S-57 reader is the fallback. The plugin owns the
+    // IChartSource object and MUST unregister it in shutdown() before the
+    // object is destroyed.
+    virtual void registerChartSource(IChartSource* source) = 0;
+    virtual void unregisterChartSource(IChartSource* source) = 0;
 
     // A parent for plugin-created dialogs/windows.
     virtual QWidget* dialogParent() = 0;

@@ -8,11 +8,17 @@ class IPlugin;
 // Plugin ABI version. Bumped whenever a virtual method on ICoreApi/IPlugin or
 // the layout of a type crossing the boundary changes. Plugins compiled against
 // a different version are rejected by the loader before any vtable touch.
-inline constexpr int kPluginAbiVersion = 2;
+//
+// v3: added ICoreApi::registerChartSource/unregisterChartSource (and the
+//     IChartSource / ChartSourceCell value types in chart_source.hpp) so a
+//     plugin can supply vector charts (e.g. CM93) through the existing pipeline.
+// v4: added a progress callback parameter to IChartSource::catalog so a heavy
+//     scan (e.g. CM93's first-run decode of every cell) can report progress.
+inline constexpr int kPluginAbiVersion = 4;
 
 // Q_DECLARE_INTERFACE IID. Must match the IID in each plugin's
 // Q_PLUGIN_METADATA(); change in lock-step with kPluginAbiVersion.
-#define CHARTPLOTTER_PLUGIN_IID "com.chartplotter.IPluginFactory/2.0"
+#define CHARTPLOTTER_PLUGIN_IID "com.chartplotter.IPluginFactory/4.0"
 
 // The single symbol a dynamic plugin DLL exposes to the host. The plugin's
 // shared library contains exactly one QObject implementing this interface; the

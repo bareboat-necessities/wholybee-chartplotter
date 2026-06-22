@@ -1,5 +1,6 @@
 #include "chart_view.hpp"
 #include "chart_catalog.hpp"
+#include "chart_source.hpp"
 #include "projection.hpp"
 #include "geom_clip.hpp"
 #include "vessel_symbol.hpp"
@@ -830,12 +831,18 @@ void ChartView::setAutoFollow(bool on) {
 
 int ChartView::bandForVisibleWidth(double metres) {
     const double nm = metres / 1852.0;
+    // Bands 1..6 keep their original ENC thresholds; 7..8 subdivide the most
+    // zoomed-in range so CM93's finest scales (F, G) get distinct targets. ENC
+    // (no bands >6) is unaffected: at these zooms its finest present band still
+    // wins the quilt, exactly as when the tail returned 6.
     if (nm > 1500.0) return 1;
     if (nm >  300.0) return 2;
     if (nm >   50.0) return 3;
     if (nm >   15.0) return 4;
     if (nm >    3.0) return 5;
-    return 6;
+    if (nm >    1.0) return 6;
+    if (nm >    0.3) return 7;
+    return 8;
 }
 
 BBox ChartView::expandBox(const BBox& b, double frac) {
@@ -886,9 +893,9 @@ void ChartView::updateVisibleCells() {
     const std::vector<CellRecord>& cells = catalog_->cells();
 
     // Which bands have coverage in view? (wrap-aware via per-cell offset.)
-    bool present[7] = {false,false,false,false,false,false,false};
+    bool present[kMaxBand + 1] = {};
     for (const CellRecord& c : cells) {
-        if (!c.extentValid || c.band < 1 || c.band > 6) continue;
+        if (!c.extentValid || c.band < 1 || c.band > kMaxBand) continue;
         const double off = wrapOffsetFor((c.bbox.minx + c.bbox.maxx) / 2.0);
         if (shiftX(c.bbox, off).intersects(wantedArea)) present[c.band] = true;
     }
@@ -897,7 +904,7 @@ void ChartView::updateVisibleCells() {
     bool haveAtOrBelow = false;
     for (int b = 1; b <= target; ++b) if (present[b]) { haveAtOrBelow = true; break; }
     if (!haveAtOrBelow)
-        for (int b = target + 1; b <= 6; ++b) if (present[b]) { maxBand = b; break; }
+        for (int b = target + 1; b <= kMaxBand; ++b) if (present[b]) { maxBand = b; break; }
 
     // --- Quilting: only the finest band draws in any given region ------------
     // Walk candidate cells finest-band-first, accumulating a "covered" region.
@@ -1026,6 +1033,10 @@ void ChartView::dispatchLoad(const QString& path) {
     inFlight_.insert(path);
     const quint64 gen = generation_;
     const std::string p = path.toStdString();
+    // Snapshot the active source at dispatch time; the worker holds this pointer,
+    // so it must outlive the task (guaranteed: onChartSourceUnregistered drains
+    // the pool before a source is destroyed).
+    IChartSource* src = chartSource_;
 
     auto* watcher = new QFutureWatcher<CellLoadResult>(this);
     connect(watcher, &QFutureWatcher<CellLoadResult>::finished, this, [this, watcher, gen]() {
@@ -1033,14 +1044,34 @@ void ChartView::dispatchLoad(const QString& path) {
         watcher->deleteLater();
         onCellLoaded(std::move(r), gen);
     });
-    watcher->setFuture(QtConcurrent::run(&pool_, [p]() {
+    watcher->setFuture(QtConcurrent::run(&pool_, [p, path, src]() {
         CellLoadResult r;
-        r.path = QString::fromStdString(p);
-        std::string err;
-        r.ok = chart::loadCellFeatures(p, r.features, r.bbox, err);
-        if (!r.ok) r.error = QString::fromStdString(err);
+        r.path = path;
+        if (src) {
+            // Plugin backend: the cell id is the QString path; geometry comes back
+            // already projected, with S-57 object classes/attrs for symbology.
+            QString err;
+            r.ok = src->loadCell(path, r.features, r.bbox, err);
+            r.error = err;
+        } else {
+            std::string err;
+            r.ok = chart::loadCellFeatures(p, r.features, r.bbox, err);
+            if (!r.ok) r.error = QString::fromStdString(err);
+        }
         return r;
     }));
+}
+
+void ChartView::onChartSourceUnregistered(IChartSource* src) {
+    if (chartSource_ != src) return;
+    // Drain in-flight loadCell()/build workers before the source object dies:
+    // bump the generation so any results that still post back are discarded,
+    // drop queued tasks, then wait out the running ones (they hold `src`).
+    ++generation_;
+    pool_.clear();
+    pool_.waitForDone();
+    chartSource_ = nullptr;
+    if (catalog_) catalog_->setSource(nullptr);
 }
 
 void ChartView::onCellLoaded(CellLoadResult r, quint64 gen) {

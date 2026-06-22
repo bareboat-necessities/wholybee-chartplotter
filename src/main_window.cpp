@@ -333,7 +333,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // the built-in plugins and drives their lifecycle. Same interfaces a dynamic
     // plugin would use later. NMEA 0183/2000 are built-in plugins; dynamic
     // plugins are discovered alongside the exe. Plugins register their sources here.
-    coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, routeStore_, sideMenu_, view_, &registry_, this);
+    coreApi_ = std::make_unique<CoreApi>(navStore_, aisStore_, routeStore_, sideMenu_, view_,
+                                         &registry_, &chartSources_, this);
     plugins_ = std::make_unique<PluginManager>(coreApi_.get());
     plugins_->add(std::make_unique<Nmea0183Plugin>());   // first => default-highest priority
     plugins_->add(std::make_unique<Nmea2000Plugin>());
@@ -1285,6 +1286,12 @@ void MainWindow::startScan(const QString& dir) {
     encScanOk_ = false;
     encScanMsg_.clear();
     rasterCount_ = 0;
+    // Pick a registered chart-source plugin (e.g. CM93) that claims this folder;
+    // nullptr falls back to the built-in ENC/S-57 reader. The catalog and view
+    // must agree on the backend, so set both before the scan starts.
+    IChartSource* src = chartSources_.pick(dir);
+    catalog_->setSource(src);
+    view_->setChartSource(src);
     statusLeft_->setText(dir + QStringLiteral("   —   scanning…"));
     statusMid_->clear();
     catalog_->startScan(dir);

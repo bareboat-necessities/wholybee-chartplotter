@@ -5,6 +5,8 @@
 #include <vector>
 #include "chart_loader.hpp"
 
+class IChartSource;
+
 // One ENC cell discovered in the tree: where it is, how big its footprint is,
 // and which usage band (navigational purpose) it belongs to.
 struct CellRecord {
@@ -27,6 +29,12 @@ class ChartCatalog : public QObject {
 public:
     explicit ChartCatalog(QObject* parent = nullptr);
 
+    // Select the backend used by the next scan. nullptr (default) uses the
+    // built-in ENC/S-57 reader (enumerate *.000 + GDAL coverage). A non-null
+    // IChartSource (e.g. a CM93 plugin) supplies cells via its catalog().
+    // Set on the UI thread before startScan(); read by the scan worker.
+    void setSource(IChartSource* src) { source_ = src; }
+
     // Begins an asynchronous scan. Ignored if a scan is already running.
     void startScan(const QString& root);
 
@@ -44,9 +52,11 @@ signals:
 
 private:
     void runScan(QString root, QString cachePath);   // worker-thread body
+    void runScanFromSource(QString root);            // worker-thread body (plugin)
 
     std::vector<CellRecord> cells_;
     BBox    bounds_;
     QString root_;
     std::atomic<bool> scanning_{false};
+    IChartSource* source_ = nullptr;   // null = built-in ENC reader
 };

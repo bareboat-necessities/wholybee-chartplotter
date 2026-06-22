@@ -308,6 +308,11 @@ add_subdirectory(plugins/signalk_plugin)
 add_subdirectory(plugins/gpx_plugin)
 add_subdirectory(plugins/wmm_plugin)
 add_subdirectory(plugins/instruments_plugin)
+# NOTE: the CM93 reader is GPL-2.0 (derived from OpenCPN) and lives in its own
+# separate repository (chartplotter-cm93), built against the plugin SDK headers
+# in src/ (chart_source.hpp et al.). It is not built here; drop its built
+# chartplotter_cm93_plugin.dll into plugins/ next to the exe (with Qt6Concurrent.dll
+# next to the exe) to enable CM93 charts. See docs/cm93.md.
 
 # ---- Packaging: Windows installer (CPack + NSIS) ----------------------------
 #

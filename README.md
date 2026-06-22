@@ -5,6 +5,15 @@ at the root of a directory tree containing hundreds of ENC cells; it catalogs
 them, then loads only the cells visible in the current view, on background
 threads, as you pan and zoom.
 
+**CM93** (C-Map CM93 v2) vector charts are also supported, via a separate
+dynamically-loaded plugin. Because its decoding derives from OpenCPN, that plugin
+is **GPL-2.0** and is maintained in its **own repository** (`chartplotter-cm93`),
+built against the plugin-SDK headers in `src/` (`chart_source.hpp` et al.); this
+app stays LGPL-2.1 and links none of it. Build that plugin and drop its
+`chartplotter_cm93_plugin.dll` into `plugins/` (with `Qt6Concurrent.dll` next to
+the exe), then point the app at a CM93 dataset root (the folder with
+`CM93OBJ.DIC`). See [docs/cm93.md](docs/cm93.md).
+
 ## How it works
 
 ### 1. Catalog the tree (cheap, cached)

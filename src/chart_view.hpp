@@ -31,6 +31,7 @@ class QTimer;
 class QPushButton;
 class QThread;
 class MbtilesService;
+class IChartSource;
 
 // A chart-editing controller (e.g. the route/waypoint editor). When one is set,
 // ChartView consults it on the raw press/move/release before its own panning, so
@@ -148,6 +149,15 @@ public:
     ~ChartView() override;
 
     void setCatalog(ChartCatalog* catalog);
+    // Select the vector-chart backend for cell loads. nullptr (default) uses the
+    // built-in ENC/S-57 reader (chart::loadCellFeatures); a non-null IChartSource
+    // (e.g. a CM93 plugin) services loads via its loadCell(). Set on the UI
+    // thread by MainWindow before each scan, alongside ChartCatalog::setSource.
+    void setChartSource(IChartSource* src) { chartSource_ = src; }
+    // Called when a chart source is being torn down (plugin shutdown). If it is
+    // the active source, in-flight loadCell() workers are drained before the
+    // source object dies, and the pipeline falls back to the built-in reader.
+    void onChartSourceUnregistered(IChartSource* src);
     void fitToCatalog();
     // Zoom/pan so the most detailed charts in the set fill the screen. Unlike
     // fitToCatalog (which frames the whole set, including the wide small-scale
@@ -299,6 +309,10 @@ private:
     QList<ChartObjectInfo> pickObjects(const QPointF& screenPt);
 
     bool computeViewBoxes(BBox& view, BBox& wanted, BBox& keep, int& target) const;
+    // Number of usage bands the quilt reasons about, 1..kMaxBand. ENC uses 1..6
+    // (filename digit); CM93 has 8 native scales (Z, A..G) and maps each to its
+    // own band so overlapping scales never share one (which would double-draw).
+    static constexpr int kMaxBand = 8;
     static int  bandForVisibleWidth(double metres);
     static BBox expandBox(const BBox& b, double frac);
     static BBox shiftX(const BBox& b, double dx);
@@ -362,6 +376,7 @@ private:
     double ppm_ = 0.0;     // pixels per metre; 0 until a catalog/view is set
 
     ChartCatalog* catalog_ = nullptr;
+    IChartSource* chartSource_ = nullptr;   // null = built-in ENC reader
     QThreadPool   pool_;
     QTimer*       updateTimer_ = nullptr;
     QTimer*       aaTimer_ = nullptr;

@@ -3,6 +3,7 @@
 #include "ais_target_store.hpp"
 #include "side_menu.hpp"
 #include "chart_view.hpp"
+#include "chart_source.hpp"   // ChartSourceRegistry
 #include "data_sources.hpp"
 
 #include <QPushButton>
@@ -40,9 +41,11 @@ private:
 
 CoreApi::CoreApi(NavDataStore* store, AisTargetStore* ais, RouteStore* routes,
                  SideMenu* menu, ChartView* view,
-                 DataSourceRegistry* registry, QWidget* dialogParent)
+                 DataSourceRegistry* registry, ChartSourceRegistry* chartSources,
+                 QWidget* dialogParent)
     : store_(store), ais_(ais), routes_(routes), menu_(menu), view_(view),
-      registry_(registry), dialogParent_(dialogParent) {}
+      registry_(registry), chartSources_(chartSources),
+      dialogParent_(dialogParent) {}
 
 CoreApi::~CoreApi() = default;
 
@@ -120,3 +123,14 @@ IDataSource* CoreApi::registerDataSource(const QString& sourceId, const QString&
 void CoreApi::addChartOverlay(IChartOverlay* overlay)    { view_->addOverlay(overlay); }
 void CoreApi::removeChartOverlay(IChartOverlay* overlay) { view_->removeOverlay(overlay); }
 void CoreApi::requestChartRepaint()                      { view_->update(); }
+
+void CoreApi::registerChartSource(IChartSource* source) {
+    if (chartSources_) chartSources_->add(source);
+}
+void CoreApi::unregisterChartSource(IChartSource* source) {
+    if (chartSources_) chartSources_->remove(source);
+    // If this source is the one currently driving the view, drain its in-flight
+    // loads before the plugin frees it (view_ and catalog_ outlive plugin
+    // shutdown — see MainWindow's destructor note).
+    if (view_) view_->onChartSourceUnregistered(source);
+}
