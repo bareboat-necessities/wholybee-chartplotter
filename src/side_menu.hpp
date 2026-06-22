@@ -61,6 +61,7 @@ public:
 
 signals:
     void centerOnOwnshipRequested();                  // recenter on ownship
+    void zoomToChartsRequested();                      // fit view to the chart set
     void autoFollowToggled(bool on);                  // auto-follow on/off
     void chartSetSelected(const QString& directory);  // user tapped a set to load
     void manageChartSetsRequested();                  // open the Chart Sets dialog

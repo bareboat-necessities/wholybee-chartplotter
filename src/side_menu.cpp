@@ -166,6 +166,13 @@ QWidget* SideMenu::buildMainPage() {
     });
     col->addWidget(centerBtn);
 
+    auto* zoomChartsBtn = makeIndentedAction(QStringLiteral("Zoom to Charts"));
+    connect(zoomChartsBtn, &QPushButton::clicked, this, [this] {
+        emit zoomToChartsRequested();
+        if (autoHide_) closeMenu();
+    });
+    col->addWidget(zoomChartsBtn);
+
     autoFollowBtn_ = makeCheckAction(QStringLiteral("Auto Follow"), false);
     connect(autoFollowBtn_, &QPushButton::toggled, this,
             [this](bool on) { emit autoFollowToggled(on); });
