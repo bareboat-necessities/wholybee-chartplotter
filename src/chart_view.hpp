@@ -149,6 +149,10 @@ public:
 
     void setCatalog(ChartCatalog* catalog);
     void fitToCatalog();
+    // Zoom/pan so the most detailed charts in the set fill the screen. Unlike
+    // fitToCatalog (which frames the whole set, including the wide small-scale
+    // overview cell), this fits the finest navigational band present.
+    void zoomToCharts();
     // Recenter on the ownship without changing zoom. No-op if no fix is shown.
     void centerOnOwnship();
     // Auto-follow: keep the view centered on the ownship as it moves. Panning

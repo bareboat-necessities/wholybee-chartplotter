@@ -753,6 +753,45 @@ void ChartView::fitToCatalog() {
     update();
 }
 
+// Zoom/pan so the most detailed charts in the set fill the screen. Fitting the
+// whole catalog (fitToCatalog) also frames the small-scale overview cell, which
+// can cover a far larger area than the charts the user wants to see — so fit to
+// the finest navigational band present, using each cell's real M_COVR coverage
+// outline where available (tighter than its axis-aligned bbox). Falls back to
+// the full catalog extent when no per-band extent is known.
+void ChartView::zoomToCharts() {
+    if (!haveCatalog_ || !catalog_ || width() <= 0 || height() <= 0) return;
+
+    int finest = -1;
+    for (const CellRecord& c : catalog_->cells())
+        if (c.extentValid) finest = std::max(finest, c.band);
+
+    BBox box;
+    for (const CellRecord& c : catalog_->cells()) {
+        if (!c.extentValid || c.band != finest) continue;
+        if (!c.coverage.empty()) {
+            for (const std::vector<Pt>& ring : c.coverage)
+                for (const Pt& pt : ring) box.expand(pt.x, pt.y);
+        } else {
+            box.expand(c.bbox);
+        }
+    }
+    if (!box.valid()) box = catalog_->bounds();   // fallback: whole set
+    if (!box.valid()) return;
+
+    const double wM = box.maxx - box.minx, hM = box.maxy - box.miny;
+    if (wM <= 0.0 || hM <= 0.0) return;
+    const double ppmW = (width()  * 0.92) / wM;
+    const double ppmH = (height() * 0.92) / hM;
+    ppm_ = std::max(1e-9, std::min(ppmW, ppmH));
+    scx_ = (box.minx + box.maxx) / 2.0;
+    scy_ = -(box.miny + box.maxy) / 2.0;   // catalog frame is north-up; scene negates Y
+    userInteracted_ = true;                // explicit jump; don't auto-refit on resize
+    normalizeCenter();
+    updatePointLOD();
+    update();
+}
+
 // Move the view center onto the ownship, leaving zoom untouched. Returns false
 // (and does nothing) unless a fix is actually being displayed — the same
 // conditions drawOwnship() uses. Shared by the one-shot menu action and the
